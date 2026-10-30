@@ -47,9 +47,7 @@ export async function ldapPage() {
     <div class="mt24">${panel('Directory profile attributes', `<div class="form-grid">
       ${field('Full name attribute', input('attr_full_name', data.attr_full_name))}
       ${field('Email attribute', input('attr_email', data.attr_email))}
-      <input type="hidden" name="attr_department" value="${esc(data.attr_department)}">
-      ${field('Department code attribute', input('attr_department_code', data.attr_department_code || ''), 'Use the bank-confirmed code attribute. Blank or missing values restrict LDAP workspace access.')}
-      ${field('Department name attribute', input('attr_department_name', data.attr_department_name || data.attr_department), 'Directory name only. Home organisation remains a separate portal assignment.')}
+      ${field('Department code attribute', input('attr_department_code', data.attr_department_code || 'department', 'text', 'required'), 'LDAP department contains the code. Home organisation is assigned separately.')}
     </div>`)}</div>
     <div class="mt24">${panel('Test before saving', `
       <p class="small muted">Test the values currently shown, including unsaved certificate changes. Test credentials are used once. Testing does not create an account or save the configuration.</p>

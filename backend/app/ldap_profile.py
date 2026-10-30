@@ -54,9 +54,7 @@ def login_user_details(profile, username):
         'distinguished_name': profile.get('distinguished_name'),
         'full_name': profile.get('full_name') or username,
         'email': profile.get('email'),
-        'department': profile.get('department'),
         'department_code':profile.get('department_code'),
-        'ldap_department_name':profile.get('ldap_department_name'),
         'attributes_available': bool(profile.get('attributes_available', profile.get('attributes'))),
         'attributes': public_attributes(profile.get('attributes') or {}),
     }

@@ -165,7 +165,7 @@ export async function loadIdentity() {
       state.masters = null; state.record = null; state.batch = null;
       state.work = []; state.notifications = [];
       const title = department.status === 'MISMATCH' ? 'Your LDAP department code has changed'
-        : department.status === 'UNAVAILABLE' ? 'Your LDAP department could not be verified'
+        : department.status === 'UNAVAILABLE' ? 'Your LDAP department code could not be verified'
         : department.status === 'RECHECK_REQUIRED' ? 'Sign in again to verify your department'
         : 'Verify your LDAP department';
       shell(heading(title, 'Review your directory department details before opening the workspace.') + departmentGate(department), '');

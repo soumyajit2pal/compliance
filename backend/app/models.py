@@ -100,8 +100,7 @@ user = table("user", string("username", 100), string("full_name", 250), string("
     string("login_type", 20, default="'STANDARD'"), string("password_hash", 300, True),
     fk("org_unit_id", "organisational_unit", True), flag("active_flag", "1"), flag("must_change_password_flag", "1"),
     flag("needs_email_confirmation_flag"), flag("needs_department_selection_flag"),
-    string("department_code", 100, True), string("ldap_department_name", 250, True),
-    string("ldap_last_seen_department_code", 100, True), string("ldap_last_seen_department_name", 250, True),
+    string("department_code", 100, True), string("ldap_last_seen_department_code", 100, True),
     time("ldap_department_checked_at", True), string("ldap_observation_id", 36, True),
     string("ldap_department_status", 30, default="'UNVERIFIED'"),
     check("user_ldap_department", "ldap_department_status IN ('UNVERIFIED','VERIFIED','MISMATCH','UNAVAILABLE','RECHECK_REQUIRED')"),
@@ -487,8 +486,7 @@ sa.Index('ix_used_login_challenge_expires', used_login_challenge.c.expires_at)
 
 # Retained LDAP identity approvals; independent of home organisation and roles.
 ldap_department_request = table('ldap_department_request', fk('user_id','user'),
-    string('previous_code',100,True), string('previous_name',250,True),
-    string('proposed_code',100), string('proposed_name',250), time('observed_at'),
+    string('previous_code',100,True), string('proposed_code',100), time('observed_at'),
     string('observation_id',36), fk('requested_by','user'), time('requested_at'),
     string('request_reason',1000,True), string('status',20,default="'PENDING'"),
     fk('decided_by','user',True), time('decided_at',True), string('decision_reason',1000,True),

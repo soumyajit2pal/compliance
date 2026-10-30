@@ -28,8 +28,7 @@ DEFAULTS = {
     'user_dn_template': '', 'user_search_filter': '(sAMAccountName={username})',
     'ca_cert_file': '', 'ca_certificate_pem': '', 'ca_certificate_name': '',
     'ca_certificate_metadata': [], 'attr_full_name': 'displayName',
-    'attr_email': 'mail', 'attr_department': 'department',
-    'attr_department_code': '', 'attr_department_name': '',
+    'attr_email': 'mail', 'attr_department_code': 'department',
 }
 
 
@@ -58,6 +57,9 @@ def cipher(settings):
 
 def normalized(cfg):
     result = {**DEFAULTS, **{k: v for k, v in cfg.items() if k in DEFAULTS}}
+    # The bank's legacy department attribute contains a code, not a name.
+    # Retain explicit code mappings; upgrade older saved/bootstrap mappings.
+    result['attr_department_code'] = cfg.get('attr_department_code') or cfg.get('attr_department') or 'department'
     if 'enabled' not in cfg:
         result['enabled'] = bool(result['server_uri'])
     # Existing saved ldap:// rows always used StartTLS. Preserve their behavior.
@@ -137,8 +139,7 @@ def validate_directory(cfg):
         raise HTTPException(422, 'Configure a base DN and read-only bind account, or a direct user DN template.')
     if template.count('{username}') != 1 or re.search(r'[{}]', template.replace('{username}', '')):
         raise HTTPException(422, 'The selected username pattern must include {username} exactly once, with no other placeholders.')
-    for name in ('attr_full_name', 'attr_email', 'attr_department','attr_department_code','attr_department_name'):
-        if name in {'attr_department_code','attr_department_name'} and not cfg.get(name):continue
+    for name in ('attr_full_name', 'attr_email', 'attr_department_code'):
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9;-]*', cfg.get(name, DEFAULTS[name])):
             raise HTTPException(422, 'Enter valid directory profile attribute names.')
 
@@ -191,11 +192,10 @@ def mock_profile(settings, username, password):
     suffix = username[len(prefix):].strip('-_. ').replace('-', ' ').replace('_', ' ').title()
     full_name = 'Mock LDAP ' + (suffix or username)
     email = username + '@mock-ldap.test'
-    return {'full_name': full_name, 'email': email, 'department': 'UAT mock department',
-            'department_code':'DEMO-001','ldap_department_name':'UAT mock department',
+    return {'full_name': full_name, 'email': email, 'department_code':'DEMO-001',
             'source': 'uat_mock', 'distinguished_name': None, 'attributes_available': True,
             'attributes': {'uid': [username], 'displayName': [full_name], 'mail': [email],
-                           'departmentCode':['DEMO-001'],'department':['UAT mock department']}}, True
+                           'department':['DEMO-001']}}, True
 
 
 def authenticate_directory(db, settings, username, password, *, config_override=None, allow_mock=True):
@@ -239,9 +239,8 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                 raise
 
         attributes = list(dict.fromkeys([ALL_ATTRIBUTES, ALL_OPERATIONAL_ATTRIBUTES] +
-            [cfg[k] for k in ('attr_full_name', 'attr_email', 'attr_department','attr_department_code','attr_department_name') if cfg.get(k)] + ['cn']))
-        profile = {'full_name': username, 'email': None, 'department': None,
-                   'department_code':None,'ldap_department_name':None,
+            [cfg[k] for k in ('attr_full_name', 'attr_email', 'attr_department_code') if cfg.get(k)] + ['cn']))
+        profile = {'full_name': username, 'email': None, 'department_code':None,
                    'source': 'ldap', 'distinguished_name': None,
                    'attributes_available': False, 'attributes': {}}
 
@@ -250,7 +249,7 @@ def authenticate_directory(db, settings, username, password, *, config_override=
             profile.update(distinguished_name=entry.entry_dn,
                            attributes_available=True, attributes=returned)
             attrs = {k.casefold(): v for k, v in returned.items()}
-            for key, name in [('full_name', 'attr_full_name'), ('email', 'attr_email'), ('department', 'attr_department')]:
+            for key, name in [('full_name', 'attr_full_name'), ('email', 'attr_email')]:
                 value = attrs.get(cfg[name].casefold()) or (attrs.get('cn') if key == 'full_name' else None)
                 if value:
                     value = value[0] if isinstance(value, list) else value
@@ -262,7 +261,6 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                     value=value[0]
                 return str(value) if isinstance(value,(str,int)) and not isinstance(value,bool) else None
             profile['department_code']=single(cfg.get('attr_department_code',''))
-            profile['ldap_department_name']=single(cfg.get('attr_department_name') or cfg['attr_department'])
 
         if cfg.get('bind_dn') and cfg.get('base_dn'):
             stage = 'service_bind'

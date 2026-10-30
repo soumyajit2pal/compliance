@@ -40,8 +40,8 @@ export async function usersPage(_id, query = new URLSearchParams()) {
       button('refresh-users', 'Refresh requests')) + tabs(userTabs, tab, 'users', new URLSearchParams()) +
       `<div class="mb16">${note('Approval records the observed LDAP code and name. Home organisation and roles remain unchanged. The user must sign in again after approval.')}</div>` +
       tablePanel(table(['User', 'Previously approved', 'Returned by LDAP', 'Home organisation', 'Status', 'Review'],
-        requests.map((r) => [person(r.full_name, r.username), departmentText(r.previous_code, r.previous_name),
-          departmentText(r.proposed_code, r.proposed_name), esc(r.home_organisation || 'Not selected'), badge(r.status),
+        requests.map((r) => [person(r.full_name, r.username), departmentText(r.previous_code),
+          departmentText(r.proposed_code), esc(r.home_organisation || 'Not selected'), badge(r.status),
           r.user_id === state.identity.user.id ? 'Another administrator must review' : button('department-review', 'Review request', `data-id="${r.id}"`, 'small')]),
         { empty: 'No LDAP department requests are pending.' }), 'Pending LDAP department requests');
   }
@@ -55,8 +55,8 @@ export async function usersPage(_id, query = new URLSearchParams()) {
     if (status === 'ROLES_REQUIRED' && !['ROLE_ASSIGNMENT_REQUIRED', 'ROLE_REVIEW_REQUIRED'].includes(u.access_status)) return false;
     if (status && !['ACTION_REQUIRED', 'ROLES_REQUIRED'].includes(status) && u.access_status !== status) return false;
     const roleNames = data.assignments.filter((a) => a.user_id === u.id).map((a) => ref('role', a.role_id));
-    return [u.full_name, u.username, u.email, u.department_code, u.ldap_department_name,
-      u.ldap_last_seen_department_code, u.ldap_last_seen_department_name, ref('organisational_unit', u.org_unit_id), ...roleNames]
+    return [u.full_name, u.username, u.email, u.department_code,
+      u.ldap_last_seen_department_code, ref('organisational_unit', u.org_unit_id), ...roleNames]
       .join(' ').toLowerCase().includes(q);
   });
   const filterOptions = [
@@ -82,7 +82,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
     searchForm('view-filter', 'Search name, username, department or role…', query.get('q') || '',
       `<input type="hidden" name="tab" value="${esc(tab)}"><div class="field access-status-filter"><label for="access-status">Access status</label><select id="access-status" name="status">${filterOptions.map(([key, label]) => `<option value="${key}" ${status === key ? 'selected' : ''}>${label}</option>`).join('')}</select></div>`) +
     '<p class="small muted users-table-hint">Scroll the table to see roles, next steps and account actions.</p>' +
-    tablePanel(table(['User', 'Access status', 'LDAP department', 'Home organisation', 'Effective roles & scope', 'Next step', 'Manage'],
+    tablePanel(table(['User', 'Access status', 'LDAP department code', 'Home organisation', 'Effective roles & scope', 'Next step', 'Manage'],
       rows.map((u) => {
         const assignments = data.assignments.filter((a) => a.user_id === u.id);
         const effective = assignments.filter((a) => a.effective_flag);
@@ -91,8 +91,8 @@ export async function usersPage(_id, query = new URLSearchParams()) {
           : u.access_status === 'ROLE_REVIEW_REQUIRED' ? 'Review roles' : 'Edit access';
         return [person(u.full_name, u.username + ' · ' + (u.login_type === 'LDAP' ? 'LDAP' : 'Standard')),
           accessBadge(u) + `<small class="access-account-state">${u.active_flag ? 'Account enabled' : 'Account disabled'}</small>`,
-          u.login_type === 'LDAP' ? departmentText(u.department_code, u.ldap_department_name) +
-            `<small class="access-account-state">Current LDAP: ${esc(u.ldap_last_seen_department_code || 'Not returned')} · ${esc(u.ldap_last_seen_department_name || 'Not returned')}</small>` +
+          u.login_type === 'LDAP' ? departmentText(u.department_code) +
+            `<small class="access-account-state">Current LDAP code: ${esc(u.ldap_last_seen_department_code || 'Not returned')}</small>` +
             button('department-history', 'Department history', `data-id="${u.id}"`, 'small') : '—',
           u.org_unit_id ? esc(ref('organisational_unit', u.org_unit_id)) : '<span class="small muted">Not selected</span>',
           (effective.map((a) => `<span class="scope-line">${esc(ref('role', a.role_id))} · ${a.global_scope_flag ? 'Global' : esc(ref('organisational_unit', a.scope_org_unit_id))}</span>`).join('') || '<span class="small muted">No effective roles assigned</span>') +
@@ -111,8 +111,8 @@ async function openUser(id) {
   modal(
     id ? 'Edit user access' : 'Create user account',
     /* HTML */ `${id ? `<div class="mb16">${note('<strong>' + esc(user.access_status_label) + '</strong><br>' + esc(user.access_message), user.admin_action_required ? 'warn' : 'info')}</div>` : ''}
-      ${id && user.login_type === 'LDAP' ? departmentDetails({approved:{code:user.department_code,name:user.ldap_department_name},
-        current:{code:user.ldap_last_seen_department_code,name:user.ldap_last_seen_department_name}}) +
+      ${id && user.login_type === 'LDAP' ? departmentDetails({approved:{code:user.department_code},
+        current:{code:user.ldap_last_seen_department_code}}) +
         '<p>LDAP department approval is separate from the Home organisation and role assignments below.</p>' : ''}<div class="grid">
         ${field(
           'Username',
@@ -168,18 +168,18 @@ async function openUser(id) {
 function roleLine(r: Record<string, any> = {}) {
   return `<div class="role-line role-assignment"><div class="role-field">${field('Role', select('role_id', state.masters.role, r.role_id, 'name', 'required'))}</div><label class="check-label"><input type="checkbox" name="global_scope_flag" ${r.global_scope_flag ? 'checked' : ''}> Global scope</label>${button('remove-role', 'Remove', '', 'small')}<div class="scope-field" ${r.global_scope_flag ? 'hidden' : ''}>${field('Organisation scope', select('scope_org_unit_id', state.masters.organisational_unit, r.scope_org_unit_id, 'name', r.global_scope_flag ? 'disabled' : 'required'), 'This unit and its authorised descendants.')}</div></div>`;
 }
-function departmentText(code, name) {
-  return `<strong>${esc(code || 'Not approved')}</strong><small class="access-account-state">${esc(name || 'Not approved')}</small>`;
+function departmentText(code) {
+  return `<strong>${esc(code || 'Not approved')}</strong>`;
 }
 async function departmentHistory(id) {
   const requests = await api('/admin/ldap-department-requests?user_id=' + encodeURIComponent(id));
   state.view.departmentRequests = requests;
   const user = state.view.users.users.find((u) => u.id === id);
-  modal('LDAP department history', departmentDetails({approved:{code:user.department_code,name:user.ldap_department_name},
-    current:{code:user.ldap_last_seen_department_code,name:user.ldap_last_seen_department_name}}) +
+  modal('LDAP department history', departmentDetails({approved:{code:user.department_code},
+    current:{code:user.ldap_last_seen_department_code}}) +
     `<p><strong>Home organisation:</strong> ${esc(ref('organisational_unit', user.org_unit_id) || 'Not selected')}</p>` +
     table(['Previously approved', 'Requested department', 'Status', 'Decision / action'], requests.map((r) => [
-      departmentText(r.previous_code, r.previous_name), departmentText(r.proposed_code, r.proposed_name), badge(r.status),
+      departmentText(r.previous_code), departmentText(r.proposed_code), badge(r.status),
       r.status === 'PENDING' && r.user_id !== state.identity.user.id ? button('department-review', 'Review request', `data-id="${r.id}"`, 'small')
         : esc(r.decision_reason || 'Awaiting directory refresh or administrator review')]),{empty:'No department requests have been submitted.'}));
 }
@@ -189,7 +189,7 @@ function reviewDepartment(id) {
   const user = state.view.users.users.find((u) => u.id === request.user_id);
   modal('Review LDAP department request',
     `<p><strong>${esc(user.full_name)}</strong> · ${esc(user.username)}</p>` +
-    departmentDetails({approved:{code:request.previous_code,name:request.previous_name},current:{code:request.proposed_code,name:request.proposed_name}}) +
+    departmentDetails({approved:{code:request.previous_code},current:{code:request.proposed_code}}) +
     `<p><strong>Home organisation:</strong> ${esc(ref('organisational_unit', user.org_unit_id) || 'Not selected')}</p>
     <p><strong>Observed at:</strong> ${esc(request.observed_at)} UTC</p>
     <p><strong>User explanation:</strong> ${esc(request.request_reason || 'No explanation supplied')}</p>

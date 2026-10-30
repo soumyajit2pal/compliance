@@ -15,7 +15,7 @@ def access_state(user, assignments):
         status, label, message = 'INACTIVE', 'Inactive account', 'This account is disabled. Review the account before restoring access.'
     elif user['login_type']=='LDAP' and (user.get('needs_email_confirmation_flag') or user.get('needs_department_selection_flag')) and (
         user.get('ldap_department_status')=='VERIFIED' or (user.get('ldap_department_status')=='UNVERIFIED'
-        and not user.get('department_code') and user.get('ldap_last_seen_department_code') and user.get('ldap_last_seen_department_name'))):
+        and not user.get('department_code') and user.get('ldap_last_seen_department_code'))):
         status,label='PROFILE_PENDING','Profile confirmation pending'
         message=('Roles are assigned. The user must confirm their work email and Home organisation; LDAP department verification is separate.' if count else
                  'The user must confirm their work email and Home organisation before administrator department and access approval.')
@@ -23,7 +23,7 @@ def access_state(user, assignments):
         states={
             'UNVERIFIED':('LDAP_DEPARTMENT_REQUIRED','LDAP department verification required','Review the LDAP department baseline separately from Home organisation and roles.'),
             'MISMATCH':('LDAP_DEPARTMENT_CHANGED','LDAP department changed','Access is blocked. Review the old/current LDAP department and pending update request.'),
-            'UNAVAILABLE':('LDAP_DEPARTMENT_UNAVAILABLE','LDAP department unavailable','LDAP did not supply one valid code and name. Check directory attribute mappings and permissions.'),
+            'UNAVAILABLE':('LDAP_DEPARTMENT_UNAVAILABLE','LDAP department code unavailable','LDAP did not supply one valid department code. Check the directory attribute mapping and permissions.'),
             'RECHECK_REQUIRED':('LDAP_DEPARTMENT_RECHECK','Fresh LDAP sign-in required','The department update is approved. The user must sign in again before access opens.')}
         status,label,message=states.get(user.get('ldap_department_status'),states['UNVERIFIED'])
     elif not count:

@@ -165,12 +165,10 @@ class DirectoryInput(Input):
     ca_certificate_name:str|None=Field(default=None,max_length=255)
     attr_full_name:str=Field(default='displayName',max_length=100)
     attr_email:str=Field(default='mail',max_length=100)
-    attr_department:str=Field(default='department',max_length=100)
-    attr_department_code:str=Field(default='',max_length=100)
-    attr_department_name:str=Field(default='',max_length=100)
+    attr_department_code:str=Field(default='department',min_length=1,max_length=100)
 
     @field_validator('server_uri','base_dn','bind_dn','user_dn_template','user_search_filter',
-                     'ca_cert_file','attr_full_name','attr_email','attr_department','attr_department_code','attr_department_name')
+                     'ca_cert_file','attr_full_name','attr_email','attr_department_code')
     @classmethod
     def strip_directory_values(cls,value):return value.strip()
 
