@@ -1,0 +1,13 @@
+SQLAlchemy==2.1.1
+alembic==1.20.0
+oracledb==26.0.1
+python-dotenv==1.2.4
+bcrypt==4.2.0
+pytest==8.4.2
+fastapi==0.141.1
+uvicorn==0.54.0
+python-multipart==0.0.32
+httpx==0.28.1
+openpyxl==3.1.5
+ldap3==2.9.1
+cryptography==50.0.2
