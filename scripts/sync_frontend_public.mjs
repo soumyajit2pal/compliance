@@ -6,12 +6,12 @@ const frontend = fileURLToPath(new URL('../frontend/', import.meta.url));
 const publicDir = path.join(frontend, 'public');
 
 rmSync(publicDir, { recursive: true, force: true });
-for (const folder of ['assets', 'assets/fonts', 'guides', 'styles']) {
+for (const folder of ['assets', 'assets/fonts', 'guides']) {
   mkdirSync(path.join(publicDir, folder), { recursive: true });
 }
 
-cpSync(path.join(frontend, 'styles.css'), path.join(publicDir, 'styles.css'));
-cpSync(path.join(frontend, 'styles'), path.join(publicDir, 'styles'), { recursive: true });
+// CSS is imported by the application and bundled by Vite. A public styles.css
+// shadows that module in dev and makes browsers try to execute raw CSS as JS.
 cpSync(path.join(frontend, 'assets/fonts'), path.join(publicDir, 'assets/fonts'), { recursive: true });
 cpSync(
   path.join(frontend, 'assets/bank-of-maharashtra-wordmark.png'),

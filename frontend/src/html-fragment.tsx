@@ -15,6 +15,7 @@ const attributeNames: Record<string, string> = {
   novalidate: 'noValidate',
   formnovalidate: 'formNoValidate',
   autocapitalize: 'autoCapitalize',
+  spellcheck: 'spellCheck',
   viewbox: 'viewBox',
   'stroke-width': 'strokeWidth',
   'stroke-linecap': 'strokeLinecap',

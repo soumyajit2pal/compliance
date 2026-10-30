@@ -87,7 +87,7 @@ def create_app(settings=None,engine=None):
         if request.url.path in {'/api/auth/login','/api/auth/login-key'} and request.url.scheme!='https':
             try:local_client=ipaddress.ip_address(request.client.host).is_loopback
             except (ValueError,AttributeError):local_client=False
-            local=cfg.environment=='uat' and request.url.hostname in {'localhost','127.0.0.1','::1'} and local_client
+            local=cfg.environment=='uat' and not cfg.secure_cookie and request.url.hostname in {'localhost','127.0.0.1','::1'} and local_client
             if not local:return JSONResponse({'detail':'Secure sign-in requires HTTPS.'},status_code=426)
         if request.method not in {'GET','HEAD','OPTIONS'}:
             origin=request.headers.get('Origin')

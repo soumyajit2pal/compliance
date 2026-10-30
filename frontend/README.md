@@ -4,7 +4,7 @@ Updated 30 October 2026.
 
 The browser UI uses React, TypeScript and Vite. `src/main.tsx` mounts the React application, and `npm run build` type-checks the TypeScript entry and emits production assets to `dist/`. FastAPI serves `dist/` at `/assets/` and serves its `index.html` at `/`.
 
-Install with `npm ci`. For the one-process UAT experience, use `sh scripts/run_uat.sh` from the repository root; it builds the frontend before starting FastAPI on port 8010. For hot reload, start that backend in one terminal and run `npm run dev` here, then open `http://127.0.0.1:5173`. Vite proxies `/api` to the UAT API and rewrites the dev proxy's Origin to the configured local portal origin. The browser bundle contains no environment secrets or database settings.
+Install with `npm ci`. For the one-process UAT experience, use `sh scripts/run_uat.sh` from the repository root; provision TLS first with `.venv/bin/python -m backend.app.local_https setup`; it builds the frontend before starting HTTPS FastAPI on port 8010. For hot reload, start that backend in one terminal and run `npm run dev` here, then open `https://localhost:5173`. Vite serves HTTPS, verifies the HTTPS `/api` upstream with the project certificate and rewrites the dev proxy's Origin to that configured local origin. The browser bundle contains no environment secrets or database settings.
 
 The React renderer currently hosts the existing feature views through a typed compatibility adapter so this toolchain change retains their routes, dialogs, form handlers and API behavior. New and migrated screens belong in `src/` as typed React components; continue replacing the compatibility renderer without changing backend authorization or workflow rules.
 
@@ -19,6 +19,7 @@ The React renderer currently hosts the existing feature views through a typed co
 | `core/source-editions.ts` | Deterministic approved/effective default and explicit source-edition selection |
 | `core/assignees.ts`, `core/documents.ts` | Assignee lookup and source upload |
 | `ui/feedback.ts` | Dialog-aware feedback, persistent focused form errors and one resettable page-toast timer |
+| `core/assets.ts` | One public-asset base for built and Vite URLs (bank artwork and guide links) |
 | `core/hierarchy.ts` | Shared child index and cycle-safe subtree selection for master trees and parent pickers |
 | `features/masters.ts` | Metadata-driven master Add/Edit and organisation tree; protected codes, retained approvals and auditable writes |
 | `ui/searchable-select.ts` | One searchable-dropdown controller, native form compatibility, async refresh and imperative adapter |
@@ -38,7 +39,7 @@ The React renderer currently hosts the existing feature views through a typed co
 
 Handler factories receive the renderer as a callback. They do not import the router, avoiding circular dependencies. Templates escape user content. Source wording and textarea values preserve whitespace. Dialogs use a complete form template; do not format separate opening/closing form fragments.
 
-Sign-in uses `signIn` from `core/api.ts`: fetch an uncached public key/challenge from `/auth/login-key`, encrypt locally with Web Crypto, then POST only the encrypted envelope to `/auth/login`. A new challenge/key fetch is made on each attempt. No private key or decrypted credential is stored in the bundle, local storage or logs. Crypto/key-fetch failures remain in the login form and never fall back to plaintext. The API requires revision `20261029_0014` and a deployment-owned private-key path; deploy its restart and the matching bundle together. HTTPS is required outside loopback UAT. Password-management APIs retain their existing authenticated contract.
+Sign-in uses `signIn` from `core/api.ts`: fetch an uncached public key/challenge from `/auth/login-key`, encrypt locally with Web Crypto, then POST only the encrypted envelope to `/auth/login`. A new challenge/key fetch is made on each attempt. No private key or decrypted credential is stored in the bundle, local storage or logs. Crypto/key-fetch failures remain in the login form and never fall back to plaintext. The API requires revision `20261029_0014` and a deployment-owned private-key path; deploy its restart and the matching bundle together. The normal local UAT launch uses HTTPS; only explicit rollback fixtures use the loopback HTTP exception. Password-management APIs retain their existing authenticated contract.
 
 Run `npm run test:login-encryption:live -- /absolute/path/to/playwright` against the local UAT server for browser encryption, replay/concurrency, failure/retry and phone checks. It uses an eligible existing public demo Reviewer and allows only login/logout writes. `CBD_LOGIN_QA_OUTPUT` optionally selects an evidence directory; current evidence is in the repository root's `outputs/login-encryption-2026-10-29/`. Backend tests use a separate temporary private key and savepoint-bound nonce consumption, keeping every fixture row within the outer Oracle rollback.
 
@@ -103,3 +104,13 @@ Master forms send `{ values, reason }` to POST `/admin/masters/{key}` or PATCH `
 Build with `npm run build` and restart the matching UAT API; no migration is required. `npm run test:masters -- /absolute/path/to/playwright` uses the existing rollback browser fixture on port 8011 (`CBD_RUN_ORACLE_TESTS=1 .venv/bin/python scripts/browser_fixture.py` from the repository root). Fixture credentials stay in ignored owner-only `var/browser-fixture-secrets.json`; stopping the fixture rolls back all test rows and removes that file. Do not run it alongside another Oracle write fixture. The actual portal remains on 8010. API tests are in `backend/tests/test_master_data_api.py`; evidence is under `outputs/master-maintenance-2026-10-30/`.
 
 `npm run test:masters:live -- /absolute/path/to/playwright` checks existing records on port 8010, opens/cancels the allowed forms and blocks every business write. It uses an eligible existing public UAT Admin; it does not reset credentials.
+
+## Local HTTPS configuration
+
+`backend/app/local_https.py` is the shared UAT-only certificate/profile loader and launcher. `setup` generates an ignored local TLS pair and configures Secure cookies/HTTPS origins; `serve` runs direct TLS with TLS 1.2 minimum and proxy headers disabled. The login-encryption key remains separate. Certificate trust is a client decision: the self-signed certificate causes a browser warning until accepted/trusted; setup never modifies OS trust stores.
+
+During `serve`, Vite calls `local_https config` for public addresses/paths, reads TLS material in the Node process and uses a certificate-verifying HTTPS agent for `/api`. No private material or profile secret is bundled. The build path does not read certificates or invoke the loader. Vite filesystem access is restricted to the frontend and explicitly denies key/certificate/environment/var files.
+
+Live browser checks use `tests/helpers/uat.cjs`: `CBD_UAT_BASE_URL` defaults to `https://localhost:8010`, accepts only loopback URLs, and permits local self-signed certificate errors only in QA contexts. `npm run test:https:live -- /absolute/path/to/playwright` verifies the exact certificate with Node TLS, secure-context encrypted sign-in/cookies, no plaintext listener, Vite TLS/API proxy and blocked private paths. Its Vite probe expects an explicitly started temporary server on 5174. Ordinary APIs, Oracle and LDAP keep their existing configuration; this adds no schema migration or dependency. Current evidence is in `outputs/local-https-2026-10-30/` at the repository root.
+
+Public sync copies only bank artwork, fonts and guides. CSS stays in the Vite module pipeline; a duplicate public styles.css would shadow its imported module during dev. The shared asset helper uses Vite BASE_URL for the built /assets/ mount and the development root.

@@ -17,7 +17,8 @@
     "test:searchable-selects:live": "node tests/searchable-selects.live.cjs",
     "test:ldap-department": "node tests/ldap-department.browser.cjs",
     "test:masters": "node tests/master-maintenance.browser.cjs",
-    "test:masters:live": "node tests/master-maintenance.live.cjs"
+    "test:masters:live": "node tests/master-maintenance.live.cjs",
+    "test:https:live": "node tests/local-https.live.cjs"
   },
   "dependencies": {
     "react": "^19.3.0",

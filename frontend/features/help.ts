@@ -1,3 +1,4 @@
+import { assetUrl } from '../core/assets.ts';
 import { state } from '../core/state.ts';
 import { esc, link } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
@@ -162,7 +163,7 @@ export function renderHelp(_id, query = new URLSearchParams()) {
         ),
       )
       .join('')}</div>`;
-  return `<div class="runtime-help">${heading('Help & workflow guide', 'Role-specific steps, expected outcomes and approval controls.', '<button type="button" class="btn" data-action="print-guide">' + icon('file') + 'Print guide</button>')}<div class="guide-downloads"><a class="btn primary" href="/assets/guides/week-1-3-navigation.html" target="_blank" rel="noopener">Read full navigation guide</a><a class="btn" href="/assets/guides/week-1-3-navigation.html" download>Download guide (HTML)</a></div>${tabs(
+  return `<div class="runtime-help">${heading('Help & workflow guide', 'Role-specific steps, expected outcomes and approval controls.', '<button type="button" class="btn" data-action="print-guide">' + icon('file') + 'Print guide</button>')}<div class="guide-downloads"><a class="btn primary" href="${assetUrl('guides/week-1-3-navigation.html')}" target="_blank" rel="noopener">Read full navigation guide</a><a class="btn" href="${assetUrl('guides/week-1-3-navigation.html')}" download>Download guide (HTML)</a></div>${tabs(
     [
       ['guide', 'Step-by-step help'],
       ['roles', 'Roles & responsibilities', ROLE_HELP.length],

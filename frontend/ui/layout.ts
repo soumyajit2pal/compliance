@@ -1,3 +1,4 @@
+import { assetUrl } from '../core/assets.ts';
 import { state } from '../core/state.ts';
 import { root } from '../core/dom.ts';
 import { esc, title, ref } from './components.ts';
@@ -110,7 +111,7 @@ export function shell(contents, key) {
   root.innerHTML = `<div class="app-shell"><aside id="portal-sidebar" class="sidebar" aria-label="Main navigation">
     <a class="brand" href="#home"><span class="brand-mark">${icon('shield')}</span><span class="brand-name">Compliance<span>by Design</span></span></a>
     <button class="icon-button portal-nav-close" type="button" data-action="menu" aria-label="Close navigation">${icon('x')}</button>
-    <div class="portal-bank"><img src="/assets/assets/bank-of-maharashtra-wordmark.png" alt="Bank of Maharashtra"><span>Your compliance workspace</span></div>
+    <div class="portal-bank"><img src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}" alt="Bank of Maharashtra"><span>Your compliance workspace</span></div>
     ${navigation(key)}
     <div class="nav-bottom">${state.ready ? `<a class="portal-help" href="#help">${icon('book')}<span>Need a hand?<small>Step-by-step help</small></span>${icon('arrow')}</a><div class="portal-footer-links"><button type="button" data-action="profile">My role</button><span>·</span><a href="#applications">Other applications</a></div>` : ''}
     <div class="profile"><span class="avatar">${esc(initials)}</span><div class="grow"><strong class="profile-name">${esc(user.full_name)}</strong><small>${esc(state.identity.roles.map(title).join(' · ') || 'Awaiting access')}</small></div></div></div>

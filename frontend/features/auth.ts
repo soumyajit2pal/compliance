@@ -1,3 +1,4 @@
+import { assetUrl } from '../core/assets.ts';
 import { state } from '../core/state.ts';
 import { root } from '../core/dom.ts';
 import { api, signIn } from '../core/api.ts';
@@ -26,7 +27,7 @@ export function loginView() {
             </div>
             <img
               class="auth-bank-logo"
-              src="/assets/assets/bank-of-maharashtra-wordmark.png"
+              src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}"
               alt="Bank of Maharashtra"
             />
           </header>
@@ -53,7 +54,7 @@ export function loginView() {
             </div>
             <img
               class="auth-bank-logo"
-              src="/assets/assets/bank-of-maharashtra-wordmark.png"
+              src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}"
               alt="Bank of Maharashtra"
             />
           </div>
@@ -81,7 +82,7 @@ export function loginView() {
             <button class="btn primary auth-submit" type="submit"><span>Sign in</span>${icon('arrow')}</button>
           </form>
           <div class="auth-footer">
-            <a href="/assets/guides/week-1-3-navigation.html" target="_blank" rel="noopener">
+            <a href="${assetUrl('guides/week-1-3-navigation.html')}" target="_blank" rel="noopener">
               User guide ${icon('external')}
             </a>
           </div>

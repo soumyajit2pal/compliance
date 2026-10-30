@@ -6,6 +6,28 @@ The complete documented relational model and the Week 1–3 portal are implement
 
 There are exactly two supported environments: `uat` and `prod`. UAT uses `COMPLIANCE_PORTAL` on `localhost:1523/FREEPDB1`. Prod has a configuration template and has not been connected or changed.
 
+## Local HTTPS — 30 October 2026
+
+The local portal and same-origin API now run at **https://localhost:8010** (also https://127.0.0.1:8010), replacing the HTTP listener. HTTPS is configured for this computer only. `SESSION_COOKIE_SECURE=true`, explicit HTTPS origins, TLS 1.2 or newer and the existing encrypted sign-in envelope are enforced. A secure-cookie deployment rejects plaintext sign-in even on loopback. Forwarded protocol headers are not trusted by this direct TLS launcher.
+
+QualityOps' Vite certificate configuration and nginx TLS pattern were inspected read-only. This portal keeps its existing one-process UAT layout: Uvicorn serves both the built frontend and API over TLS. Vite development also uses HTTPS and verifies its HTTPS upstream with the configured local certificate. No QA Portal files, keys or settings were copied or changed.
+
+One-time setup and normal startup:
+
+```sh
+.venv/bin/python -m backend.app.local_https setup
+sh scripts/run_uat.sh
+# Open https://localhost:8010
+```
+
+Setup creates `var/tls/localhost.crt` and owner-only `var/tls/localhost.key`, with SANs for localhost, 127.0.0.1 and ::1, then updates only the local UAT TLS/origin/cookie settings. These ignored files are separate from the existing login-encryption key. Re-running setup preserves a valid pair; explicit `setup --renew` replaces it. The certificate is valid for one year. Restart the portal and any Vite server after renewal or certificate replacement. Its fingerprint and expiry are printed without private material. TLS paths resolve from the project root. Configuration keys are `TLS_CERT_FILE`, `TLS_KEY_FILE`, `UAT_HTTPS_HOST` (loopback only) and `UAT_HTTPS_PORT` (default 8010).
+
+**Browser trust:** the generated certificate is self-signed. Accept the local certificate warning, or import the public `.crt` into your own trusted certificate store. Setup does not change macOS/browser trust stores. The certificate/key pair may be replaced with a locally trusted certificate containing the same loopback SANs; keep the private key owner-readable only. This local launcher refuses Prod; production still needs the bank's approved TLS certificate and deployment.
+
+For hot reload, keep the HTTPS API running and use `npm --prefix frontend run dev`, then open **https://localhost:5173**. Another available port can be selected with `-- --port 5174`. Vite reads only public TLS configuration through the shared Python loader; builds require no TLS files. Shared asset URLs work in both modes, and raw public CSS copies no longer shadow the development stylesheet module. Its filesystem rules block environment files, private keys and `var/`. See [Vite's HTTPS options](https://vite.dev/config/server-options#server-https). The private HTTP browser fixture on 8011 explicitly disables Secure cookies only inside its rollback test process.
+
+Verification: [HTTPS report](outputs/local-https-2026-10-30/validation.json), [runtime activation](outputs/local-https-2026-10-30/runtime-activation.json), [backend tests](outputs/local-https-2026-10-30/backend-tests.txt) and [browser checks](outputs/local-https-2026-10-30/browser-validation.json). Live test scripts share `CBD_UAT_BASE_URL` (default `https://localhost:8010`); headless local QA contexts permit the self-signed certificate, while the TLS verifier checks the exact certificate and hostname. This does not install client trust or disable server/upstream TLS verification. Existing credentials, business records, LDAP configuration and source migration head `20261029_0015` are unchanged. No new dependency or schema migration is required; earlier HTTP results below are historical checkpoints.
+
 ## Login help removed — 30 October 2026
 
 The **Sign-in help** disclosure and its Standard/LDAP, demo-directory and administrator text have been removed from login. The **User guide** link is centred below Sign in. Demo-user selection and the existing authentication gates remain unchanged. README and the generated guide describe the current screen. Frontend TypeScript/build and live desktop/phone checks are recorded in [verification](outputs/login-help-removed-2026-10-30/validation.json). No API restart, configuration, credential or schema change is required; earlier test results below are historical checkpoints.
@@ -140,7 +162,7 @@ BANK — Bank of Maharashtra
   IT — Information Technology
 ```
 
-The ten current `STANDARD` account definitions cover the nine roles in the screenshots. Two Business Owners demonstrate department-specific responsibility. The UAT temporary password for newly inserted accounts is **`Password@123`**, matching QA Portal. `SEED_USER_PASSWORD` overrides it for newly created accounts. Existing accounts retain their passwords and password-change flags. Passwords use independently salted bcrypt hashes with cost 12; plaintext is never stored in Oracle. New accounts have `must_change_password_flag=1`; the sign-in service enforces it before opening the workspace. The portal is available at http://127.0.0.1:8010.
+The ten current `STANDARD` account definitions cover the nine roles in the screenshots. Two Business Owners demonstrate department-specific responsibility. The UAT temporary password for newly inserted accounts is **`Password@123`**, matching QA Portal. `SEED_USER_PASSWORD` overrides it for newly created accounts. Existing accounts retain their passwords and password-change flags. Passwords use independently salted bcrypt hashes with cost 12; plaintext is never stored in Oracle. New accounts have `must_change_password_flag=1`; the sign-in service enforces it before opening the workspace. The portal is available at https://localhost:8010.
 
 | Username | Role | Department | Role scope |
 | --- | --- | --- | --- |
@@ -233,7 +255,7 @@ Earlier runs reported three failures from seed-catalogue state, the old demo-pas
 
 ## Working Week 1–3 application
 
-Install frontend packages once with `npm ci --prefix frontend`. Start UAT with `sh scripts/run_uat.sh`, then open **http://127.0.0.1:8010**. The script builds the React frontend and starts FastAPI, which serves both the compiled assets and API from one process. For live frontend development, start UAT in one terminal and run `npm --prefix frontend run dev` in another; open **http://127.0.0.1:5173**. Vite proxies API requests to the same UAT backend. Seed identities remain migration-managed, and existing passwords and first-sign-in flags are preserved. Standard users must change temporary passwords at first sign-in. LDAP users authenticate with the bank directory, confirm email and Home organisation, then need independent LDAP department verification and approved roles/scope. Fresh LDAP sign-in is required after department approval. UAT also supports the QA Portal mock LDAP flow; [LDAP setup](docs/ldap-setup.md) documents demo credentials and the administration screen. SSO is excluded by user direction.
+Install frontend packages once with `npm ci --prefix frontend`. Start UAT with `sh scripts/run_uat.sh`, then open **https://localhost:8010**. Provision local TLS once as described above. The script builds the React frontend and starts FastAPI over HTTPS, serving compiled assets and API from one process. For live frontend development, start UAT in one terminal and run `npm --prefix frontend run dev` in another; open **https://localhost:5173**. Vite proxies API requests to the HTTPS UAT backend with certificate verification. Seed identities remain migration-managed, and existing passwords and first-sign-in flags are preserved. Standard users must change temporary passwords at first sign-in. LDAP users authenticate with the bank directory, confirm email and Home organisation, then need independent LDAP department verification and approved roles/scope. Fresh LDAP sign-in is required after department approval. UAT also supports the QA Portal mock LDAP flow; [LDAP setup](docs/ldap-setup.md) documents demo credentials and the administration screen. SSO is excluded by user direction.
 
 The current source model contains **84 mapped tables, 1,037 columns and 284 foreign-key constraints**, with ten revisions through `20261029_0015`. Source counts and live Oracle reconciliation were checked on 29 October 2026; use `scripts/db_status.py` for the current database. The organisation seed contains 32 units and ten account definitions across nine roles. LDAP department identity is separate from Home organisation and role scope.
 
@@ -489,7 +511,7 @@ LDAP_MOCK_PASSWORD=QualityOps-Mock-LDAP-2026!
 
 These are public demonstration credentials. The tracked example profiles default mock LDAP to disabled; local UAT currently uses the runtime default prefix `bmock`. The earlier `mmock` instructions reflected a previous configuration. Environment changes require a backend restart using `sh scripts/run_uat.sh`; no environment setting was changed for this palette update.
 
-1. Open [the local portal](http://127.0.0.1:8010) and sign in as `bmock01` with `QualityOps-Mock-LDAP-2026!`.
+1. Open [the local portal](https://localhost:8010) and sign in as `bmock01` with `QualityOps-Mock-LDAP-2026!`.
 2. Confirm work email and select Home organisation. The mock LDAP identity is `DEMO-001 — UAT mock department`.
 3. An administrator approves the LDAP department in **Users & access → LDAP department changes** and assigns roles/scope separately in Edit access.
 4. Sign in again to use the approved access. Use a new username such as `bmock02` to repeat first-login onboarding.
