@@ -1,5 +1,16 @@
 import { esc, button, field } from '../ui/components.ts';
 import { note, detailFields } from '../ui/widgets.ts';
+import { ldapDepartmentState } from '../core/ldap-readiness.ts';
+
+export function departmentStatusBadge(user) {
+  const status = ldapDepartmentState(user);
+  return `<span class="tag ${status.tone} ldap-department-status" data-department-status="${status.key}">${esc(status.label)}</span>`;
+}
+
+export function departmentStatusNotice(user) {
+  const status = ldapDepartmentState(user);
+  return note('<strong>' + esc(status.label) + '</strong><br>' + esc(status.detail), status.blocked ? 'warn' : 'info');
+}
 
 export function departmentDetails(data) {
   return `<div class="form-grid ldap-department-comparison">
@@ -16,6 +27,7 @@ export function departmentGate(data) {
   const pending = data.requests.find((r) => r.status === 'PENDING');
   const latest = data.requests[0];
   return `<section class="card ldap-department-gate">
+    ${departmentStatusBadge({ldap_department_status:data.status,department_code:data.approved.code,ldap_last_seen_department_code:data.current.code})}
     ${note(esc(data.message), 'warn')}
     ${departmentDetails(data)}
     <p><strong>Home organisation:</strong> ${esc(data.home_organisation || 'Not selected')}</p>

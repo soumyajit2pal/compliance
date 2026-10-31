@@ -99,10 +99,14 @@ export const options = (rows, value = '', label = 'name', blank = 'Select…') =
         </option>`,
     )
     .join('');
-export const select = (name, rows, value = '', label = 'name', extra = '') =>
-  /* HTML */ `<select aria-label="${esc(title(name))}" name="${name}" ${extra}>
-    ${options(rows, value, label)}
+export const select = (name, rows, value = '', label = 'name', extra = '', blank = 'Select…') => {
+  const explicit = /aria-label="([^"]*)"/.exec(extra);
+  const accessibleName = explicit ? explicit[1] : title(name);
+  extra = extra.replace(/aria-label="[^"]*"/g, '');
+  return /* HTML */ `<select aria-label="${esc(accessibleName)}" name="${esc(name)}" ${extra}>
+    ${options(rows, value, label, blank)}
   </select>`;
+};
 export const fixedSelect = (name, items, value, extra = '') =>
   select(
     name,

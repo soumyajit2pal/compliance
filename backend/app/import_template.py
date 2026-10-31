@@ -3,6 +3,7 @@ import csv
 import io
 
 RECORDS_SHEET = 'Regulatory records'
+CLAUSES_SHEET = 'Clauses'
 GUIDANCE_SHEETS = {'How to fill', 'Example', 'Choices'}
 GUIDE_TITLE = 'Import existing regulatory records'
 CHOICE_LABELS = ['Regulator', 'Primary regulatory domain', 'Instrument type', 'Materiality',
@@ -26,14 +27,35 @@ FIELDS = [
     ('keywords', 'Search keywords', False, 'Separate search words with commas.', 'KYC, customer identification'),
     ('department_code', 'Regulatory owner department', True, 'Use the owning department shown in the portal and on the uploaded source.', 'Compliance Department'),
     ('owner_username', 'Interpretation owner', True, 'Choose a person from the list, or enter the portal name or username. The person still needs Author access for the selected department.', 'Regulatory Author'),
-    ('source_document_id', 'Source document ID', True, 'First choose Upload source document in the portal, then copy the Source document ID shown after upload.', 'PASTE THE ID FROM YOUR SOURCE UPLOAD'),
+    ('source_document_id', 'Source document ID', False, 'For a previously uploaded source, copy its document ID. Otherwise use Source file name and attach the file with the workbook. Choose one method.', ''),
     ('source_record_id', 'Existing register reference', False, 'Optional reference from your existing register, retained with the original row.', 'REGISTER-001'),
     ('additional_domain_codes', 'Additional affected domains', False,
      'Optional. Enter each additional domain name or code from Choices, separated by semicolons. Do not repeat the primary domain.',
      'Fraud Risk Management; Information Technology and Cyber Security'),
+    ('import_reference', 'Import reference', False, 'Required when linking clauses. Use one unique workbook reference per record, for example REG-001. Permanent portal IDs are generated automatically.', 'REG-001'),
+    ('source_file_name', 'Source file name', False, 'For a new record, enter the exact attached PDF, text or DOCX filename instead of a Source document ID.', 'example-source.txt'),
+    ('source_edition', 'Source edition', False, 'New records start at 1.0. For an existing Draft, enter its exact edition number as text.', '1.0'),
+    ('existing_instrument_code', 'Existing instrument code', False, 'Optional clause-only target: enter the permanent instrument code and its Draft source edition. Other instrument fields and source inputs must be blank; existing content is retained.', ''),
 ]
+CLAUSE_FIELDS = [
+    ('import_reference', 'Import reference', True, 'Match the Regulatory records row, for example REG-001.', 'REG-001'),
+    ('source_edition', 'Source edition', False, 'Leave blank to inherit the record edition, or enter the same edition as text. Cross-edition parents are not allowed.', '1.0'),
+    ('clause_import_reference', 'Clause import reference', True, 'Unique within the record, for example C1. This is a workbook reference; the portal generates the permanent clause ID.', 'C1'),
+    ('parent_import_reference', 'Parent clause reference', False, 'Use another clause import reference in this record. Blank means top level. For an existing Draft, its same-edition permanent clause code also works.', ''),
+    ('source_clause_reference', 'Source clause / para number', False, 'Copy numbering exactly as text, including 5.10. Leave blank for an unnumbered provision.', '5'),
+    ('heading', 'Clause heading', True, 'Heading for this source clause / para.', 'Customer identification'),
+    ('source_page_reference', 'Source page reference', True, 'Identify the pages in the attached authoritative source.', 'Page 5'),
+    ('clause_text', 'Original regulatory text', True, 'Copy the original wording. Excel cells support up to 32,767 characters; never truncate source wording.', 'Illustrative original wording; replace with actual source text.'),
+    ('internal_interpretation', "Bank’s internal interpretation", False, 'Keep the bank interpretation separate from the original regulatory wording.', ''),
+    *[(key, label, False, 'Optional Yes or No. Blank means ' + default + '.', default)
+      for key, label, default in [('mandatory_flag', 'Mandatory', 'Yes'), ('conditional_flag', 'Conditional', 'No'),
+          ('reporting_flag', 'Reporting', 'No'), ('disclosure_flag', 'Disclosure', 'No'), ('retention_flag', 'Record retention', 'No')]],
+]
+GUIDE_REFRESH_ROW = 15 + len(FIELDS) + len(CLAUSE_FIELDS)
 LABELS = {key: label for key, label, *_ in FIELDS}
+LABELS.update({key: label for key, label, *_ in CLAUSE_FIELDS})
 ALIASES = {label.casefold(): key for key, label, *_ in FIELDS}
+ALIASES.update({label.casefold(): key for key, label, *_ in CLAUSE_FIELDS})
 ALIASES.update({'primary domain': 'domain_code', 'keywords': 'keywords',
                 'source clause / para number': 'source_clause_reference',
                 'source clause number': 'source_clause_reference',

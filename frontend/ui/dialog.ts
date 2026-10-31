@@ -2,6 +2,7 @@ import { dialog } from '../core/dom.ts';
 import { esc, button } from './components.ts';
 import { icon } from './icons.ts';
 import { clearMessage } from './feedback.ts';
+import { beginActivity } from './loading.ts';
 let lastFocus: HTMLElement | null = null;
 function restoreFocus() {
   const target = lastFocus;
@@ -34,6 +35,17 @@ export function sourceDocumentPreview(identifier: string, fileName: string) {
   dialog.className = 'modal wide runtime-dialog source-document-dialog';
   dialog.innerHTML = `<div class="modal-header source-preview-header"><div><h2 id="source-preview-title">${esc(fileName)}</h2><p>Document preview · Read-only source file</p></div><button type="button" class="icon-button source-preview-close" data-action="close" aria-label="Close document preview">${icon('x')}</button></div><div class="source-preview-body" aria-labelledby="source-preview-title">${preview}</div><div class="modal-footer source-preview-footer"><span class="keyboard-hint">Source document · Read-only preview</span><button type="button" class="btn" data-action="close">Close</button></div>`;
   dialog.showModal();
+  const frame = dialog.querySelector<HTMLIFrameElement>('.source-preview-frame');
+  if (frame) {
+    const finish = beginActivity('Loading document…', { scope: frame.parentElement });
+    const completed = () => {
+      finish(); dialog.removeEventListener('close', completed);
+      frame.removeEventListener('load', completed); frame.removeEventListener('error', completed);
+    };
+    frame.addEventListener('load', completed, { once: true });
+    frame.addEventListener('error', completed, { once: true });
+    dialog.addEventListener('close', completed, { once: true });
+  }
 }
 export function close() {
   if (dialog.open) dialog.close();

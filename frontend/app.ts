@@ -40,6 +40,6 @@ window.addEventListener('portal:session-expired', () => { close(); loginView(); 
 try {
   if (await loadIdentity()) await render();
 } catch (error) {
-  if (!document.querySelector('#login')) loginView();
+  loginView();
   if (!(error instanceof SessionExpired)) message(error.message, true);
 }

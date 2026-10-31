@@ -6,12 +6,16 @@ import { esc, button, field, input, select, message } from '../ui/components.ts'
 import { close } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
 import { shell, heading } from '../ui/layout.ts';
-import { departmentDetails, departmentGate } from './ldap-department.ts';
+import { departmentDetails, departmentGate, departmentStatusNotice } from './ldap-department.ts';
+import { loadingMarkup } from '../ui/loading.ts';
 
 let demoUsers = [];
 let loginRevision = 0;
 
 export function loginView() {
+  // The React bridge records markup before committing it to the DOM. Startup,
+  // expiry and route callbacks can all request login during that interval.
+  if (root.innerHTML.includes('<form id="login">')) return;
   const revision = ++loginRevision;
   demoUsers = [];
   document.title = 'Sign in · Compliance by Design';
@@ -64,7 +68,7 @@ export function loginView() {
             <h1 id="sign-in-title">Welcome back</h1>
           </div>
           <form id="login">
-            <div id="demo-sign-in" hidden></div>
+            <div id="demo-sign-in" aria-busy="true">${demoLoading()}</div>
             <div class="auth-credentials">
               <div class="field"><label for="login-username">Username</label>
                 <div class="auth-input-wrap">${icon('users')}
@@ -93,6 +97,10 @@ export function loginView() {
   loadDemoOptions(revision);
 }
 
+function demoLoading() {
+  return '<div class="demo-loading"><strong>Demo users</strong>' + loadingMarkup('Loading demo users…') + '</div>';
+}
+
 async function loadDemoOptions(revision) {
   try {
     const data = await api('/auth/demo-users');
@@ -100,6 +108,7 @@ async function loadDemoOptions(revision) {
     if (revision !== loginRevision || !container) return;
     demoUsers = data.users;
     container.hidden = false;
+    container.setAttribute('aria-busy', 'false');
     container.innerHTML = /* HTML */ `
       <div class="demo-picker">
         <label for="demo-user">Demo user <span class="demo-tag">UAT</span></label>
@@ -123,8 +132,16 @@ async function loadDemoOptions(revision) {
         <p id="demo-description" class="compact" aria-live="polite"></p>
       </div>
     `;
-  } catch {
-    // Prod and disabled UAT deployments return 404. Manual sign-in stays available.
+  } catch (error) {
+    const container = document.querySelector<HTMLDivElement>('#demo-sign-in');
+    if (revision !== loginRevision || !container) return;
+    container.setAttribute('aria-busy', 'false');
+    // Prod and disabled UAT deployments return 404. Other failures can be retried
+    // explicitly; no automatic requests and no interruption of manual sign-in.
+    container.hidden = error.status === 404;
+    container.innerHTML = error.status === 404 ? '' :
+      '<div class="demo-load-error"><p>Demo users could not be loaded. You can still sign in manually.</p>' +
+      button('retry-demo-users', 'Retry', '', 'small') + '</div>';
   }
 }
 
@@ -215,7 +232,7 @@ export async function loadIdentity() {
       ) +
         /* HTML */ `<section class="card">
           <form id="onboard">
-            ${department ? departmentDetails(department) : ''}
+            ${department ? departmentStatusNotice(state.identity.user) + departmentDetails(department) : ''}
             ${field(
               'Work email',
               input('email', state.identity.user.email || '', 'email', 'required'),
@@ -255,6 +272,12 @@ export async function loadIdentity() {
 export function authHandlers({ render, loadIdentity, loginView }) {
   return {
     actions: {
+      'retry-demo-users': async () => {
+        const container = document.querySelector<HTMLDivElement>('#demo-sign-in');
+        if (!container || container.getAttribute('aria-busy') === 'true') return;
+        container.setAttribute('aria-busy', 'true'); container.innerHTML = demoLoading();
+        await loadDemoOptions(loginRevision);
+      },
       'toggle-login-password': (_data, trigger) => {
         const password = document.querySelector<HTMLInputElement>('#login-password');
         if (!password) return;

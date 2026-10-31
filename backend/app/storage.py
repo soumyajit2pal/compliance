@@ -45,5 +45,10 @@ def prepare_storage(root: Path) -> None:
 def write_private(path: Path, data: bytes) -> None:
     """Create exclusively with owner-only access from the first byte."""
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, 'wb') as target:
-        target.write(data)
+    try:
+        with os.fdopen(descriptor, 'wb') as target:
+            target.write(data)
+    except BaseException:
+        # O_EXCL succeeded: this file belongs to this operation, never a prior upload.
+        path.unlink(missing_ok=True)
+        raise

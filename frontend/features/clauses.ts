@@ -20,6 +20,7 @@ import { clausePayload, openClauseDialog, type ClauseDraftTarget } from './claus
 import { clauseEditionBadges, renderClauseWorkingView } from './clause-workspace.ts';
 import { sourceEditionStatus } from '../core/source-editions.ts';
 import { selectClauseScope } from '../core/clause-scope.ts';
+import { clauseWorkspacePath } from '../core/source-navigation.ts';
 
 function workingPath(row, query = new URLSearchParams(), matchingIds?: Set<string>) {
   const next = new URLSearchParams(query);
@@ -33,11 +34,7 @@ function workingPath(row, query = new URLSearchParams(), matchingIds?: Set<strin
     }
     if(next.get('instrument')&&next.get('instrument')!=='all'&&next.get('instrument')!==row.instrument_id)next.set('instrument',row.instrument_id);
   }
-  next.set('clause', row.id);
-  if (!next.has('instrument')) next.set('instrument', 'all');
-  if (!next.has('edition')) next.set('edition', 'all');
-  next.delete('version');
-  return 'clauses?' + next;
+  return clauseWorkspacePath(row.id, next);
 }
 
 function clauseRegister(rows, query) {

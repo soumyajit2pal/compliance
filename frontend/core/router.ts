@@ -16,6 +16,7 @@ import { panel, note } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
 import { esc, empty, link, title, message } from '../ui/components.ts';
 import { SessionExpired, api } from './api.ts';
+import { beginActivity } from '../ui/loading.ts';
 
 const pages = {
   home: homePage,
@@ -55,6 +56,8 @@ export async function render() {
       page,
     );
   }
+  const label = state.identity.menu.find(item => item.id === page)?.label || title(page);
+  const finish = beginActivity('Loading ' + label.toLowerCase() + '…', { priority: 2, scope: document.getElementById('root') });
   try {
     const [work, notifications, access] = await Promise.all([api('/tasks'), api('/notifications'),
       state.identity.roles.includes('ADMIN') ? api('/admin/access-summary') : Promise.resolve(null)]);
@@ -83,5 +86,7 @@ export async function render() {
       );
     }
     message(error.message, true);
+  } finally {
+    finish();
   }
 }

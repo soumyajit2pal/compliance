@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { bindReactRoot } from '../core/dom.ts';
+import { bindReactRoot, initialMarkup } from '../core/dom.ts';
 import { escapeMarkup, HtmlFragment } from './html-fragment';
 
 export function App() {
   const [view, setView] = useState({
-    markup: '<p class="loading">Opening Compliance by Design…</p>',
+    markup: initialMarkup,
     revision: 0,
   });
 

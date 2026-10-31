@@ -1381,7 +1381,7 @@ pre {
 .family-card { display: block; padding: 24px; color: var(--text); }
 .family-card h2 { font-size: 19px; margin: 16px 0; }
 .family-card p { line-height: 1.7; margin: 8px 0; }
-.family-summary { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 20px; margin: 24px 0; }
+.family-summary { display: grid; grid-template-columns: repeat(var(--family-summary-columns,3),minmax(0,1fr)); gap: 20px; margin: 24px 0; }
 .family-summary > .panel { margin: 0; min-width: 0; }
 .family-stat { padding: 25px; }
 .family-value { margin: 22px 0 12px; color: var(--ink); font-size: 26px; font-weight: 700; }

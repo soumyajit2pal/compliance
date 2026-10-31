@@ -1,5 +1,7 @@
+import { loadingMarkup } from '../ui/loading.ts';
+export const initialMarkup = '<p class="loading">' + loadingMarkup('Opening Compliance by Design…') + '</p>';
 let renderRoot = null;
-let lastMarkup = '<p class="loading">Opening Compliance by Design…</p>';
+let lastMarkup = initialMarkup;
 
 export function bindReactRoot(render) {
   renderRoot = render;

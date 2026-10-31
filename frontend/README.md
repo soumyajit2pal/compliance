@@ -1,6 +1,6 @@
 # Portal frontend
 
-Updated 30 October 2026.
+Updated 31 October 2026.
 
 The browser UI uses React, TypeScript and Vite. `src/main.tsx` mounts the React application, and `npm run build` type-checks the TypeScript entry and emits production assets to `dist/`. FastAPI serves `dist/` at `/assets/` and serves its `index.html` at `/`.
 
@@ -10,7 +10,7 @@ The React renderer currently hosts the existing feature views through a typed co
 
 | Location | Responsibility |
 | --- | --- |
-| `core/api.ts` | Same-origin API calls, CSRF and session expiry |
+| `core/api.ts` | Same-origin API calls, shared loading lifecycle, CSRF and session expiry |
 | `core/login-encryption.ts` | Web Crypto sign-in envelope: AES-256-GCM credentials and RSA-OAEP/SHA-256 key wrapping |
 | `core/state.ts` | Identity, reference data and current route context |
 | `core/router.ts` | Route registry, menu guard and stale-response protection |
@@ -18,6 +18,7 @@ The React renderer currently hosts the existing feature views through a typed co
 | `core/access.ts` | Client role/scope helpers; authority is enforced by the API |
 | `core/source-editions.ts` | Deterministic approved/effective default and explicit source-edition selection |
 | `core/assignees.ts`, `core/documents.ts` | Assignee lookup and source upload |
+| `ui/loading.ts`, `styles/loading.css` | Shared pending-work counter, nonblocking progress, scoped busy controls, modal feedback and reduced-motion support |
 | `ui/feedback.ts` | Dialog-aware feedback, persistent focused form errors and one resettable page-toast timer |
 | `core/assets.ts` | One public-asset base for built and Vite URLs (bank artwork and guide links) |
 | `core/hierarchy.ts` | Shared child index and cycle-safe subtree selection for master trees and parent pickers |
@@ -28,7 +29,8 @@ The React renderer currently hosts the existing feature views through a typed co
 | `features/auth.ts` | Standard/LDAP sign-in, UAT demo selection and first-login gates |
 | `features/repository/` | Register, five-step registration wizard, tabbed source workspace, dialogs and mutations |
 | `features/migration.ts` | Staging, profiling, validation and Draft loading |
-| `features/users.ts` | Separate Standard/LDAP views, access-action queue, status filters and role-assignment messages |
+| `features/users.ts`, `features/ldap-accounts.ts` | Standard table, responsive LDAP account cards, access-action queue, independent filters and profile/role management |
+| `core/ldap-readiness.ts` | Shared presentation of LDAP code verification and independent profile/role readiness; API authority is unchanged |
 | `features/notification-families.ts` | Authorised family register/detail, as-of history, scopes, independent decisions, source citations and actual action/control details |
 | `features/clause-dialog.ts` | Same-edition parent choices, self/descendant exclusion and Draft clause entry |
 | Other `features/` files | Home, work, masters, settings, help and the retained legacy baseline route; More tools / Release baseline are absent from the shared sidebar as of 30 October 2026 |
@@ -47,7 +49,9 @@ Run `npm run check` for TypeScript diagnostics and `npm run build` for the type-
 
 `ui/domains.ts` presents domain setup consistently in selectors, source detail, Workflow and Master data. It distinguishes missing ownership from disabled review submissions without changing activation flags or approval rules. `migration` remains the route/API identifier for **Import existing regulatory records**; access eligibility is unchanged.
 
-The import page offers a formatted Excel template with screen labels, instructions, an isolated example and eight database-backed choice lists, plus a CSV alternative with the same headers. Additional affected domains is optional and accepts semicolon-separated names or codes; the primary domain remains required for the permanent instrument ID. The bundled workbook in `backend/templates/` is a layout with empty lists. Every download queries Oracle and fills the current lists and refresh time; responses use private/no-store headers. `backend/app/import_choices.py` selects the permitted database values and `import_workbook.py` fills only the choice cells, validation ranges and refresh guidance in the trusted layout. No seed/code-list fallback is used. `backend/app/import_template.py` owns header aliases and field guidance; the parser keeps original source labels while validating against current database values. Saved Excel files are snapshots. A template import reads only Regulatory records. Build provenance and regeneration instructions are in `tools/import-template/README.md`.
+The combined template contains **Regulatory records** and **Clauses**, with separate How to fill, Example and Choices sheets. Import records & clauses sends the workbook and optional source documents in one multipart request. `features/import-preview.ts` renders complete group hierarchies with the shared source-number comparator, escaped wording, findings, source hashes/downloads and actual target links. Record-type filtering uses the shared searchable select. A different Reviewer validates complete eligible groups; the uploading Author loads Draft targets. Refresh preview resets pending groups for independent validation. Existing instrument-only/CSV files remain supported. See [the user guide](../docs/week-3/regulatory-master-guide.md#import-existing-regulatory-records) and [verification](../outputs/combined-import-2026-10-31/validation.json).
+
+Additional affected domains remains an optional semicolon-separated list; the primary domain supplies the permanent instrument ID. All eight master-choice lists still come from Oracle on each download. `import_choices.py` supplies permitted values and `import_workbook.py` fills the trusted layout's choices, validation ranges and refresh guidance. There is no seed fallback or live connection inside a saved workbook; responses are private/no-store. `import_template.py` owns record/clause labels and aliases. The bundled layout has empty lists; download through the portal for current choices. Regeneration instructions are in [the template README](../tools/import-template/README.md). Run `npm run test:imports -- /absolute/path/to/playwright` against the isolated rollback-only 8011 fixture after backend tests finish. It never writes through regular UAT on 8010.
 
 The shared shell, tables, source tabs, five-step wizard and dialogs follow `design/prototype/dist/`. Keep prototype CSS separate from runtime overrides. Import order is local fonts → readability baseline → prototype base/roles/portal → runtime → theme → compact → login → searchable controls. `styles/theme.css` owns the white-and-plum tokens; `styles/compact.css` owns shared spacing, panel padding and responsive search widths. Login retains the desktop introduction and original bank artwork, with a compact form and a centred User guide link. The Sign-in help disclosure and its LDAP/demo hint have been removed. Phones show branding and the form. The public User guide is generated from the Markdown guide. Status colours retain their meaning; local fonts and bank artwork are unchanged. All records/counts come from authorised APIs.
 
@@ -60,6 +64,9 @@ The library's native **More filters** disclosure expands inline above results. I
 Update `docs/week-3/regulatory-master-guide.md`, then run `python3 scripts/build_portal_guide.py` to refresh the downloadable HTML guide. Help links to the same generated file for reading and download.
 
 The login selector calls `/api/auth/demo-users`, available only in UAT with `UAT_DEMO_LOGIN_ENABLED=true`. It lists reserved accounts while active, Standard and assigned an effective role, regardless of first-login completion or password changes. The API returns first-login status and `password_autofill_available`. It includes a password only when a known public demo value matches the current hash; private deployment/user passwords are never returned. Selection fills the username and available public password, requires a Sign in click and preserves onboarding/password gates. If manual password entry is needed, typing it keeps the selected account visible. Editing the username clears the choice. Prod and disabled UAT return 404 before opening a database connection. No selection resets credentials or changes flags.
+
+The shared login renderer is idempotent: it checks the React bridge's scheduled markup, so startup fallbacks and concurrent session-expiry callbacks do not remount the form or refetch demo choices. Anonymous `/auth/me` 401 responses do not dispatch an expiry event; an existing identity expires once even if several protected requests return 401. Demo choices are fetched once per login view, without persistent caching. Anonymous route changes preserve typed credentials, while logout/expiry creates a new view and fetches fresh eligibility and public autofill metadata. A disabled/unavailable demo endpoint leaves manual sign-in usable. Run `npm run test:login-bootstrap` against local HTTPS UAT; it uses controlled authentication responses plus existing public Reviewer login/logout, without business writes. See [verification](../outputs/login-bootstrap-2026-10-30/validation.json).
+
 
 User access readiness is calculated by `backend/app/user_access.py`. The router fetches the administrator access summary alongside work and notifications; the shared shell displays attention counts and queue links. Users & access reloads current state through Refresh access status. The UI distinguishes account enablement, profile/password steps and effective authority. User-event notifications link to the matching account and show its current status. Keep these surfaces aligned with the server response; do not infer approval from `active_flag` or the presence of a historical/future assignment.
 
@@ -114,3 +121,17 @@ During `serve`, Vite calls `local_https config` for public addresses/paths, read
 Live browser checks use `tests/helpers/uat.cjs`: `CBD_UAT_BASE_URL` defaults to `https://localhost:8010`, accepts only loopback URLs, and permits local self-signed certificate errors only in QA contexts. `npm run test:https:live -- /absolute/path/to/playwright` verifies the exact certificate with Node TLS, secure-context encrypted sign-in/cookies, no plaintext listener, Vite TLS/API proxy and blocked private paths. Its Vite probe expects an explicitly started temporary server on 5174. Ordinary APIs, Oracle and LDAP keep their existing configuration; this adds no schema migration or dependency. Current evidence is in `outputs/local-https-2026-10-30/` at the repository root.
 
 Public sync copies only bank artwork, fonts and guides. CSS stays in the Vite module pipeline; a duplicate public styles.css would shadow its imported module during dev. The shared asset helper uses Vite BASE_URL for the built /assets/ mount and the development root.
+
+## Shared loading
+
+Use `api()` for application requests: its loading token includes response decoding and releases in `finally`, including errors. `beginActivity(label, {scope, priority})` handles non-fetch work such as navigation and document previews; always call its idempotent release function. `beginInteraction()` is shared by delegated forms/actions/changes and restores prior control state, while retaining form values. Global feedback waits 160 ms; ten-second operations announce that they are still working. It never invents a completion percentage or retries network requests. Native dialog progress is mirrored into the dialog header.
+
+Demo users have an immediate local placeholder and optional explicit Retry; a disabled deployment's 404 hides the chooser. Manual login remains available during list loading/retry. The static HTML opening status covers the interval before the React bundle starts. Native attachment downloads use browser feedback; iframe previews use the shared tracker.
+
+Run `npm run test:loading -- /path/to/playwright` with the same local UAT/browser package setup as other browser checks. The test uses delayed responses, synthetic DOM fixtures for dependent choices/previews, intercepted failed writes and existing public Reviewer/Admin login/logout. No business mutation is sent to UAT. See [current verification](../outputs/shared-loading-2026-10-30/validation.json).
+
+## LDAP directory account cards
+
+LDAP cards show explicit department-code approval independently of profile confirmation and role assignment. `core/ldap-readiness.ts` classifies display states from the API's raw LDAP fields and readiness; it does not authorize access. Profile/role management cannot approve codes. Pending requests are loaded once per relevant user view, and a direct review action uses the existing independent approval dialog. Department filters do not rely on the overall status priority. Standard accounts retain the table.
+
+Run `npm run test:ldap-readiness` for pure readiness invariants and `npm run test:ldap-accounts -- /path/to/playwright` for existing-record/control-response browser checks. The approval browser script supports `CBD_LDAP_QA_OUTPUT` to preserve historical evidence and targets its temporary username explicitly before approving/rejecting. See [verification](../outputs/ldap-account-design-2026-10-30/validation.json).

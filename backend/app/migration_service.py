@@ -10,7 +10,7 @@ from .events import new_id,now,audit
 from . import repository as repo
 from .schemas import InstrumentInput,ClauseInput
 from .access import actor_for
-from .import_template import canonical_header,LABELS,RECORDS_SHEET,GUIDANCE_SHEETS,GUIDE_TITLE
+from .import_template import canonical_header,LABELS,RECORDS_SHEET,CLAUSES_SHEET,GUIDANCE_SHEETS,GUIDE_TITLE
 from .import_choices import current_master,materiality_code
 
 MAX_ROWS=10000
@@ -38,10 +38,10 @@ def parse_source(name,data):
                 is_template = template_guide is not None and template_guide['A1'].value == GUIDE_TITLE
                 if is_template and RECORDS_SHEET not in book.sheetnames:
                     raise ValueError('The Regulatory records sheet is missing')
-                if is_template and set(book.sheetnames) - ({RECORDS_SHEET} | GUIDANCE_SHEETS):
-                    raise ValueError('Move all records into the Regulatory records sheet')
+                if is_template and set(book.sheetnames) - ({RECORDS_SHEET,CLAUSES_SHEET} | GUIDANCE_SHEETS):
+                    raise ValueError('Use Regulatory records and Clauses for data')
                 for sheet in book:
-                    if is_template and sheet.title != RECORDS_SHEET:continue
+                    if is_template and sheet.title not in {RECORDS_SHEET,CLAUSES_SHEET}:continue
                     iterator=sheet.iter_rows(values_only=True);headers=next(iterator,())
                     if not headers:continue
                     if len(headers)>100:raise ValueError('Too many columns')
@@ -51,13 +51,13 @@ def parse_source(name,data):
                         if any(v is not None for v in values): rows.append((sheet.title,number,dict(zip([str(h or '') for h in headers],values))))
                         if len(rows)>MAX_ROWS:raise ValueError('Too many rows')
             finally:book.close()
-        except Exception as exc:raise HTTPException(422,'The XLSX could not be read safely. Keep the template sheet names and put all records in Regulatory records. Limit the file to 10,000 rows and 50 MB expanded.') from exc
+        except Exception as exc:raise HTTPException(422,'The XLSX could not be read safely. Keep the template sheet names; fill Regulatory records and optionally Clauses. Limit the file to 10,000 total data rows and 50 MB expanded.') from exc
     else: raise HTTPException(422,'Choose a .csv or .xlsx source register.')
     if not rows or len(rows)>MAX_ROWS:raise HTTPException(422,'Enter between 1 and 10,000 records. In the Excel template, fill Regulatory records; the example and guidance sheets are not imported.')
     return rows
 
 
-def normalise(db,raw,seen=None):
+def normalise(db,raw,seen=None,*,source_attachment=None):
     """Raw payload never changes; canonical codes and findings are separate."""
     data={canonical_header(k):str(v).strip() if v is not None else '' for k,v in raw.items()}
     errors=[];normal={};kind=data.get('entity_type','instrument').lower()
@@ -68,6 +68,8 @@ def normalise(db,raw,seen=None):
         return value
     def lookup(table,key,column='code',value_override=None):
         value=required(key) if value_override is None else str(value_override).strip()
+        if len(value)>500:
+            errors.append('Invalid '+LABELS.get(key,key)+'; enter a current name or code up to 500 characters');return None
         if table is m.organisational_unit and value.casefold()=='banking operations': value='OPERATIONS'
         query=sa.select(table).where(sa.func.upper(getattr(table.c,column))==value.upper())
         if table is m.user:
@@ -118,11 +120,13 @@ def normalise(db,raw,seen=None):
             'regulatory_owner_unit_id':lookup(m.organisational_unit,'department_code'),
             'interpretation_owner_user_id':lookup(m.user,'owner_username','username'),
             'confidentiality_class_id':lookup(m.confidentiality_class,'confidentiality_code'),
-            'source_document_id':required('source_document_id'),'official_reference_number':data.get('official_reference_number') or None,
+            'source_document_id':source_attachment['id'] if source_attachment else required('source_document_id'),'official_reference_number':data.get('official_reference_number') or None,
             'issue_date':date_value('issue_date'),'effective_date':date_value('effective_date'),
             'materiality':materiality_code(db,data.get('materiality','MEDIUM')),'keywords':data.get('keywords') or None}
         if not normal['materiality']:errors.append('Invalid Materiality; choose a current database value')
-        if normal['source_document_id']:
+        if normal['source_document_id'] and len(normal['source_document_id'])>100:
+            errors.append('Invalid Source document ID')
+        elif normal['source_document_id'] and not source_attachment:
             document=db.execute(sa.select(m.document).where(m.document.c.id==normal['source_document_id'])).mappings().first()
             if not document:errors.append('Missing source document')
             elif document['owner_unit_id']!=normal['regulatory_owner_unit_id'] or document['confidentiality_class_id']!=normal['confidentiality_class_id']:
@@ -136,7 +140,7 @@ def normalise(db,raw,seen=None):
         if seen is not None:
             if identity in seen:errors.append('Duplicate instrument in source population')
             seen.add(identity)
-        if normal['official_reference_number'] and db.execute(sa.select(m.regulatory_instrument.c.id).where(
+        if normal['official_reference_number'] and len(normal['official_reference_number'])<=150 and db.execute(sa.select(m.regulatory_instrument.c.id).where(
             m.regulatory_instrument.c.regulator_id==normal['regulator_id'],sa.func.upper(sa.func.trim(m.regulatory_instrument.c.official_reference_number))==normal['official_reference_number'].upper())).first():errors.append('Official reference already registered')
         try:InstrumentInput(**normal)
         except Exception:errors.append('Invalid field length, materiality or required value')
@@ -184,12 +188,16 @@ def normalise(db,raw,seen=None):
         'load_available':kind in {'instrument','clause'},'deferred_note':'Obligation loading and workflow are Week 4' if kind=='obligation' else None}
 
 
-def stage(db,actor,filename,data,source_system,storage):
+def stage(db,actor,filename,data,source_system,storage,source_files=()):
     actor.require({'AUTHOR'})
     if not any(g['role_code']=='AUTHOR' and g['global_scope_flag'] for g in actor.grants):raise HTTPException(403,'Migration staging requires a global Regulatory Author.')
+    rows=parse_source(filename,data)
+    from . import combined_import
+    if combined_import.is_combined(rows,source_files):
+        return combined_import.stage(db,actor,filename,data,rows,source_system,storage,source_files)
     file_hash=hashlib.sha256(data).hexdigest()
     if db.execute(sa.select(m.migration_batch.c.id).where(m.migration_batch.c.file_hash==file_hash)).first():raise HTTPException(409,'This exact source file has already been staged. Open its existing batch.')
-    rows=parse_source(filename,data);identifier=new_id();seen=set();at=now()
+    identifier=new_id();seen=set();at=now()
     for previous in db.execute(sa.select(m.migration_row.c.validation_errors).where(m.migration_row.c.validation_status!='LOADED')).scalars():
         profile=json.loads(previous or '{}')
         if profile.get('fingerprint'):seen.add(profile['fingerprint'])
@@ -202,10 +210,8 @@ def stage(db,actor,filename,data,source_system,storage):
         db.execute(m.migration_row.insert().values(id=new_id(),batch_id=identifier,sheet_name=sheet,row_number=number,
             source_system=source_system,legacy_id=legacy,source_payload=json.dumps(raw,default=str),
             validation_status='CORRECTION_REQUIRED' if result['errors'] else 'CONTENT_VALIDATION_PENDING',validation_errors=json.dumps(result)))
-    from .storage import stored_path, write_private
-    path=stored_path(storage,identifier,staging=True)
-    path.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
-    write_private(path,data)
+    from .source_documents import preserve_bytes
+    preserve_bytes(db,storage,identifier,data,staging=True)
     audit(db,actor,'migration',identifier,'SOURCE_STAGED',new={'file':filename,'sha256':file_hash,'rows':len(rows)})
     return {'id':identifier}
 
@@ -219,11 +225,17 @@ def batch_detail(db,actor,identifier):
     rows=[dict(r) for r in db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier).order_by(m.migration_row.c.sheet_name,m.migration_row.c.row_number)).mappings()]
     for row in rows:row['profile']=json.loads(row['validation_errors'] or '{}');row['source']=json.loads(row['source_payload'])
     populations=Counter(r['validation_status'] for r in rows)
-    return {'batch':batch,'rows':rows,'populations':dict(populations),'reconciled':len(rows)==batch['source_count']}
+    result={'batch':batch,'rows':rows,'populations':dict(populations),'reconciled':len(rows)==batch['source_count']}
+    from . import combined_import
+    if combined_import.manifest(batch):
+        result.update(combined_import.preview(batch,rows))
+    return result
 
-def validate_content(db,actor,identifier):
+def validate_content(db,actor,identifier,storage=None):
     require_migration(actor,{'REVIEWER'});batch=repo.one(db,m.migration_batch,identifier,lock=True)
     if actor.id==batch['uploaded_by']: raise HTTPException(403,'A different Compliance reviewer must validate migrated content.')
+    from . import combined_import
+    if combined_import.manifest(batch):return combined_import.validate(db,actor,batch,storage)
     count=0
     for row in db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier,m.migration_row.c.validation_status=='CONTENT_VALIDATION_PENDING')).mappings():
         result=normalise(db,json.loads(row['source_payload']))
@@ -233,8 +245,10 @@ def validate_content(db,actor,identifier):
     audit(db,actor,'migration',identifier,'CONTENT_VALIDATED',new={'ready_rows':count})
     return {'validated':count}
 
-def load_batch(db,actor,identifier):
+def load_batch(db,actor,identifier,storage=None):
     require_migration(actor,{'AUTHOR'});batch=repo.one(db,m.migration_batch,identifier,lock=True)
+    from . import combined_import
+    if combined_import.manifest(batch):return combined_import.load(db,actor,batch,storage)
     rows=db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier,m.migration_row.c.validation_status=='MIGRATION_READY').order_by(m.migration_row.c.row_number).with_for_update()).mappings().all()
     count=0
     for row in rows:

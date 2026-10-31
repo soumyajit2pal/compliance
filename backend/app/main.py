@@ -29,6 +29,7 @@ from .import_template import csv_template
 from .import_workbook import download_workbook
 from .user_access import account_catalogue, current_access, notify_administrators
 from . import clause_carry,notification_families as families
+from .source_documents import file_transaction, save_document, MAX_SOURCE_BYTES
 from . import ldap_department as departments
 from . import master_data
 
@@ -37,7 +38,7 @@ logger=logging.getLogger('cbd.portal')
 
 def get_db(request:Request):
     with request.app.state.engine.connect() as db:
-        with db.begin(): yield db
+        with file_transaction(db), db.begin(): yield db
 
 def current(request:Request,db=Depends(get_db)):
     actor=auth.resolve(db,request,request.app.state.settings)[0]
@@ -93,7 +94,8 @@ def create_app(settings=None,engine=None):
             origin=request.headers.get('Origin')
             if origin not in cfg.origins or request.headers.get('Sec-Fetch-Site')=='cross-site':
                 return JSONResponse({'detail':'This request must come from the portal.'},status_code=403)
-            maximum=(25*1024*1024 if request.url.path in {'/api/documents','/api/migration'} else
+            maximum=(101*1024*1024 if request.url.path=='/api/migration' else
+                     25*1024*1024 if request.url.path=='/api/documents' else
                      2*1024*1024 if request.url.path in {'/api/admin/ldap','/api/admin/ldap/test'} else 1024*1024)
             length=request.headers.get('Content-Length')
             try:valid=length is not None and 0<=int(length)<=maximum
@@ -359,20 +361,8 @@ def create_app(settings=None,engine=None):
 
     @app.post('/api/documents')
     async def upload(request:Request,file:UploadFile=File(...),owner_unit_id:str=Form(...),confidentiality_class_id:str=Form(...),db=Depends(get_db),actor=Depends(current)):
-        actor.require({'AUTHOR'},owner_unit_id);repo.active(db,m.organisational_unit,owner_unit_id);repo.active(db,m.confidentiality_class,confidentiality_class_id)
-        data=await file.read(20*1024*1024+1)
-        if not data or len(data)>20*1024*1024:raise HTTPException(422,'Choose a non-empty source file up to 20 MB.')
-        name=Path(file.filename or 'source').name[:255];extension=Path(name).suffix.lower()
-        types={'.pdf':'application/pdf','.txt':'text/plain','.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
-        if extension not in types or (extension=='.pdf' and not data.startswith(b'%PDF-')) or (extension=='.docx' and not data.startswith(b'PK')):raise HTTPException(422,'Upload a PDF, text or DOCX source file.')
-        if extension=='.txt':
-            try:data.decode('utf-8')
-            except UnicodeError:raise HTTPException(422,'Text sources must use UTF-8.')
-        identifier=new_id();path=stored_path(cfg.storage,identifier)
-        write_private(path,data)
-        db.execute(m.document.insert().values(id=identifier,file_name=name,storage_uri='portal://'+identifier,content_type=types[extension],file_size=len(data),file_hash=hashlib.sha256(data).hexdigest(),confidentiality_class_id=confidentiality_class_id,owner_unit_id=owner_unit_id,uploaded_by=actor.id,uploaded_at=now()))
-        audit(db,actor,'document',identifier,'SOURCE_UPLOADED',new={'name':name,'sha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)})
-        return {'id':identifier,'file_name':name}
+        return save_document(db,actor,cfg.storage,file.filename or 'source',
+            await file.read(MAX_SOURCE_BYTES+1),owner_unit_id,confidentiality_class_id)
 
     @app.get('/api/documents/{identifier}')
     def download(identifier:str,preview:bool=False,db=Depends(get_db),actor=Depends(current)):
@@ -570,33 +560,62 @@ def create_app(settings=None,engine=None):
         db.execute(m.notification.update().where(m.notification.c.id==identifier,m.notification.c.recipient_user_id==actor.id).values(read_at=now()));return {'ok':True}
 
     @app.post('/api/migration')
-    async def stage_source(file:UploadFile=File(...),source_system:str=Form(...),db=Depends(get_db),actor=Depends(current)):
+    async def stage_source(file:UploadFile=File(...),source_system:str=Form(...),source_files:list[UploadFile]|None=File(default=None),db=Depends(get_db),actor=Depends(current)):
         if not source_system.strip() or len(source_system)>100:raise HTTPException(422,'Enter a source system name up to 100 characters.')
         data=await file.read(20*1024*1024+1)
         if len(data)>20*1024*1024:raise HTTPException(422,'The source register must be at most 20 MB.')
-        return migration.stage(db,actor,Path(file.filename or '').name[:500],data,source_system,cfg.storage)
+        migration.require_migration(actor,{'AUTHOR'})
+        from .combined_import import MAX_ATTACHMENTS,MAX_BUNDLE_BYTES
+        if len(source_files or [])>MAX_ATTACHMENTS:raise HTTPException(422,'Attach at most 50 source files.')
+        attachments=[];total=len(data)
+        for source in source_files or []:
+            if not source.filename:continue
+            content=await source.read(MAX_SOURCE_BYTES+1);total+=len(content)
+            if total>MAX_BUNDLE_BYTES:raise HTTPException(422,'The workbook and source files must total at most 100 MB.')
+            attachments.append((source.filename,content))
+        return migration.stage(db,actor,Path(file.filename or '').name[:500],data,source_system,cfg.storage,attachments)
     @app.get('/api/migration')
     def batches(db=Depends(get_db),actor=Depends(current)):
         migration.require_migration(actor)
         return [dict(r) for r in db.execute(sa.select(m.migration_batch).order_by(m.migration_batch.c.uploaded_at.desc())).mappings()]
     @app.get('/api/migration/{identifier}')
     def batch(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.batch_detail(db,actor,identifier)
+    @app.get('/api/migration/{identifier}/sources/{source_id}')
+    def imported_source(identifier:str,source_id:str,db=Depends(get_db),actor=Depends(current)):
+        from . import combined_import
+        migration.require_migration(actor)
+        source_data=migration.batch_detail(db,actor,identifier)
+        source=next((s for s in source_data.get('sources',[]) if s['id']==source_id),None)
+        if not source:raise HTTPException(404,'Source file not found in this import.')
+        path,_=combined_import.read_attachment(cfg.storage,source)
+        audit(db,actor,'migration',identifier,'IMPORT_SOURCE_DOWNLOADED',new={'source_id':source_id,'sha256':source['file_hash']})
+        return FileResponse(path,filename=source['file_name'],media_type=source['content_type'])
+    @app.post('/api/migration/{identifier}/reprofile')
+    def reprofile_import(identifier:str,db=Depends(get_db),actor=Depends(current)):
+        from . import combined_import
+        migration.require_migration(actor,{'AUTHOR'})
+        source_batch=repo.one(db,m.migration_batch,identifier,lock=True)
+        if not combined_import.manifest(source_batch):raise HTTPException(422,'Refresh preview is available for combined imports.')
+        return combined_import.reprofile(db,actor,source_batch,cfg.storage)
     @app.get('/api/migration/{identifier}/report.csv')
     def migration_report(identifier:str,db=Depends(get_db),actor=Depends(current)):
         data=migration.batch_detail(db,actor,identifier);stream=io.StringIO();writer=csv.writer(stream)
-        writer.writerow(['Source file','Sheet','Row','Source system','Readiness','Findings','Canonical mapped values','Target type','Target ID'])
+        writer.writerow(['Source file','Sheet','Row','Source system','Readiness','Findings','Canonical mapped values','Target type','Target ID',
+            'Import reference','Source edition','Clause import reference','Parent clause reference','Target edition ID','Loaded source document ID'])
         def cell(value):
             text=str(value or '')
             return "'"+text if text.lstrip().startswith(('=','+','-','@','\t','\r')) else text
         for row in data['rows']:
             writer.writerow([cell(v) for v in [data['batch']['source_file'],row['sheet_name'],row['row_number'],row['source_system'],row['validation_status'],
-                '; '.join(row['profile'].get('errors',[])),json.dumps(row['profile'].get('normalised',{})),row['target_entity_type'],row['target_entity_id']]])
+                '; '.join(row['profile'].get('errors',[])),json.dumps(row['profile'].get('normalised',{})),row['target_entity_type'],row['target_entity_id'],
+                row['profile'].get('group_reference'),row['profile'].get('edition_number'),row['profile'].get('clause_reference'),
+                row['profile'].get('parent_reference'),row['profile'].get('target_version_id'),row['profile'].get('loaded_source_document_id')]])
         audit(db,actor,'migration',identifier,'PROFILE_REPORT_EXPORTED')
         return Response(stream.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="migration-profile.csv"'})
     @app.post('/api/migration/{identifier}/validate')
-    def validate(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.validate_content(db,actor,identifier)
+    def validate(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.validate_content(db,actor,identifier,cfg.storage)
     @app.post('/api/migration/{identifier}/load')
-    def load(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.load_batch(db,actor,identifier)
+    def load(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.load_batch(db,actor,identifier,cfg.storage)
     @app.get('/api/migration-template')
     def template(format:str='csv',db=Depends(get_db),actor=Depends(current)):
         migration.require_migration(actor)
@@ -604,7 +623,7 @@ def create_app(settings=None,engine=None):
         if format=='xlsx':
             return Response(download_workbook(db,actor),
                 media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                headers={**headers,'Content-Disposition':'attachment; filename="instrument-import-template.xlsx"'})
+                headers={**headers,'Content-Disposition':'attachment; filename="regulatory-records-and-clauses-template.xlsx"'})
         if format!='csv':raise HTTPException(422,'Choose the Excel or CSV template.')
         return Response(csv_template(),media_type='text/csv',headers={**headers,'Content-Disposition':'attachment; filename="instrument-import-template.csv"'})
 

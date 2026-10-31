@@ -1,0 +1,27 @@
+.import-preview .panel-body { display: grid; gap: 14px; }
+.import-sources { display: flex; flex-wrap: wrap; gap: 12px; }
+.import-sources > div { display: grid; align-content: start; gap: 6px; max-width: 100%; }
+.import-sources code { display: block; overflow-wrap: anywhere; font-size: 11px; }
+.import-sources summary { color: var(--muted); font-size: 12px; }
+.import-group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface, #fff); }
+.import-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; cursor: pointer; }
+.import-group > summary::before { content: '›'; color: var(--primary); font-size: 22px; }
+.import-group[open] > summary::before { transform: rotate(90deg); }
+.import-group > summary > span:first-of-type { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.import-group small { display: block; margin-top: 4px; color: var(--muted); }
+.import-group-body { padding: 0 16px 16px; }
+.import-clause-preview { padding: 0; margin: 12px 0 0; list-style: none; }
+.import-clause-preview > li { display: flex; gap: 12px; padding: 12px 0 12px calc(var(--clause-depth) * 20px); border-top: 1px solid var(--line); }
+.import-clause-preview > li > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.import-source-number { min-width: 46px; font-weight: 700; color: var(--primary); overflow-wrap: anywhere; }
+.import-findings { margin: 8px 0; padding-left: 20px; color: var(--danger, #a52c35); font-size: 13px; }
+.import-wording { margin-top: 8px; font-size: 13px; }
+.import-wording > div { padding: 10px; margin-top: 6px; background: var(--soft); border-radius: 6px; }
+.import-wording p { white-space: pre-wrap; margin: 6px 0 12px; }
+@media (max-width: 600px) {
+  .import-group > summary { flex-wrap: wrap; padding: 12px; }
+  .import-group > summary > .badge { margin-left: 20px; }
+  .import-group-body { padding: 0 12px 12px; }
+  .import-clause-preview > li { gap: 8px; padding-left: min(calc(var(--clause-depth) * 10px), 40px); }
+  .import-source-number { min-width: 36px; max-width: 70px; }
+}

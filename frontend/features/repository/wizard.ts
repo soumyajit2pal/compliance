@@ -107,6 +107,7 @@ export async function instrumentWizard(query=new URLSearchParams()) {
     field(
       'Regulatory owner department',
       select('regulatory_owner_unit_id', units, unit, 'name', 'required'),
+      'Choose the department responsible for maintaining this source.',
     ) +
     field(
       'Interpretation owner',

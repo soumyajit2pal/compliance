@@ -16,7 +16,9 @@ import {
 import { modal, close } from '../ui/dialog.ts';
 import { heading } from '../ui/layout.ts';
 import { table, tablePanel, person, searchForm, note, tabs } from '../ui/widgets.ts';
-import { departmentDetails } from './ldap-department.ts';
+import { departmentDetails, departmentStatusBadge, departmentStatusNotice } from './ldap-department.ts';
+import { ldapDepartmentState, matchesDepartmentFilter } from '../core/ldap-readiness.ts';
+import { ldapAccounts } from './ldap-accounts.ts';
 
 function accessBadge(user) {
   const color = user.admin_action_required || ['PROFILE_PENDING', 'PASSWORD_CHANGE_REQUIRED'].includes(user.access_status)
@@ -25,20 +27,23 @@ function accessBadge(user) {
 }
 
 export async function usersPage(_id, query = new URLSearchParams()) {
-  const request = state.routeNumber, data = await api('/admin/users');
+  const tab = ['STANDARD', 'LDAP', 'ACTION_REQUIRED', 'LDAP_DEPARTMENTS'].includes(query.get('tab')) ? query.get('tab') : 'STANDARD';
+  const request = state.routeNumber;
+  const [data, departmentRequests] = await Promise.all([api('/admin/users'),
+    tab !== 'STANDARD' ? api('/admin/ldap-department-requests') : Promise.resolve([])]);
   if (request !== state.routeNumber || !state.identity) return '';
   state.view.users = data;
   state.adminAccess = data.summary;
-  const tab = ['STANDARD', 'LDAP', 'ACTION_REQUIRED', 'LDAP_DEPARTMENTS'].includes(query.get('tab')) ? query.get('tab') : 'STANDARD';
+  state.view.departmentRequests = departmentRequests;
   const userTabs = [['STANDARD', 'Standard users', data.summary.standard], ['LDAP', 'LDAP users', data.summary.ldap],
     ['ACTION_REQUIRED', 'Action required', data.summary.action_required], ['LDAP_DEPARTMENTS', 'LDAP department changes', data.summary.department_pending]];
   if (tab === 'LDAP_DEPARTMENTS') {
-    const requests = await api('/admin/ldap-department-requests');
+    const requests = departmentRequests;
     if (request !== state.routeNumber || !state.identity) return '';
     state.view.departmentRequests = requests;
     return heading('LDAP department changes', 'Verify directory department changes separately from Home organisation and role access.',
       button('refresh-users', 'Refresh requests')) + tabs(userTabs, tab, 'users', new URLSearchParams()) +
-      `<div class="mb16">${note('Approval records the observed LDAP code and name. Home organisation and roles remain unchanged. The user must sign in again after approval.')}</div>` +
+      `<div class="mb16">${note('Approval records the observed LDAP department code. Home organisation and roles remain unchanged. The user must sign in again after approval.')}</div>` +
       tablePanel(table(['User', 'Previously approved', 'Returned by LDAP', 'Home organisation', 'Status', 'Review'],
         requests.map((r) => [person(r.full_name, r.username), departmentText(r.previous_code),
           departmentText(r.proposed_code), esc(r.home_organisation || 'Not selected'), badge(r.status),
@@ -46,6 +51,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
         { empty: 'No LDAP department requests are pending.' }), 'Pending LDAP department requests');
   }
   const status = query.get('status') || '';
+  const departmentFilter = tab === 'LDAP' ? query.get('department') || '' : '';
   const q = (query.get('q') || '').trim().toLowerCase();
   const focusedUser = query.get('user');
   const byType = data.users.filter((u) => tab === 'ACTION_REQUIRED' ? u.admin_action_required : u.login_type === tab);
@@ -53,10 +59,16 @@ export async function usersPage(_id, query = new URLSearchParams()) {
     if (focusedUser && u.id !== focusedUser) return false;
     if (status === 'ACTION_REQUIRED' && !u.admin_action_required) return false;
     if (status === 'ROLES_REQUIRED' && !['ROLE_ASSIGNMENT_REQUIRED', 'ROLE_REVIEW_REQUIRED'].includes(u.access_status)) return false;
-    if (status && !['ACTION_REQUIRED', 'ROLES_REQUIRED'].includes(status) && u.access_status !== status) return false;
+    const departmentStatus = {LDAP_DEPARTMENT_REQUIRED:'not-approved',LDAP_DEPARTMENT_CHANGED:'changed',
+      LDAP_DEPARTMENT_UNAVAILABLE:'unavailable',LDAP_DEPARTMENT_RECHECK:'recheck'}[status];
+    if (departmentStatus ? u.login_type !== 'LDAP' || ldapDepartmentState(u).key !== departmentStatus
+      : status && !['ACTION_REQUIRED', 'ROLES_REQUIRED'].includes(status) && u.access_status !== status) return false;
+    if (departmentFilter === 'pending' ? !departmentRequests.some(r => r.user_id === u.id && r.status === 'PENDING')
+      : !matchesDepartmentFilter(u, departmentFilter)) return false;
     const roleNames = data.assignments.filter((a) => a.user_id === u.id).map((a) => ref('role', a.role_id));
     return [u.full_name, u.username, u.email, u.department_code,
-      u.ldap_last_seen_department_code, ref('organisational_unit', u.org_unit_id), ...roleNames]
+      u.ldap_last_seen_department_code, u.access_status_label,
+      u.login_type === 'LDAP' ? ldapDepartmentState(u).label : '', ref('organisational_unit', u.org_unit_id), ...roleNames]
       .join(' ').toLowerCase().includes(q);
   });
   const filterOptions = [
@@ -72,15 +84,17 @@ export async function usersPage(_id, query = new URLSearchParams()) {
   return '<section class="user-access-page">' + heading('Users & access', 'Manage Standard and LDAP accounts, access requests and scoped role assignments.',
       button('refresh-users', 'Refresh access status') + button('user', 'Add user', '', 'primary')) +
     `<div class="row gap8 mb16 access-catalogue-summary"><span class="tag green">${data.summary.active_accounts} enabled accounts</span><span class="tag neutral">${state.masters.role.filter((r) => r.active_flag).length} application roles</span><span class="grow"></span><a class="text-link" href="#help?tab=roles">Role-access guide</a></div>` +
-    `<div class="access-overview" aria-label="Access request overview">
+    (tab === 'LDAP' ? '' : `<div class="access-overview" aria-label="Access request overview">
       <a href="#users?tab=LDAP&status=PENDING_APPROVAL"><strong>${data.summary.pending_approval}</strong><span>Pending access approval</span><small>Review the confirmed LDAP profile and assign roles</small></a>
       <a href="#users?tab=ACTION_REQUIRED&status=ROLES_REQUIRED"><strong>${data.summary.role_assignment_required + data.summary.role_review_required}</strong><span>Roles need attention</span><small>Assign or review effective roles and scope</small></a>
-      <a href="#users?tab=LDAP&status=PROFILE_PENDING"><strong>${data.summary.profile_pending}</strong><span>Awaiting LDAP profile</span><small>User must confirm email and department</small></a>
-    </div>` +
+      <a href="#users?tab=LDAP&status=PROFILE_PENDING"><strong>${data.summary.profile_pending}</strong><span>Awaiting LDAP profile</span><small>User must confirm email and Home organisation</small></a>
+    </div>`) +
     tabs(userTabs, tab, 'users', new URLSearchParams()) +
     (focusedUser ? `<div class="mb16">${note('Showing the account linked from the access notification. <a class="text-link" href="#users?' + esc(resetQuery.toString()) + '">Show all users in this view</a>')}</div>` : '') +
     searchForm('view-filter', 'Search name, username, department or role…', query.get('q') || '',
-      `<input type="hidden" name="tab" value="${esc(tab)}"><div class="field access-status-filter"><label for="access-status">Access status</label><select id="access-status" name="status">${filterOptions.map(([key, label]) => `<option value="${key}" ${status === key ? 'selected' : ''}>${label}</option>`).join('')}</select></div>`) +
+      `<input type="hidden" name="tab" value="${esc(tab)}"><div class="field access-status-filter"><label for="access-status">Access status</label><select id="access-status" name="status">${filterOptions.map(([key, label]) => `<option value="${key}" ${status === key ? 'selected' : ''}>${label}</option>`).join('')}</select></div>` +
+      (tab === 'LDAP' ? `<div class="field ldap-approval-filter"><label for="ldap-approval">Department approval</label><select id="ldap-approval" name="department">${[['','All department statuses'],['not-approved','Department code not approved'],['pending','Approval request pending'],['changed','Department code changed'],['approved','Approved and verified'],['recheck','Approved — sign-in required'],['unavailable','LDAP code unavailable']].map(([value,label]) => `<option value="${value}" ${departmentFilter === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>` : '')) +
+    (tab === 'LDAP' ? ldapAccounts(rows, data, departmentRequests, state.identity.user.id, ref) :
     '<p class="small muted users-table-hint">Scroll the table to see roles, next steps and account actions.</p>' +
     tablePanel(table(['User', 'Access status', 'LDAP department code', 'Home organisation', 'Effective roles & scope', 'Next step', 'Manage'],
       rows.map((u) => {
@@ -91,7 +105,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
           : u.access_status === 'ROLE_REVIEW_REQUIRED' ? 'Review roles' : 'Edit access';
         return [person(u.full_name, u.username + ' · ' + (u.login_type === 'LDAP' ? 'LDAP' : 'Standard')),
           accessBadge(u) + `<small class="access-account-state">${u.active_flag ? 'Account enabled' : 'Account disabled'}</small>`,
-          u.login_type === 'LDAP' ? departmentText(u.department_code) +
+          u.login_type === 'LDAP' ? departmentStatusBadge(u) + '<br>' + departmentText(u.department_code) +
             `<small class="access-account-state">Current LDAP code: ${esc(u.ldap_last_seen_department_code || 'Not returned')}</small>` +
             button('department-history', 'Department history', `data-id="${u.id}"`, 'small') : '—',
           u.org_unit_id ? esc(ref('organisational_unit', u.org_unit_id)) : '<span class="small muted">Not selected</span>',
@@ -101,7 +115,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
           u.id !== state.identity.user.id ? button('user', actionLabel, `data-id="${u.id}"`, 'small')
             : '<span class="small muted">Use another administrator</span>'];
       }), { empty: 'No users match this account type and access status.' }),
-      tab === 'ACTION_REQUIRED' ? 'Accounts requiring administrator action' : tab === 'LDAP' ? 'LDAP directory accounts' : 'Standard portal accounts') +
+      tab === 'ACTION_REQUIRED' ? 'Accounts requiring administrator action' : 'Standard portal accounts')) +
     `<div class="mt16">${note('An enabled account still needs effective roles and any first-sign-in steps. Profile confirmation belongs to the LDAP user. Access changes revoke sessions; Standard password resets are available in Edit access.')}</div></section>`;
 }
 async function openUser(id) {
@@ -109,9 +123,9 @@ async function openUser(id) {
   const assignments = state.view.users.assignments.filter((a) => a.user_id === id);
   state.view.editUser = id;
   modal(
-    id ? 'Edit user access' : 'Create user account',
+    id ? user.login_type === 'LDAP' ? 'Manage LDAP profile & roles' : 'Edit user access' : 'Create user account',
     /* HTML */ `${id ? `<div class="mb16">${note('<strong>' + esc(user.access_status_label) + '</strong><br>' + esc(user.access_message), user.admin_action_required ? 'warn' : 'info')}</div>` : ''}
-      ${id && user.login_type === 'LDAP' ? departmentDetails({approved:{code:user.department_code},
+      ${id && user.login_type === 'LDAP' ? departmentStatusNotice(user) + departmentDetails({approved:{code:user.department_code},
         current:{code:user.ldap_last_seen_department_code}}) +
         '<p>LDAP department approval is separate from the Home organisation and role assignments below.</p>' : ''}<div class="grid">
         ${field(
@@ -160,7 +174,7 @@ async function openUser(id) {
         regulatory content.
       </div>`,
     'user',
-    id && user.admin_action_required ? 'Save approved access' : id ? 'Save user' : 'Create user',
+    id && user.login_type === 'LDAP' ? 'Save profile & roles' : id && user.admin_action_required ? 'Save approved access' : id ? 'Save user' : 'Create user',
     'Home organisation and role scope are separate assignments.',
   );
   dialog.querySelector<HTMLFormElement>('#user')!.dataset.existing = id || '';
@@ -185,6 +199,10 @@ async function departmentHistory(id) {
 }
 function reviewDepartment(id) {
   const request = state.view.departmentRequests.find((r) => r.id === id);
+  if (!request || request.status !== 'PENDING') {
+    message('This department request is no longer pending. Refresh the account list before reviewing.', true);
+    return;
+  }
   state.view.departmentRequest = id;
   const user = state.view.users.users.find((u) => u.id === request.user_id);
   modal('Review LDAP department request',

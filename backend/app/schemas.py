@@ -1,7 +1,7 @@
 from datetime import date,datetime
-from pydantic import BaseModel,Field,ConfigDict,field_validator,model_validator
+from pydantic import BaseModel,Field,ConfigDict,field_validator,model_validator,StringConstraints
 import re
-from typing import Literal
+from typing import Literal,Annotated
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid',str_strip_whitespace=True)
 class Login(Input):
@@ -45,8 +45,8 @@ class CancelDraftInput(Input):
 class ClauseInput(Input):
     code:str|None=Field(default=None,max_length=100)
     heading:str|None=Field(default=None,max_length=500)
-    clause_text:str=Field(min_length=1,max_length=50000)
-    internal_interpretation:str|None=Field(default=None,max_length=50000)
+    clause_text:Annotated[str,StringConstraints(strip_whitespace=False)]=Field(min_length=1,max_length=50000)
+    internal_interpretation:Annotated[str,StringConstraints(strip_whitespace=False)]|None=Field(default=None,max_length=50000)
     parent_clause_id:str|None=None
     sequence_number:float|None=Field(default=None,ge=0,le=1000000)
     source_page_reference:str|None=Field(default=None,max_length=50)
@@ -56,6 +56,15 @@ class ClauseInput(Input):
     reporting_flag:bool=False
     disclosure_flag:bool=False
     retention_flag:bool=False
+    @field_validator('clause_text')
+    @classmethod
+    def original_wording_required(cls,value):
+        if not value.strip():raise ValueError('Original regulatory text must contain source wording.')
+        return value
+    @field_validator('internal_interpretation')
+    @classmethod
+    def optional_interpretation(cls,value):
+        return value if value and value.strip() else None
 class Submit(Input):
     reviewer_id:str
     approver_id:str

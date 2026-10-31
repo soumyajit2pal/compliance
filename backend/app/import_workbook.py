@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from .config import ROOT
 from .import_choices import database_choices
-from .import_template import CHOICE_LABELS, FIELDS, MULTI_VALUE_FIELDS
+from .import_template import CHOICE_LABELS, FIELDS, MULTI_VALUE_FIELDS, GUIDE_REFRESH_ROW
 
 S = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
@@ -92,15 +92,15 @@ def fill_choices(layout, values, generated_at=None):
 
         guide = ET.fromstring(source.read(paths['How to fill']))
         guide_data = guide.find('s:sheetData', NS)
-        style_row = guide_data.find("s:row[@r='28']", NS)
+        style_row = guide_data.find(f"s:row[@r='{GUIDE_REFRESH_ROW}']", NS)
         guide_styles = [cell.get('s') for cell in style_row]
         for row in list(guide_data):
-            if row.get('r') in {'28', '29'}:
+            if row.get('r') in {str(GUIDE_REFRESH_ROW), str(GUIDE_REFRESH_ROW + 1)}:
                 guide_data.remove(row)
-        for number, items in [(28, ['Database choices',
+        for number, items in [(GUIDE_REFRESH_ROW, ['Database choices',
                 'Refreshed from Oracle: ' + generated_at.strftime('%d/%m/%Y %H:%M UTC'),
                 'These choices are a snapshot at download time. Import checks the current database again.']),
-                (29, ['Refresh the lists', 'Download a fresh template when starting a new import.',
+                (GUIDE_REFRESH_ROW + 1, ['Refresh the lists', 'Download a fresh template when starting a new import.',
                 'Choose an interpretation owner for the selected department. A listed person may cover only some departments.'])]:
             row = ET.SubElement(guide_data, _tag('row'), {'r': str(number), 'ht': '60', 'customHeight': '1'})
             for index, value in enumerate(items):

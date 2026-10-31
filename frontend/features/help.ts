@@ -107,7 +107,7 @@ const topics = [
     'Profile a source register',
     'AUTHOR · REVIEWER',
     'migration',
-    'Open Import existing regulatory records → Download Excel template. Read How to fill and Example, then fill Regulatory records using the screen field names and choices. Upload your source document and copy its Source document ID. Use Import source to upload the completed workbook. Example and guidance sheets are excluded. Inspect Source profile, correct errors, obtain independent content validation and load eligible rows as Drafts.',
+    'Download the combined Excel template from Import existing regulatory records. Fill Regulatory records and Clauses using Import reference and Parent clause reference. Upload the workbook and matching source files together. Inspect the validation preview, source hashes and row findings. A different Reviewer validates complete groups; the uploading Author loads Drafts. Normal source review and approval still apply. Instrument-only and CSV imports remain supported.',
   ],
   [
     'Maintain people and access',
