@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>UAT API reference · Compliance by Design</title>
+    <link rel="icon" href="/docs/assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/docs/assets/swagger-ui.css">
+    <link rel="stylesheet" href="/docs/assets/portal-docs.css">
+    <script src="/docs/assets/swagger-ui-bundle.js" defer></script>
+    <script src="/docs/assets/swagger-init.js" defer></script>
+  </head>
+  <body>
+    <header class="docs-header">
+      <div><span class="docs-environment">UAT</span><h1>API reference</h1></div>
+      <a href="/" target="_blank" rel="noopener">Open portal</a>
+    </header>
+    <p class="docs-guidance">Sign in below to use protected APIs. Try it out uses your current session, roles and approval rules. Write requests change UAT data.</p>
+    <section id="docs-session" class="docs-session" aria-labelledby="docs-session-heading" aria-busy="true">
+      <div class="docs-session-heading"><h2 id="docs-session-heading">API sign-in</h2><button id="docs-session-refresh" type="button" disabled>Refresh session</button></div>
+      <form id="docs-login" method="post" autocomplete="on">
+        <!-- Fields intentionally have no names: failed script loading cannot submit credentials. -->
+        <fieldset id="docs-login-fields" disabled>
+          <legend class="docs-sr-only">Sign in with your Standard or LDAP account</legend>
+          <div class="docs-login-grid">
+            <label for="docs-username">Username<input id="docs-username" autocomplete="username" required></label>
+            <label for="docs-password">Password<input id="docs-password" type="password" autocomplete="current-password" required></label>
+            <button id="docs-sign-in" type="submit">Sign in</button>
+          </div>
+        </fieldset>
+      </form>
+      <div id="docs-account" class="docs-account" hidden><div><strong id="docs-account-name"></strong><p id="docs-account-roles"></p></div><button id="docs-sign-out" type="button" disabled>Sign out</button></div>
+      <p id="docs-auth-status" class="docs-auth-status" role="status" aria-live="polite">Loading secure sign-in…</p>
+      <p id="docs-auth-error" class="docs-auth-error" role="alert" hidden></p>
+      <a id="docs-setup-link" href="/" target="_blank" rel="noopener" hidden>Complete setup / Review access in portal</a>
+    </section>
+    <main id="swagger-ui" aria-label="Interactive API reference"></main>
+  </body>
+</html>

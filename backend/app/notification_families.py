@@ -252,19 +252,26 @@ def proposal_tasks(db,actor,identifiers=None):
     return tasks
 
 def linked_obligations(db,actor,instrument,visible_ids,when):
+    from .obligations import visible as obligation_visible
     clauses={r['id']:dict(r) for r in db.execute(sa.select(m.regulatory_clause,m.instrument_version.c.instrument_id)
         .join(m.instrument_version,m.instrument_version.c.id==m.regulatory_clause.c.instrument_version_id)
         .where(m.instrument_version.c.instrument_id.in_(list(visible_ids)))).mappings()} if visible_ids else {}
     maps=[dict(r) for r in db.execute(sa.select(m.obligation_clause_map).where(m.obligation_clause_map.c.clause_id.in_(list(clauses)),
         m.obligation_clause_map.c.effective_from<=when,sa.or_(m.obligation_clause_map.c.effective_to.is_(None),m.obligation_clause_map.c.effective_to>when))).mappings()] if clauses else []
     approved_maps=set(db.execute(sa.select(m.workflow_instance.c.entity_id).where(m.workflow_instance.c.entity_type=='obligation_clause_map',m.workflow_instance.c.record_status=='APPROVED',m.workflow_instance.c.completed_at<datetime.combine(when+timedelta(days=1),time()))).scalars())
+    approved_obligations=set(db.execute(sa.select(m.workflow_instance.c.entity_id).where(m.workflow_instance.c.entity_type=='obligation',m.workflow_instance.c.record_status=='APPROVED',m.workflow_instance.c.completed_at<datetime.combine(when+timedelta(days=1),time()))).scalars())
     result=[]
     for row in db.execute(sa.select(m.compliance_obligation).where(m.compliance_obligation.c.approval_status=='APPROVED',
+        m.compliance_obligation.c.approved_at<datetime.combine(when+timedelta(days=1),time()),
         m.compliance_obligation.c.effective_from<=when,sa.or_(m.compliance_obligation.c.effective_to.is_(None),m.compliance_obligation.c.effective_to>when))).mappings():
         row=dict(row);primary=clauses.get(row['primary_clause_id'])
-        if not primary or not (actor.covers(row['business_owner_unit_id'],READ_ROLES) or actor.covers(row['regulatory_owner_unit_id'],REGULATORY_ROLES)):continue
+        if not primary or not obligation_visible(db,actor,row):continue
         citations=[primary] if primary['instrument_id']==instrument['id'] else []
-        citations += [clauses[r['clause_id']] for r in maps if r['obligation_id']==row['id'] and r['link_type']=='SUPPORTING' and r['id'] in approved_maps and clauses[r['clause_id']]['instrument_id']==instrument['id'] and clauses[r['clause_id']]['approval_status']=='APPROVED']
+        # Week 4 approves citations captured in the independently governed obligation
+        # proposal. Later links still need their own approval; no inheritance occurs.
+        citations += [clauses[r['clause_id']] for r in maps if r['obligation_id']==row['id'] and r['link_type']=='SUPPORTING'
+            and (r['id'] in approved_maps or row['id'] in approved_obligations and r['created_at']<=row['approved_at'])
+            and clauses[r['clause_id']]['instrument_id']==instrument['id'] and clauses[r['clause_id']]['approval_status']=='APPROVED']
         if not citations:continue
         actions=[dict(r) for r in db.execute(sa.select(m.action).where(m.action.c.obligation_id==row['id'])).mappings() if scope_visible(actor,instrument,r['owner_unit_id'])]
         mappings=[dict(r) for r in db.execute(sa.select(m.obligation_control_map,m.control.c.title.label('control_name'),m.control.c.owner_unit_id.label('control_unit_id'))

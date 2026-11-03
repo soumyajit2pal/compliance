@@ -17,6 +17,7 @@ import { icon } from '../../ui/icons.ts';
 import { heading } from '../../ui/layout.ts';
 import { domainChoices, domainGuidance, secondaryDomainPicker } from '../../ui/domains.ts';
 import { note, detailFields } from '../../ui/widgets.ts';
+import { showWizardStep, validateWizardStep } from '../../ui/wizard.ts';
 const steps = [
   'Basic information',
   'Classification',
@@ -141,16 +142,7 @@ export async function instrumentWizard(query=new URLSearchParams()) {
   );
 }
 function validStep(form, step) {
-  for (const c of form.querySelectorAll(
-    `[data-step="${step}"] input,[data-step="${step}"] select,[data-step="${step}"] textarea`,
-  )) {
-    if (!c.checkValidity()) {
-      setWizardStep(form, step);
-      c.reportValidity();
-      return false;
-    }
-  }
-  return true;
+  return validateWizardStep(form, step);
 }
 function summary(form) {
   const data = new FormData(form);
@@ -185,22 +177,10 @@ function summary(form) {
         ['Family-link approver',esc(selected('family_approver_id'))],
       ]:[]),
     ]) +
-    `<div class="mt24">${note('Create a Draft first, then capture its source clauses / paras and submit to a named independent Reviewer and Approver. Creating this record does not approve it or make it current.')}</div>`;
+    `<div class="mt24">${note('Create a Draft first, then capture its source Clauses / Para and submit to a named independent Reviewer and Approver. Creating this record does not approve it or make it current.')}</div>`;
 }
 export function setWizardStep(form, index) {
-  form.dataset.wizard = String(index);
-  (form as HTMLFormElement)
-    .querySelectorAll('[data-step]')
-    .forEach((item: HTMLElement) => (item.hidden = Number(item.dataset.step) !== index));
-  document.querySelectorAll<HTMLElement>('[data-step-label]').forEach((el, i) => {
-    el.classList.toggle('active', i === index);
-    el.classList.toggle('done', i < index);
-    const number = el.querySelector('span');
-    if (number) number.innerHTML = i < index ? icon('check') : String(i + 1);
-  });
-  (form.querySelector('[data-action=wizard-back]') as HTMLButtonElement).hidden = index === 0;
-  (form.querySelector('[data-action=wizard-next]') as HTMLButtonElement).hidden = index === steps.length - 1;
-  (form.querySelector('#wizard-create') as HTMLButtonElement).hidden = index !== steps.length - 1;
+  showWizardStep(form, index);
   if (index === steps.length - 1) summary(form);
 }
 export function validateWizard(form) {

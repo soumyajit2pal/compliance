@@ -140,7 +140,7 @@ document = table("document", string("file_name", 255), string("storage_uri", 100
     fk("uploaded_by", "user"), time("uploaded_at"), unique("storage_uri"), check("doc_size", "file_size >= 0"))
 
 # Regulatory source and obligation definitions (§§3–4).
-regulatory_instrument = table("regulatory_instrument", string("code", 50),
+regulatory_instrument = table("regulatory_instrument", string("code", 200),
     fk("regulator_id", "regulator"), fk("instrument_type_id", "instrument_type"),
     fk("primary_domain_id", "regulatory_domain"), string("official_reference_number", 150, True),
     string("title", 500), string("short_title", 250, True), date("issue_date"), date("effective_date"),
@@ -163,7 +163,7 @@ instrument_domain_map = table("instrument_domain_map", fk("instrument_id", "regu
     fk("domain_id", "regulatory_domain"), *enum("domain_role", "PRIMARY", "SECONDARY"), *effective(),
     unique("instrument_id", "domain_id", "effective_from"))
 regulatory_clause = table("regulatory_clause", fk("instrument_version_id", "instrument_version"),
-    string("code", 100), fk("parent_clause_id", "regulatory_clause", True), col("clause_level", sa.Integer()),
+    string("code", 200), fk("parent_clause_id", "regulatory_clause", True), col("clause_level", sa.Integer()),
     col("sequence_number", sa.Numeric(12, 4)), string("heading", 500, True), text("clause_text"),
     text("internal_interpretation", True), flag("mandatory_flag", "1"), flag("conditional_flag"),
     flag("reporting_flag"), flag("disclosure_flag"), flag("retention_flag"), *effective(),
@@ -189,7 +189,7 @@ clause_relationship = table("clause_relationship", fk("source_clause_id", "regul
     *enum("relationship_type", "AMENDS", "SUPERSEDES", "REFERS_TO", "DEPENDS_ON", "REPEALS"),
     text("description"), *effective(), *approval(), check("clause_not_self", "source_clause_id <> target_clause_id"),
     unique("source_clause_id", "target_clause_id", "relationship_type", "effective_from"))
-compliance_obligation = table("compliance_obligation", string("code", 80),
+compliance_obligation = table("compliance_obligation", string("code", 200),
     fk("primary_clause_id", "regulatory_clause"), string("title", 500), text("statement"), text("internal_interpretation"),
     fk("category_id", "obligation_category"), *enum("obligation_nature", "ONGOING", "PERIODIC", "EVENT_DRIVEN", "ONE_TIME"),
     fk("frequency_id", "frequency"), fk("primary_domain_id", "regulatory_domain"),
@@ -199,6 +199,8 @@ compliance_obligation = table("compliance_obligation", string("code", 80),
     fk("compliance_reviewer_user_id", "user"), *effective(), date("next_review_date"),
     *enum("record_status", "DRAFT", "ACTIVE", "SUPERSEDED", "RETIRED", default="DRAFT"),
     col("version_number", sa.Integer(), default="1"), fk("supersedes_obligation_id", "compliance_obligation", True),
+    col("edit_revision", sa.Integer(), default="1"),
+    string("content_validation_status", 30, default="'PENDING'"),
     *approval(), unique("code", "version_number"), check("obl_version", "version_number > 0"),
     check("obl_active_approved", "record_status <> 'ACTIVE' OR approval_status = 'APPROVED'"))
 obligation_clause_map = table("obligation_clause_map", fk("obligation_id", "compliance_obligation"),
@@ -495,3 +497,34 @@ ldap_department_request = table('ldap_department_request', fk('user_id','user'),
     check('ldap_dept_independent', "status NOT IN ('APPROVED','REJECTED') OR (decided_by IS NOT NULL AND decided_at IS NOT NULL AND decision_reason IS NOT NULL AND decided_by <> user_id)"))
 sa.Index('uq_cbd_ldap_dept_pending',sa.case((ldap_department_request.c.status=='PENDING',
     ldap_department_request.c.user_id),else_=None),unique=True)
+
+# Append new tables so earlier frozen check-constraint identities remain stable.
+obligation_validation_task = table("obligation_validation_task", fk("owner_id", "obligation_owner"),
+    fk("task_id", "workflow_action"), unique("task_id"))
+sa.Index('uq_cbd_obligation_active',sa.case((compliance_obligation.c.record_status=='ACTIVE',compliance_obligation.c.code),else_=None),unique=True)
+sa.Index('uq_cbd_obligation_pending',sa.case((compliance_obligation.c.approval_status.in_(['DRAFT','IN_REVIEW','REVIEWED']),compliance_obligation.c.code),else_=None),unique=True)
+
+business_code_alias = table('business_code_alias',
+    fk('instrument_id','regulatory_instrument',True),fk('clause_id','regulatory_clause',True),fk('obligation_id','compliance_obligation',True),
+    string('legacy_code',200),string('canonical_code',200),
+    unique('legacy_code','instrument_id','clause_id','obligation_id'),
+    check('business_alias_one_target','(CASE WHEN instrument_id IS NULL THEN 0 ELSE 1 END + CASE WHEN clause_id IS NULL THEN 0 ELSE 1 END + CASE WHEN obligation_id IS NULL THEN 0 ELSE 1 END) = 1'))
+
+# Ownership requests are independently reviewed without revising the obligation.
+obligation_owner_change = table('obligation_owner_change',fk('obligation_id','compliance_obligation'),
+    col('baseline_revision',sa.Integer()),fk('business_owner_unit_id','organisational_unit'),
+    fk('compliance_reviewer_user_id','user'),fk('approver_user_id','user'),text('reason'),
+    date('effective_from',True),time('applied_at',True),*approval())
+obligation_owner.append_column(fk('ended_by_change_id','obligation_owner_change',True))
+owner_change_assignment = table('owner_change_assignment',fk('change_id','obligation_owner_change'),
+    fk('org_unit_id','organisational_unit'),fk('user_id','user'),
+    *enum('owner_role','REGULATORY','BUSINESS','CONTROL','EVIDENCE','DATA'),flag('primary_owner_flag'),
+    fk('previous_owner_id','obligation_owner',True),fk('task_id','workflow_action',True),fk('applied_owner_id','obligation_owner',True),
+    unique('change_id','owner_role','user_id','org_unit_id'),unique('task_id'))
+sa.Index('uq_cbd_owner_change_pending',sa.case((obligation_owner_change.c.approval_status.in_(['IN_REVIEW','REVIEWED']),obligation_owner_change.c.obligation_id),else_=None),unique=True)
+for t in [obligation_owner_change,owner_change_assignment]:
+    for c in t.c:
+        if c.foreign_keys and not any(isinstance(key,sa.UniqueConstraint) and list(key.columns)==[c] for key in t.constraints):
+            digest=__import__('hashlib').sha1((t.name+c.name).encode()).hexdigest()[:8]
+            sa.Index('ix_'+t.name[4:18]+'_'+digest,c)
+sa.Index('ix_cbd_owner_ended_change',obligation_owner.c.ended_by_change_id)

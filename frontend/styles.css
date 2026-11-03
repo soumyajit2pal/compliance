@@ -11,3 +11,12 @@
 @import './styles/loading.css';
 @import './styles/ldap-accounts.css';
 @import './styles/import-preview.css';
+@import './styles/pagination.css';
+@import './styles/instrument-quick-view.css';
+@import './styles/obligations.css';
+@import './styles/obligation-detail.css';
+@import './styles/obligation-applicability.css';
+@import './styles/obligation-sources.css';
+@import './styles/obligation-quick-view.css';
+@import './styles/applicability-register.css';
+@import './styles/obligation-workspace.css';

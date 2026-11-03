@@ -1,4 +1,6 @@
 import { state } from '../../core/state.ts';
+import { renderInstrumentSummary } from './summary.ts';
+import { libraryReturnPath } from '../../core/library-navigation.ts';
 import { selectSourceEdition, sourceEditionStatus } from '../../core/source-editions.ts';
 import { instrumentWorkspacePath } from '../../core/source-navigation.ts';
 import { covered } from '../../core/access.ts';
@@ -20,6 +22,7 @@ import { domainGuidance, domainReadiness } from '../../ui/domains.ts';
 import { recordClauseRows, renderClauseWorkingView } from '../clause-workspace.ts';
 import {
   panel,
+  pagedCollection,
   table,
   tablePanel,
   tabs,
@@ -105,8 +108,8 @@ function workflowActions(v, active, editable) {
     html += button('activate', 'Make effective version current');
   return html;
 }
-function activity(events) {
-  return `<div class="runtime-audit-list">${events.map((r) => `<div class="runtime-audit-event">${icon('activity')}<div><strong>${esc(title(r.action || r.new_status || r.stage))}</strong><p>${esc(r.reason || r.comments || '')}</p><small>${date(r.event_at || r.changed_at)}${r.actor_user_id ? ' · ' + esc(ref('user', r.actor_user_id)) : ''}</small>${r.old_value || r.new_value ? `<details><summary>Retained change details</summary><pre>${esc(r.old_value || '')}\n${esc(r.new_value || '')}</pre></details>` : ''}</div></div>`).join('') || '<p class="small muted">No activity recorded in this view.</p>'}</div>`;
+function activity(events, pageKey = 'record-activity') {
+  return pagedCollection(events.map((r) => `<div class="runtime-audit-event">${icon('activity')}<div><strong>${esc(title(r.action || r.new_status || r.stage))}</strong><p>${esc(r.reason || r.comments || '')}</p><small>${date(r.event_at || r.changed_at)}${r.actor_user_id ? ' · ' + esc(ref('user', r.actor_user_id)) : ''}</small>${r.old_value || r.new_value ? `<details><summary>Retained change details</summary><pre>${esc(r.old_value || '')}\n${esc(r.new_value || '')}</pre></details>` : ''}</div></div>`), {pageKey, className:'runtime-audit-list', label:'events', summary:false, empty:'<p class="small muted">No activity recorded in this view.</p>'});
 }
 function regulatoryPositionDescription(status) {
   return {
@@ -186,10 +189,8 @@ export function renderRecord(q) {
     t.workflow_status === 'OPEN' && t.stage === t.current_stage && !t.decision);
   const selectedClauses = clauses.filter((c) => c.instrument_version_id === v.id),
     tab = q.get('tab') || 'overview';
-  const source = v.source_document_id
-    ? `<button type="button" class="record-summary-link source-document-link" data-action="source-document-preview" data-id="${esc(v.source_document_id)}" data-name="${esc(source_documents[v.source_document_id] || i.title || 'Source document')}">${icon('file')}<span>${esc(source_documents[v.source_document_id] || i.title || 'Open source document')}</span></button>`
-    : '<span class="record-unlinked">Not recorded</span>';
   let actions = editable ? button('edit-version', 'Edit draft version', '', 'primary') : '';
+  actions+=link('obligations?instrument='+i.id,'Linked obligations','btn');
   if (editable && !active) actions += button('cancel-draft', 'Cancel draft', '', 'danger');
   if (selection.pending.length)
     actions += link(recordPath(i, selection.pending[0], 'overview'), 'Open pending edition', 'btn');
@@ -204,17 +205,11 @@ export function renderRecord(q) {
     actions += (selection.pending.length ? '' : button('version', 'New version', '', 'primary')) + (openCorrection
       ? link(correctionPath(i, v, openCorrection.id), 'View pending metadata correction', 'btn')
       : button('request-metadata-correction', 'Request metadata correction'));
-  const regulator = state.masters.regulator.find((r) => r.id === i.regulator_id);
-  const regulatorName = regulator
-    ? `${regulator.code ? esc(regulator.code) + ' — ' : ''}${esc(regulator.name)}`
-    : esc(ref('regulator', i.regulator_id));
   const mainTitle = i.short_title || i.title;
   const subtitle = i.short_title && i.short_title !== i.title ? i.title : '';
-  const summaryRow = (label, value) =>
-    `<div class="record-summary-row"><dt>${label}</dt><dd>${value || '—'}</dd></div>`;
-  const summaryCard = `<section class="record-summary-card" aria-label="Instrument details"><div class="record-summary-grid"><dl class="record-summary-column">${summaryRow('Regulator', regulatorName)}${summaryRow('Type', esc(ref('instrument_type', i.instrument_type_id)))}${summaryRow('Primary domain', esc(ref('regulatory_domain', i.primary_domain_id)))}${summaryRow('Other domains', secondary_domains.length ? secondary_domains.map((d) => esc(d.name)).join(', ') : '—')}${summaryRow('Official reference', esc(i.official_reference_number || '—'))}${summaryRow('Materiality', `<span class="record-materiality ${esc(String(i.materiality || '').toLowerCase())}"><span class="materiality-marker" aria-hidden="true"></span>${esc(title(i.materiality || 'Not set'))}</span>`)}</dl><dl class="record-summary-column">${summaryRow('Issue date', esc(date(i.issue_date)))}${summaryRow('Effective date', esc(date(i.effective_date)))}${summaryRow('Lead regulatory department', esc(ref('organisational_unit', i.regulatory_owner_unit_id)))}${summaryRow('Interpretation owner', esc(ref('user', i.interpretation_owner_user_id)))}${summaryRow('Source document', source)}${summaryRow('Keywords', esc(i.keywords || '—'))}${summaryRow('Notification family', link('notification-families/'+i.id,'Open notification family','text-link'))}</dl></div></section>`;
+  const summaryCard = renderInstrumentSummary(state.record, v);
   const statusClassification = `<div class="record-classifications" aria-label="Regulatory and approval status"><div class="record-classification record-classification--position"><span class="record-classification-label">Regulatory position</span>${badge(i.regulatory_status)}<small>${esc(regulatoryPositionDescription(i.regulatory_status))}</small></div><div class="record-classification record-classification--approval"><span class="record-classification-label">Version approval</span>${badge(sourceEditionStatus(v))}<small>${esc(versionApprovalDescription(sourceEditionStatus(v), Boolean(v.current_version_flag)))}</small></div></div>`;
-  const hero = `<div class="record-detail-header"><div class="record-detail-heading"><nav class="record-breadcrumb" aria-label="Breadcrumb"><a href="#repository">Regulatory library</a><span aria-hidden="true">/</span><code>${esc(i.code)}</code></nav><div class="record-title-line"><h1>${esc(mainTitle)}</h1></div>${subtitle ? `<p class="record-subtitle">${esc(subtitle)}</p>` : ''}${statusClassification}</div><nav class="record-shortcuts" aria-label="Related record views">${link(recordPath(i, v, 'versions'), `Source editions (${versions.length})`, 'btn')}${link(recordPath(i, v, 'clauses'), `Clauses (${clauses.length})`, 'btn')}</nav>${actions ? `<div class="record-primary-actions">${actions}</div>` : ''}</div>${summaryCard}`;
+  const hero = `<div class="record-detail-header"><div class="record-detail-heading"><nav class="record-breadcrumb" aria-label="Breadcrumb"><a href="#${esc(libraryReturnPath(i.id))}">Regulatory library</a><span aria-hidden="true">/</span><code>${esc(i.code)}</code></nav><div class="record-title-line"><h1>${esc(mainTitle)}</h1></div>${subtitle ? `<p class="record-subtitle">${esc(subtitle)}</p>` : ''}${statusClassification}</div><nav class="record-shortcuts" aria-label="Related record views">${link(recordPath(i, v, 'versions'), `Source editions (${versions.length})`, 'btn')}${link(recordPath(i, v, 'clauses'), `Clauses (${clauses.length})`, 'btn')}</nav>${actions ? `<div class="record-primary-actions">${actions}</div>` : ''}</div>${summaryCard}`;
   const strip = `<div class="source-edition-strip"><label for="selected-source">Source edition</label><select id="selected-source" name="selected_source_version" aria-label="Source edition">${versions.map((r) => `<option value="${r.id}" ${v.id === r.id ? 'selected' : ''}>Version ${esc(versionLabel(r.version_number))} · ${esc(title(sourceEditionStatus(r)))}${r.current_version_flag ? ' · Current' : ''}</option>`).join('')}</select><span class="small muted">Effective from ${date(v.effective_from)}${v.effective_to ? ' until ' + date(v.effective_to) + ' (exclusive)' : ''}</span>${v.effective_from > localDate() ? '<span class="tag amber">Future effective</span>' : ''}</div>`;
   const approved = selection.approvedEffective;
   let editionNotice = '';
@@ -320,9 +315,9 @@ export function renderRecord(q) {
         metadata_corrections.map((r) => [date(r.created_at), esc(ref('user', r.created_by)), correctionSummary(r), esc(r.reason), badge(r.correction_status), link(correctionPath(i, v, r.id), 'Open workflow', 'btn small')]),
         { summary: false },
       ), 'Metadata correction history')}</div>` : '') +
-      `<div class="mt24">${panel('Status history', activity(history))}</div>`;
+      `<div class="mt24">${panel('Status history', activity(history, 'record-status-history'))}</div>`;
   else if (!['versions', 'clauses', 'workflow'].includes(tab))
-    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauses.length + ' source clauses / paras', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(recordPath(i, v, 'workflow'), 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}</div></div><div class="mt24">${panel('Next step', `<div class="actions">${editable ? link(recordPath(i, v, 'clauses'), 'Capture source clauses / paras', 'btn') : ''}${workflowActions(v, active, editable) || link(recordPath(i, v, 'workflow'), 'View workflow', 'btn')}</div>`)}</div>`;
+    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauses.length + ' source Clauses / Para', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(recordPath(i, v, 'workflow'), 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}</div></div><div class="mt24">${panel('Next step', `<div class="actions">${editable ? link(recordPath(i, v, 'clauses'), 'Capture source Clauses / Para', 'btn') : ''}${workflowActions(v, active, editable) || link(recordPath(i, v, 'workflow'), 'View workflow', 'btn')}</div>`)}</div>`;
   const discussion = panel(
     'Discussion',
     comments

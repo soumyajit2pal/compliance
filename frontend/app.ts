@@ -14,8 +14,11 @@ import { workspaceHandlers } from './features/workspace.ts';
 import { clauseHandlers } from './features/clauses.ts';
 import { notificationFamilyHandlers } from './features/notification-families.ts';
 import { installSearchableSelects } from './ui/searchable-select.ts';
+import { regulationRegisterHandlers } from './features/regulation-registers.ts';
+import { obligationHandlers,installObligationEditorEvents } from './features/obligations.ts';
 
 installSearchableSelects();
+installObligationEditorEvents();
 
 const context = { render, loadIdentity, loginView };
 const features = [
@@ -29,6 +32,8 @@ const features = [
   workspaceHandlers,
   clauseHandlers,
   notificationFamilyHandlers,
+  obligationHandlers,
+  regulationRegisterHandlers,
 ].map((factory) => factory(context));
 
 installEvents({

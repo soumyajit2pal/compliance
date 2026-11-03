@@ -52,7 +52,7 @@ function clauseRegister(rows, query) {
         `<a class="btn small clause-open-button" href="#${esc(path)}">Open <span class="sr-only">${esc(row.code)}</span></a>`,
       ];
     }),
-    { caption: 'Authorised source clauses and paras', empty: 'No clauses or paras match this search.' },
+    { caption: 'Authorised source clauses and Para', empty: 'No clauses or Para match this search.' },
   ), 'Clause and para register', '', 'clause-register-panel');
 }
 
@@ -76,7 +76,7 @@ export async function clausesPage(_id, query = new URLSearchParams()) {
   const search = (query.get('q') || '').trim().toLocaleLowerCase();
   const status = query.get('status') || '';
   const rows = population.filter((row) => {
-    const haystack = [row.code, row.source_clause_reference, row.source_page_reference, row.heading,
+    const haystack = [row.code, ...(row.legacy_codes || []), row.source_clause_reference, row.source_page_reference, row.heading,
       row.clause_text, row.internal_interpretation, row.instrument_code, row.instrument_title,
       row.instrument_short_title, row.official_reference_number, row.regulator_code, row.regulator_name, row.domain_name]
       .filter(Boolean).join(' ').toLocaleLowerCase();
@@ -163,7 +163,7 @@ export async function clausesPage(_id, query = new URLSearchParams()) {
       editAction: (editable ? `<button type="button" class="btn small" data-action="workspace-edit-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">${icon('pen')}<span>Edit Draft clause</span></button>` : '')+(selected&&record&&(editable||selectedVersion?.approval_status==='APPROVED')&&covered(record.instrument.regulatory_owner_unit_id,['AUTHOR'])?`<button type="button" class="btn small" data-action="link-earlier-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">Link earlier clause</button>`:''),
       sourceDocument, emptyAction: search || status ? link(clearPath, 'Clear filters', 'btn') : '',
     })) +
-    `<div class="source-note">Showing ${rows.length} of ${population.length} authorised clauses / paras in this selection. Each clause retains its exact source edition.</div>`;
+    `<div class="source-note">Showing ${rows.length} of ${population.length} authorised Clauses / Para in this selection. Each clause retains its exact source edition.</div>`;
 }
 
 export function clauseHandlers({ render }) {

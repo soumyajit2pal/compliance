@@ -24,7 +24,7 @@ export function domainReadiness(domain) {
     label: 'Ready for review',
     reason: 'Domain setup complete',
     detail:
-      'The owning department is assigned and review submissions are enabled. Complete the source, clauses / paras and independent reviewer/approver assignments before submitting. This status does not approve your notification.',
+      'The owning department is assigned and review submissions are enabled. Complete the source, Clauses / Para and independent reviewer/approver assignments before submitting. This status does not approve your notification.',
   };
 }
 

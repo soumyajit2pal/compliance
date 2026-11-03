@@ -1,5 +1,8 @@
 import { esc, title, badge, link } from './components.ts';
 import { icon } from './icons.ts';
+import { collectionKey, withoutPaging, type PageInfo } from '../core/pagination.ts';
+import { pagedTable } from './pagination.ts';
+export { pagedCollection } from './pagination.ts';
 
 export function panel(name, body, { sub = '', action = '', foot = '', cls = '' } = {}) {
   return `<section class="panel ${cls}"><div class="panel-head"><div><h2>${esc(name)}</h2>${sub ? `<p>${esc(sub)}</p>` : ''}</div>${action}</div><div class="panel-body">${body}</div>${foot ? `<div class="panel-foot">${foot}</div>` : ''}</section>`;
@@ -10,9 +13,11 @@ export function note(text, kind = 'info') {
 export function table(
   headers,
   rows,
-  { summary = true, caption = '', empty = 'No records match this view.' } = {},
+  { summary = true, caption = '', empty = 'No records match this view.', pageKey = '', pagination = undefined as PageInfo | undefined, paginate = true } = {},
 ) {
-  return `<div class="table-wrap"><table class="data-table">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead><tr>${headers.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map((cells) => `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}"><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`}</tbody></table></div>${summary ? `<div class="table-summary"><span>${rows.length ? `Showing 1–${rows.length} of ${rows.length} records` : '0 records'} · Authorised population</span><div class="pagination"><button type="button" disabled aria-label="Previous page">‹</button><button type="button" class="active" disabled aria-current="page">1</button><button type="button" disabled aria-label="Next page">›</button></div></div>` : ''}`;
+  const content = `<div class="table-wrap"><table class="data-table">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead><tr>${headers.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody ${paginate ? 'data-page-items' : ''}>${rows.length ? rows.map((cells) => `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}"><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`}</tbody></table></div>`;
+  return paginate ? pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), pagination, summary})
+    : content + (summary ? `<div class="table-summary">${rows.length} records · Complete hierarchy</div>` : '');
 }
 export function tablePanel(content, name = '', actions = '', cls = '') {
   return name
@@ -22,7 +27,7 @@ export function tablePanel(content, name = '', actions = '', cls = '') {
 export function tabs(items, active, base, query = new URLSearchParams()) {
   return `<nav class="tabs" aria-label="Page sections">${items
     .map(([key, label, count]) => {
-      const q = new URLSearchParams(query);
+      const q = withoutPaging(query);
       q.set('tab', key);
       return `<a class="tab ${key === active ? 'active' : ''}" href="#${base}?${esc(q.toString())}" ${key === active ? 'aria-current="page"' : ''}>${esc(label)}${count !== undefined ? `<span class="count-bubble">${count}</span>` : ''}</a>`;
     })
@@ -31,8 +36,8 @@ export function tabs(items, active, base, query = new URLSearchParams()) {
 export function detailFields(entries) {
   return `<div class="detail-grid">${entries.map(([label, value, full]) => `<div class="detail-field ${full ? 'full' : ''}"><label>${esc(label)}</label><div>${value || '—'}</div></div>`).join('')}</div>`;
 }
-export function recordCell(code, name, path, sub = '') {
-  return `<a href="#${esc(path)}"><span class="record-code">${esc(code)}</span><span class="record-title">${esc(name)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</a>`;
+export function recordCell(code, name, path, sub = '', attributes = '') {
+  return `<a href="#${esc(path)}" ${attributes}><span class="record-code">${esc(code)}</span><span class="record-title">${esc(name)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</a>`;
 }
 export function person(name, sub = '') {
   const initials = String(name || '?')

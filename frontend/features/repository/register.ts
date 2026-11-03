@@ -14,7 +14,8 @@ import {
 import { icon } from '../../ui/icons.ts';
 import { heading, pageHelp } from '../../ui/layout.ts';
 import { table, tablePanel, recordCell } from '../../ui/widgets.ts';
-export function renderRegister(rows, q) {
+import { withoutPaging } from '../../core/pagination.ts';
+export function renderRegister(rows, q, pagination = undefined) {
   const statusCell = (record) => {
     const position = record.regulatory_status;
     const status = ['CURRENT', 'SUPERSEDED', 'WITHDRAWN'].includes(position)
@@ -28,11 +29,11 @@ export function renderRegister(rows, q) {
   return (
     pageHelp(
       'Your regulatory repository',
-      'Find an issued notification and open its authoritative source, source editions, clauses / paras and review history.',
+      'Select a row or Quick view to preview an instrument. Open instrument shows its source editions, Clauses / Para and review history.',
     ) +
     heading(
       'Regulatory repository',
-      'Each notification has one record, may affect multiple domains, and retains its source editions, clauses / paras and independent review.',
+      'Each notification has one record, may affect multiple domains, and retains its source editions, Clauses / Para and independent review.',
       has('AUTHOR')
         ? '<a class="btn primary" href="#repository/new">' + icon('plus') + 'New instrument</a>'
         : '',
@@ -45,7 +46,7 @@ export function renderRegister(rows, q) {
         <select class="filter-select" name="materiality" aria-label="Materiality"><option value="">All materialities</option>${['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((value) => `<option value="${value}" ${q.get('materiality') === value ? 'selected' : ''}>${esc(title(value))}</option>`).join('')}</select>
         <select class="filter-select" name="regulatory_status" aria-label="Status"><option value="">All statuses</option>${['DRAFT', 'CURRENT', 'SUPERSEDED', 'WITHDRAWN'].map((status) => `<option value="${status}" ${q.get('regulatory_status') === status ? 'selected' : ''}>${esc(title(status))}</option>`).join('')}</select>
         <button class="btn small primary search-submit" type="submit">Search</button>
-        ${q.toString() ? link('repository', 'Clear filters', 'btn small') : ''}
+        ${withoutPaging(q).toString() ? link('repository', 'Clear filters', 'btn small') : ''}
       </div>
       <details class="filter-more">
         <summary aria-controls="repository-more-filters">${icon('filter')}More filters${activeMoreFilters ? `<span class="count-bubble" aria-label="${activeMoreFilters} active additional filters">${activeMoreFilters}</span>` : ''}${icon('down')}</summary>
@@ -79,7 +80,9 @@ export function renderRegister(rows, q) {
           'Status',
         ],
         rows.map((r) => [
-          recordCell(r.code, r.title, 'repository/' + r.id),
+          '<div class="library-instrument-cell">' +
+            recordCell(r.code, r.title, 'repository/' + encodeURIComponent(r.id), '', 'data-instrument-preview="' + esc(r.id) + '" aria-haspopup="dialog" aria-expanded="false" aria-controls="instrument-quick-view"') +
+            '<button type="button" class="btn small library-quick-view-trigger" data-instrument-preview="' + esc(r.id) + '" aria-label="Quick view: ' + esc(r.title) + '" aria-haspopup="dialog" aria-expanded="false" aria-controls="instrument-quick-view">' + icon('eye') + 'Quick view</button></div>',
           esc(r.official_reference_number || 'Not provided by regulator'),
           esc(r.regulator_name) + '<small>' + esc(r.domain_name) + '</small>' +
             (r.secondary_domain_names?.length
@@ -91,7 +94,7 @@ export function renderRegister(rows, q) {
           `<span class="risk ${esc(String(r.materiality || '').toLowerCase())}"><i aria-hidden="true"></i>${esc(title(r.materiality))}</span>`,
           statusCell(r)+'<br>'+link('notification-families/'+r.id,'Open notification family','text-link'),
         ]),
-        { caption: 'Authorised regulatory notifications' },
+        { caption: 'Authorised regulatory notifications', pageKey: 'instruments', pagination },
       ),
     ) +
     `<div class="source-note">A source edition is a version of one library record. Original source wording and the bank’s interpretation are preserved separately.</div>`

@@ -97,6 +97,20 @@ class Process(Record):
     criticality: Literal['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] = 'MEDIUM'
 
 
+class Product(Record):
+    category:str=Field(min_length=1,max_length=100)
+    owner_unit_id:str
+    customer_segment_id:str|None=None
+    channel_id:str|None=None
+    launch_date:date
+    retirement_date:date|None=None
+
+    @model_validator(mode='after')
+    def dates(self):
+        if self.retirement_date and self.retirement_date<=self.launch_date:raise ValueError('Retirement must follow launch.')
+        return self
+
+
 # A single allowlist drives validation, API metadata and the shared frontend form.
 DEFINITIONS = {
     'regulatory_domain': ('Regulatory domain', Domain, 'parent_domain_id', 'domain_level'),
@@ -107,6 +121,11 @@ DEFINITIONS = {
     'evidence_type': ('Evidence type', Record, None, None),
     'confidentiality_class': ('Confidentiality class', Confidentiality, None, None),
     'process': ('Process', Process, 'parent_process_id', None),
+    'legal_entity': ('Legal entity', Record, None, None),
+    'product': ('Product', Product, None, None),
+    'channel': ('Channel', Record, None, None),
+    'customer_segment': ('Customer segment', Record, None, None),
+    'geography': ('Geography', Record, None, None),
     'role': ('Application role', Record, None, None),
     'organisational_unit': ('Organisation unit', Organisation, 'parent_org_unit_id', 'level_number'),
 }
@@ -114,7 +133,7 @@ REFERENCES = {
     'parent_org_unit_id': 'organisational_unit', 'domain_owner_unit_id': 'organisational_unit',
     'owner_unit_id': 'organisational_unit', 'scheme_id': 'taxonomy_scheme',
     'parent_domain_id': 'regulatory_domain', 'parent_regulator_id': 'regulator',
-    'parent_process_id': 'process',
+    'parent_process_id': 'process', 'customer_segment_id':'customer_segment','channel_id':'channel',
 }
 LABELS = {
     'active_flag': 'Active', 'creates_obligation_flag': 'Creates obligations',
@@ -253,5 +272,8 @@ def save(db, actor, key, payload, identifier=None):
                     new={level_field: levels[row['id']]}, reason=payload.reason)
     audit(db, actor, key, identifier, 'MASTER_UPDATED' if old else 'MASTER_CREATED',
         old=old, new=values, reason=payload.reason)
+    if old and key in {'process','product'} and any(old.get(k)!=v for k,v in values.items()):
+        from .obligations import notify_reassessment
+        notify_reassessment(db,actor,key,identifier)
     return {'id': identifier, 'records': [dict(row) for row in db.execute(
         sa.select(table).where(table.c.id.in_(changed)).order_by(table.c.id)).mappings()]}

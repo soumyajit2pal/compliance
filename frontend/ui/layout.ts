@@ -10,7 +10,11 @@ const names = {
   tasks: 'My work',
   approvals: 'My decisions',
   repository: 'Regulatory library',
-  clauses: 'Clauses / Paras',
+  clauses: 'Clauses / Para',
+  obligations: 'Obligations',
+  'clause-relationships': 'Clause / Para relationships',
+  applicability: 'Obligations',
+  accountability: 'Obligations',
   'notification-families': 'Notification families',
   migration: 'Import existing regulatory records',
   masters: 'Master data',
@@ -27,6 +31,10 @@ const icons = {
   approvals: 'shield',
   repository: 'book',
   clauses: 'file',
+  obligations: 'checkSquare',
+  'clause-relationships': 'link',
+  applicability: 'target',
+  accountability: 'users',
   'notification-families': 'org',
   migration: 'upload',
   masters: 'settings',
@@ -64,11 +72,12 @@ function navItem(key, selected, extra = '') {
   return `<a class="nav-item ${current ? 'active' : ''}" href="#${href}" ${current ? 'aria-current="page"' : ''}>${icon(extra ? 'org' : icons[key])}<span>${esc(label)}</span>${count !== undefined ? `<span class="nav-count">${count}</span>` : ''}</a>`;
 }
 function navigation(key) {
+  if(['applicability','accountability'].includes(key))key='obligations';
   if (!state.ready)
     return `<div class="nav-scroll"><p class="small muted">Finish sign-in to open your workspace.</p></div>`;
   const primary = ['home', 'tasks', 'approvals'].map((i) => navItem(i, key)).join('');
   const groups = [
-    { name: 'Regulations', hint: 'Notifications and source records', icon: 'book', items: ['repository', 'notification-families', 'clauses'] },
+    { name: 'Regulations', hint: 'Notifications, source records and obligations', icon: 'book', items: ['repository', 'notification-families', 'clauses', 'clause-relationships', 'obligations'] },
     { name: 'Reports and history', hint: 'Alerts and release records', icon: 'chart', items: ['notifications'] },
     {
       name: 'Administration',

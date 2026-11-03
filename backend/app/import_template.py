@@ -35,13 +35,13 @@ FIELDS = [
     ('import_reference', 'Import reference', False, 'Required when linking clauses. Use one unique workbook reference per record, for example REG-001. Permanent portal IDs are generated automatically.', 'REG-001'),
     ('source_file_name', 'Source file name', False, 'For a new record, enter the exact attached PDF, text or DOCX filename instead of a Source document ID.', 'example-source.txt'),
     ('source_edition', 'Source edition', False, 'New records start at 1.0. For an existing Draft, enter its exact edition number as text.', '1.0'),
-    ('existing_instrument_code', 'Existing instrument code', False, 'Optional clause-only target: enter the permanent instrument code and its Draft source edition. Other instrument fields and source inputs must be blank; existing content is retained.', ''),
+    ('existing_instrument_code', 'Existing instrument code', False, 'Optional clause-only target: enter the current or retained legacy instrument code and its exact Draft source edition. Other instrument fields and source inputs must be blank; existing content is retained.', ''),
 ]
 CLAUSE_FIELDS = [
     ('import_reference', 'Import reference', True, 'Match the Regulatory records row, for example REG-001.', 'REG-001'),
     ('source_edition', 'Source edition', False, 'Leave blank to inherit the record edition, or enter the same edition as text. Cross-edition parents are not allowed.', '1.0'),
     ('clause_import_reference', 'Clause import reference', True, 'Unique within the record, for example C1. This is a workbook reference; the portal generates the permanent clause ID.', 'C1'),
-    ('parent_import_reference', 'Parent clause reference', False, 'Use another clause import reference in this record. Blank means top level. For an existing Draft, its same-edition permanent clause code also works.', ''),
+    ('parent_import_reference', 'Parent clause reference', False, 'Use another clause import reference in this record. Blank means top level. For an existing Draft, its same-edition current or retained legacy clause code also works.', ''),
     ('source_clause_reference', 'Source clause / para number', False, 'Copy numbering exactly as text, including 5.10. Leave blank for an unnumbered provision.', '5'),
     ('heading', 'Clause heading', True, 'Heading for this source clause / para.', 'Customer identification'),
     ('source_page_reference', 'Source page reference', True, 'Identify the pages in the attached authoritative source.', 'Page 5'),

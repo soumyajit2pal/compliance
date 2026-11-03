@@ -217,7 +217,7 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
             `<div class="divider"></div>${decision === 'WITHDRAW' ? '<div class="notice">Withdraw this submission to Draft for editing. Current review is closed; submitting again starts a fresh independent review.</div>' : ''}${extra}${field(
               'Decision and rationale',
               area('comments', '', 'required minlength="3"'),
-            )}${['REVIEW', 'APPROVE'].includes(decision) ? '<label class="check-label mt24"><input type="checkbox" required>I confirm I am independent of the maker and have reviewed the source and clauses / paras.</label>' : ''}`,
+            )}${['REVIEW', 'APPROVE'].includes(decision) ? '<label class="check-label mt24"><input type="checkbox" required>I confirm I am independent of the maker and have reviewed the source and Clauses / Para.</label>' : ''}`,
           'decision',
           'Record ' + title(decision),
         );
@@ -303,7 +303,7 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
           form.dataset.familyParent?{instrument:values,reviewer_id:family.family_reviewer_id,approver_id:family.family_approver_id,relationship_type:family.family_relationship_type,basis:family.family_basis,effective_from:values.effective_date}:values,
         );
         close();
-        message('Draft instrument saved. Add clauses / paras to its source version next.');
+        message('Draft instrument saved. Add Clauses / Para to its source version next.');
         location.hash = 'repository/' + result.id;
         await render();
       },

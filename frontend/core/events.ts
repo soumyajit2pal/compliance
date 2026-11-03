@@ -1,4 +1,5 @@
 import { state } from './state.ts';
+import { withoutPaging } from './pagination.ts';
 import { dialog } from './dom.ts';
 import { render } from './router.ts';
 import { choosePeople } from './assignees.ts';
@@ -63,12 +64,12 @@ export function installEvents({ actions, forms }) {
     event.preventDefault();
     if (isBusy(form)) return;
     clearFormError(form);
-    const finish = beginInteraction(form, form.id === 'login' ? 'Signing in…'
+    const finish = beginInteraction(event.submitter instanceof HTMLElement ? event.submitter : form, form.id === 'login' ? 'Signing in…'
       : form.id.includes('search') ? 'Searching…'
       : form.id.includes('filter') ? 'Loading results…'
       : form.id.includes('upload') ? 'Uploading…' : 'Saving changes…');
     try {
-      await forms[form.id](form);
+      await forms[form.id](form, event.submitter);
     } catch (error) {
       reportError(error.message, form);
     } finally {
@@ -125,7 +126,7 @@ export function installEvents({ actions, forms }) {
       }
       if (target.name === 'selected_source_version') {
         const [path, qs = ''] = location.hash.slice(1).split('?');
-        const query = new URLSearchParams(qs);
+        const query = withoutPaging(new URLSearchParams(qs));
         query.set('version', target.value);
         query.delete('clause');
         location.hash = path + '?' + query;

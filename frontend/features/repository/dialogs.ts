@@ -126,7 +126,7 @@ export async function instrumentForm(edit = false) {
         )}
       </div>
       <p class="print-note">
-        ${edit ? 'Saving updates the initial Draft instrument and its source details.' : 'Saving creates Draft version 1.0.'} Add or review source clauses / paras next; review and approval remain separate steps.
+        ${edit ? 'Saving updates the initial Draft instrument and its source details.' : 'Saving creates Draft version 1.0.'} Add or review source Clauses / Para next; review and approval remain separate steps.
       </p>`,
     'instrument',
     edit ? 'Save Draft' : 'Create instrument and version 1.0',

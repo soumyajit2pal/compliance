@@ -109,7 +109,8 @@ def request_update(db,actor,session,reason=''):
         .order_by(m.ldap_department_request.c.requested_at.desc())).mappings().first()
     if latest and latest['status']=='REJECTED' and latest['observation_id']==user['ldap_observation_id'] and (
         len(reason.strip())<3 or reason==latest['request_reason']):
-        raise HTTPException(409,'This department update was rejected. Provide a new explanation to request reconsideration.')
+        raise HTTPException(409,'This department update was rejected. Provide a new e' \
+        'xplanation to request reconsideration.')
     identifier=new_id()
     db.execute(m.ldap_department_request.insert().values(id=identifier,user_id=user['id'],
         previous_code=user['department_code'],proposed_code=user['ldap_last_seen_department_code'],

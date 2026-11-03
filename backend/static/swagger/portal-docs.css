@@ -1,0 +1,30 @@
+body { margin: 0; background: #fff; color: #292535; font: 15px/1.5 system-ui, sans-serif; }
+.docs-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 30px; background: #f0eaf6; border-bottom: 3px solid #705389; }
+.docs-header > div { display: flex; align-items: center; gap: 14px; }
+.docs-header h1 { margin: 0; font-size: 24px; }
+.docs-environment { padding: 3px 9px; border: 1px solid #705389; border-radius: 5px; color: #543a69; font-size: 12px; font-weight: 700; }
+.docs-header a { color: #543a69; font-weight: 600; }
+.docs-guidance { margin: 0; padding: 14px 30px; background: #f8f7fa; border-bottom: 1px solid #e2dee8; }
+.swagger-ui .information-container { padding-top: 10px; }
+.docs-session { margin: 20px 30px 0; padding: 18px 20px; border: 1px solid #d5c8e0; border-radius: 8px; background: #f8f7fa; }
+.docs-session [hidden] { display: none !important; }
+.docs-session-heading, .docs-account { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.docs-session h2 { margin: 0; font-size: 18px; }
+.docs-session fieldset { border: 0; margin: 12px 0 0; padding: 0; min-width: 0; }
+.docs-login-grid { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto; align-items: end; gap: 14px; max-width: 850px; }
+.docs-login-grid label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; }
+.docs-login-grid input { box-sizing: border-box; width: 100%; min-width: 0; height: 42px; padding: 9px 12px; color: #292535; border: 1px solid #92869e; border-radius: 6px; background: #fff; font: inherit; }
+.docs-session button { min-height: 42px; padding: 9px 16px; border: 1px solid #705389; border-radius: 6px; color: #543a69; background: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.docs-session #docs-sign-in { color: #fff; background: #705389; }
+.docs-session :disabled { cursor: wait; opacity: .65; }
+.docs-session :is(button,input,a):focus-visible { outline: 3px solid #805e9a; outline-offset: 2px; }
+.docs-account { margin-top: 12px; }
+.docs-account p { margin: 3px 0 0; font-size: 13px; }
+.docs-auth-status { margin: 12px 0 0; font-size: 13px; }
+.docs-auth-error { margin: 10px 0 0; color: #a92f3d; font-size: 14px; }
+.docs-session[data-access=restricted] { border-color: #b38736; }
+.docs-session[data-access=restricted] .docs-auth-status { color: #80550d; }
+#docs-setup-link { display: inline-block; margin-top: 9px; color: #543a69; }
+.docs-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 600px) { .docs-header { padding: 16px; flex-wrap: wrap; gap: 10px; } .docs-guidance { padding: 12px 16px; } .docs-header h1 { font-size: 20px; } }
+@media (max-width: 600px) { .docs-session { margin: 16px 16px 0; padding: 16px; } .docs-login-grid { grid-template-columns: 1fr; gap: 12px; } .docs-session button, .docs-login-grid input { min-height: 44px; } }

@@ -5,7 +5,7 @@ import { esc, badge, button, field, input, message } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
 import { modal, close } from '../ui/dialog.ts';
 import { heading } from '../ui/layout.ts';
-import { panel, note } from '../ui/widgets.ts';
+import { panel, note, pagedCollection } from '../ui/widgets.ts';
 /** LDAP settings follow QA Portal's connection, trust, profile and test sections. */
 export async function ldapPage() {
   const request = state.routeNumber, data = await api('/admin/ldap');
@@ -112,7 +112,7 @@ export async function applicationsPage() {
       'Connected applications',
       'Retain existing compliance capabilities, with a clear path from this portal.',
     ) +
-    `<div class="grid-3">${rows.map((r, i) => `<section class="connection-card"><div class="row between"><span class="connection-icon">${icon(['shield', 'checkSquare', 'layers'][i] || 'external')}</span>${badge(r.active_flag && r.url ? 'AVAILABLE' : 'CONFIGURATION_PENDING')}</div><h3>${esc(r.name)}</h3><p>${esc(r.description)}</p><div class="small muted">${r.active_flag && r.url ? 'Bank-approved link available.' : 'Approved bank URL has not been configured.'}</div><div class="actions">${r.active_flag && r.url ? `<a class="btn primary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${icon('external')}Open application</a>` : ''}${has('ADMIN') ? button('application', 'Configure link', `data-id="${r.id}"`) : ''}</div></section>`).join('')}</div><div class="mt24">${note('Retained applications remain separate. This portal provides governed links; it does not recreate their workflows.')}</div>`
+    pagedCollection(rows.map((r, i) => `<section class="connection-card"><div class="row between"><span class="connection-icon">${icon(['shield', 'checkSquare', 'layers'][i] || 'external')}</span>${badge(r.active_flag && r.url ? 'AVAILABLE' : 'CONFIGURATION_PENDING')}</div><h3>${esc(r.name)}</h3><p>${esc(r.description)}</p><div class="small muted">${r.active_flag && r.url ? 'Bank-approved link available.' : 'Approved bank URL has not been configured.'}</div><div class="actions">${r.active_flag && r.url ? `<a class="btn primary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${icon('external')}Open application</a>` : ''}${has('ADMIN') ? button('application', 'Configure link', `data-id="${r.id}"`) : ''}</div></section>`),{pageKey:'applications',className:'grid-3',label:'applications'}) + `<div class="mt24">${note('Retained applications remain separate. This portal provides governed links; it does not recreate their workflows.')}</div>`
   );
 }
 export function settingsHandlers({ render }) {

@@ -3,6 +3,8 @@ import { loginView } from '../features/auth.ts';
 import { homePage } from '../features/home.ts';
 import { repositoryPage } from '../features/repository.ts';
 import { clausesPage } from '../features/clauses.ts';
+import { regulationRegistersPage } from '../features/regulation-registers.ts';
+import { obligationsPage } from '../features/obligations.ts';
 import { notificationFamiliesPage } from '../features/notification-families.ts';
 import { migrationPage } from '../features/migration.ts';
 import { tasksPage, notificationsPage } from '../features/work.ts';
@@ -17,11 +19,14 @@ import { icon } from '../ui/icons.ts';
 import { esc, empty, link, title, message } from '../ui/components.ts';
 import { SessionExpired, api } from './api.ts';
 import { beginActivity } from '../ui/loading.ts';
+import { obligationView, workspaceAlias } from './obligation-workspace.ts';
 
 const pages = {
   home: homePage,
   repository: repositoryPage,
   clauses: clausesPage,
+  obligations: obligationsPage,
+  'clause-relationships': (_id,q)=>regulationRegistersPage('clause-relationships',q),
   'notification-families': notificationFamiliesPage,
   migration: migrationPage,
   tasks: (_id, q) => tasksPage('tasks', q),
@@ -46,10 +51,18 @@ export async function render() {
   // Password change and LDAP profile confirmation finish before navigation.
   if (!state.ready) return;
   const request = ++state.routeNumber;
-  const { page, id, query } = route();
+  let { page, id, query } = route();
+  const alias = workspaceAlias(page, query);
+  if(alias && !id) {
+    history.replaceState(history.state, '', '#' + alias);
+    page='obligations';
+    query=new URLSearchParams(alias.split('?')[1]);
+  }
+  const view=obligationView(query);
   if (
     !pages[page] ||
-    (!state.identity.menu.some((item) => item.id === page) && page !== 'notifications')
+    (!state.identity.menu.some((item) => item.id === page) && page !== 'notifications') ||
+    (page==='obligations'&&!id&&view!=='register'&&!state.identity.menu.some(item=>item.id===view))
   ) {
     return shell(
       `<div class="access-boundary">${panel('This area is outside your role scope', note('Your approved role does not permit this workspace. No record details are shown.', 'warn') + '<div class="mt24">' + link('home', 'Return to Home', 'btn primary') + '</div>')}</div>`,
@@ -71,11 +84,12 @@ export async function render() {
     document.title =
       (page === 'repository' && id && id !== 'new'
         ? state.record.instrument.code
+        : page === 'obligations' && !id ? 'Obligations · '+(view==='register'?(query.get('tab')==='reports'?'Exceptions':'Register'):title(view))
         : page === 'clauses'
           ? query.get('view') === 'register' ? 'Clause register' : 'Clause workspace'
         : page === 'migration'
           ? 'Import existing regulatory records'
-          : title(page)) + ' · Compliance by Design';
+          : ['clause-relationships','applicability','accountability'].includes(page)?label:title(page)) + ' · Compliance by Design';
   } catch (error) {
     if (error instanceof SessionExpired) return;
     if (request === state.routeNumber && state.identity) {

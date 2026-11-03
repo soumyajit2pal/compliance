@@ -1,0 +1,20 @@
+.paged-collection { min-width: 0; }
+.shared-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 14px 18px; }
+.shared-pagination .pagination-range { margin-right: auto; font-variant-numeric: tabular-nums; }
+.shared-pagination .pagination-size { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.shared-pagination .pagination-size > label { white-space: nowrap; font-size: 12px; }
+.shared-pagination .pagination-size .searchable-select { width: 88px; min-width: 88px; }
+.shared-pagination .pagination-size select,
+.shared-pagination .pagination-size [role=combobox] { min-height: 36px; height: 36px; font-size: 12px; }
+.shared-pagination .pagination { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.shared-pagination .pagination a, .shared-pagination .pagination button { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--primary); font: inherit; }
+.shared-pagination .pagination .active { background: var(--soft); border-color: var(--primary); font-weight: 700; opacity: 1; cursor: default; }
+.shared-pagination .pagination a:hover { border-color: var(--primary); background: var(--soft); }
+.shared-pagination .pagination-ellipsis { padding: 0 3px; }
+.clause-hierarchy-panel .shared-pagination { padding: 12px; }
+.clause-hierarchy-panel .shared-pagination .pagination { width: 100%; }
+@media(max-width:600px) {
+  .shared-pagination { padding: 12px; gap: 10px; }
+  .shared-pagination .pagination { width: 100%; justify-content: flex-start; }
+  .shared-pagination .pagination a, .shared-pagination .pagination button { min-width: 32px; height: 36px; }
+}

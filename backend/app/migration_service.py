@@ -5,7 +5,7 @@ from collections import Counter
 import sqlalchemy as sa
 from fastapi import HTTPException
 from openpyxl import load_workbook
-from . import models as m
+from . import models as m,business_ids
 from .events import new_id,now,audit
 from . import repository as repo
 from .schemas import InstrumentInput,ClauseInput
@@ -155,7 +155,7 @@ def normalise(db,raw,seen=None,*,source_attachment=None):
             'source_clause_reference':data.get('source_clause_reference') or None,'parent_clause_id':data.get('parent_clause_id') or None}
         version=db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.id==normal['version_id'])).mappings().first()
         if not version or version['approval_status']!='DRAFT':errors.append('Target version must be an existing Draft')
-        if normal['code'] and db.execute(sa.select(m.regulatory_clause.c.id).where(m.regulatory_clause.c.instrument_version_id==normal['version_id'],m.regulatory_clause.c.code==normal['code'])).first(): errors.append('Clause / Para reference already exists in target version')
+        if normal['code'] and business_ids.resolve(db,'clause',normal['code'],version_id=normal['version_id']): errors.append('Clause / Para reference already exists in target version')
         identity=(normal['version_id'],normal['code'])
         if seen is not None and normal['code']:
             if identity in seen:errors.append('Duplicate clause / para reference in source population')
@@ -222,6 +222,7 @@ def require_migration(actor,roles={'AUTHOR','REVIEWER'}):
 def batch_detail(db,actor,identifier):
     require_migration(actor)
     batch=repo.one(db,m.migration_batch,identifier)
+    if batch['record_status'].startswith('OBL_'):raise HTTPException(404,'Open this batch in Obligation imports.')
     rows=[dict(r) for r in db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier).order_by(m.migration_row.c.sheet_name,m.migration_row.c.row_number)).mappings()]
     for row in rows:row['profile']=json.loads(row['validation_errors'] or '{}');row['source']=json.loads(row['source_payload'])
     populations=Counter(r['validation_status'] for r in rows)
@@ -233,6 +234,7 @@ def batch_detail(db,actor,identifier):
 
 def validate_content(db,actor,identifier,storage=None):
     require_migration(actor,{'REVIEWER'});batch=repo.one(db,m.migration_batch,identifier,lock=True)
+    if batch['record_status'].startswith('OBL_'):raise HTTPException(404,'Open this batch in Obligation imports.')
     if actor.id==batch['uploaded_by']: raise HTTPException(403,'A different Compliance reviewer must validate migrated content.')
     from . import combined_import
     if combined_import.manifest(batch):return combined_import.validate(db,actor,batch,storage)
@@ -247,6 +249,7 @@ def validate_content(db,actor,identifier,storage=None):
 
 def load_batch(db,actor,identifier,storage=None):
     require_migration(actor,{'AUTHOR'});batch=repo.one(db,m.migration_batch,identifier,lock=True)
+    if batch['record_status'].startswith('OBL_'):raise HTTPException(404,'Open this batch in Obligation imports.')
     from . import combined_import
     if combined_import.manifest(batch):return combined_import.load(db,actor,batch,storage)
     rows=db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier,m.migration_row.c.validation_status=='MIGRATION_READY').order_by(m.migration_row.c.row_number).with_for_update()).mappings().all()

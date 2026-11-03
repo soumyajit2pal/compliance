@@ -7,6 +7,12 @@ export interface LoginKey {
   expires_in: number;
 }
 
+/** Shared portal/Swagger protocol. Fetch a fresh single-use challenge on every attempt. */
+export async function encryptedSignIn(request: (path: string, method?: string, body?: unknown) => Promise<any>, username: string, password: string) {
+  const key: LoginKey = await request('/auth/login-key');
+  return request('/auth/login', 'POST', await encryptLogin(key, username, password));
+}
+
 const decode = (value: string): Uint8Array<ArrayBuffer> =>
   Uint8Array.from(atob(value), character => character.charCodeAt(0));
 const encode = (value: ArrayBuffer | Uint8Array): string =>

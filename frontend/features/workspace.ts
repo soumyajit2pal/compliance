@@ -1,4 +1,5 @@
 import { state } from '../core/state.ts';
+import { withoutPaging } from '../core/pagination.ts';
 import { esc, title, field, input, select, ref } from '../ui/components.ts';
 import { modal, close } from '../ui/dialog.ts';
 import { detailFields, note, table } from '../ui/widgets.ts';
@@ -67,10 +68,13 @@ export function workspaceHandlers() {
       },
       'view-filter': async (form) => {
         const [path, qs = ''] = location.hash.slice(1).split('?');
-        const q = new URLSearchParams(qs);
+        const q = withoutPaging(new URLSearchParams(qs));
         for (const [key, value] of new FormData(form)) {
           if (typeof value === 'string' && value) q.set(key, value);
           else q.delete(key);
+        }
+        for (const checkbox of form.querySelectorAll('input[type="checkbox"][name]')) {
+          if (!checkbox.checked) q.delete(checkbox.name);
         }
         location.hash = path + '?' + q.toString();
       },

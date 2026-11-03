@@ -1,0 +1,27 @@
+/* Match the Regulatory Library drawer while reusing the full Overview content. */
+.obligation-register-cell { display:flex; align-items:flex-start; flex-wrap:wrap; gap:10px 12px; }
+.obligation-register-cell>a { flex:1 1 170px; min-width:0; }
+.obligation-register-cell .obligation-quick-view-trigger { flex:0 0 auto; min-height:36px; padding:6px 9px; gap:6px; font-size:12px; color:var(--primary-dark); border-color:var(--plum-line); }
+.obligation-quick-view-trigger .icon { width:16px; height:16px; }
+.data-table tbody tr:has([data-obligation-preview]) { cursor:pointer; -webkit-tap-highlight-color:transparent; }
+.data-table tbody tr:has([data-obligation-preview]):focus-within>td { background:var(--soft); }
+@media(hover:hover) { .data-table tbody tr:has([data-obligation-preview]):hover>td { background:var(--soft); } }
+.data-table tbody tr:has([data-obligation-preview][aria-expanded=true])>td { background:var(--selection); }
+.data-table tbody tr:has([data-obligation-preview][aria-expanded=true])>td:first-child { box-shadow:inset 3px 0 var(--primary); }
+[data-obligation-preview][aria-expanded=true] .record-title,.coverage-card-head a[data-obligation-preview][aria-expanded=true] { color:var(--primary); }
+.obligation-quick-view-trigger[aria-expanded=true] { background:var(--selection); border-color:var(--primary); }
+.obligation-quick-view .obligation-overview-grid { grid-template-columns:minmax(0,1fr); gap:22px; }
+.obligation-quick-view .obligation-overview-grid>.panel { margin:0; border:0; border-radius:0; box-shadow:none; }
+.obligation-quick-view .panel-head { padding:0 0 12px; }
+.obligation-quick-view .panel-head h2 { font-size:17px; }
+.obligation-quick-view .panel-body { padding:0; }
+.obligation-quick-view .obligation-definition-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 20px; }
+.obligation-quick-view .obligation-definition-list>div { display:block; border:0; padding:0; }
+.obligation-quick-view .obligation-definition-list>div:nth-child(-n+2) { grid-column:1/-1; }
+.obligation-quick-view .obligation-definition-list dt { margin:0 0 4px; font-size:12px; }
+.obligation-quick-view .obligation-definition-list dd { font-size:14px; line-height:1.5; }
+.obligation-quick-view .obligation-definition-list dd small { display:block; margin-top:4px; color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.obligation-quick-view .obligation-wording .source-wording { padding:12px; font-size:14px; line-height:1.6; overflow-wrap:anywhere; white-space:pre-wrap; }
+.obligation-quick-view .record-code { overflow-wrap:anywhere; }
+@media(pointer:coarse) { .obligation-register-cell .obligation-quick-view-trigger { min-height:44px; } }
+@media(max-width:360px) { .obligation-quick-view .obligation-definition-list { grid-template-columns:minmax(0,1fr); } }

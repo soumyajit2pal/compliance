@@ -14,20 +14,20 @@ export const ROLE_HELP = [
   [
     'AUTHOR',
     'Regulatory source preparation',
-    'Register a Draft notification, preserve the source file, capture original clauses / paras and a separate bank interpretation. Add subsequent source versions, stage registers and nominate eligible independent decision makers.',
-    'Edit only permitted Draft content. You cannot review or approve your own source. Migration loading creates Drafts, not approved records.',
+    'Register a Draft notification, preserve the source file, capture original Clauses / Para and a separate bank interpretation. Add subsequent source/obligation revisions, capture named ownership/applicability and process mappings, stage registers and nominate independent decision makers.',
+    'Edit only permitted Draft content. You cannot review or approve your own source. Regulatory and obligation imports load Drafts. Named obligation owners validate assignments after Compliance review.',
   ],
   [
     'BUSINESS_OWNER',
     'Department accountability',
     'Read regulatory sources within your approved organisation scope and understand upcoming responsibilities.',
-    'Business-owner validation and obligation/action transactions belong to later implementation stages. Department visibility does not create a personal task.',
+    'Validate your named obligation ownership/applicability assignments, accept or object with a basis, and follow approved obligations in your scope. Department visibility alone does not create a personal task. Action tracking follows in Week 5.',
   ],
   [
     'CONTROL_OWNER',
     'Controls and procedures',
     'Read authorised sources and understand the requirements that future checks and procedures will address.',
-    'Control definition, mappings and executions are outside the implemented Week 1–3 transaction scope. This role alone gives no source-approval authority.',
+    'Accept or object to your named obligation ownership. Control definition, mappings and executions remain outside the implemented Week 1–4 scope. This role alone gives no source-approval authority.',
   ],
   [
     'EVIDENCE_OWNER',
@@ -38,7 +38,7 @@ export const ROLE_HELP = [
   [
     'REVIEWER',
     'Independent Compliance review',
-    'Open your named review tasks, inspect the source and clauses / paras, record review, return for correction, reject or delegate to another eligible person. Validate migration content independently of its submitter.',
+    'Open your named review tasks, inspect the source and Clauses / Para, record review, return for correction, reject or delegate to another eligible person. Validate migration content independently of its submitter.',
     'Never review your own source. You cannot give its final approval after performing its review. Only the assigned stage is actionable.',
   ],
   [
@@ -68,10 +68,10 @@ const topics = [
     'Open Regulatory library → New instrument. Complete Basic information, Classification, Accountability and Source & version. Review the details, then create the Draft.',
   ],
   [
-    'Capture original source clauses / paras',
+    'Capture original source Clauses / Para',
     'AUTHOR',
     'repository',
-    'Open the notification → Clauses / Paras → Add clause / para. A clause / para is one numbered part of the source notification; para means paragraph. Keep the regulator’s original wording separate from the bank’s internal interpretation. Parent clauses / paras must belong to the same source edition.',
+    'Open the notification → Clauses / Para → Add clause / para. A clause / para is one numbered part of the source notification; para means paragraph. Keep the regulator’s original wording separate from the bank’s internal interpretation. Parent Clauses / Para must belong to the same source edition.',
   ],
   [
     'Submit for independent review',
@@ -83,13 +83,13 @@ const topics = [
     'Record a review or final decision',
     'REVIEWER · APPROVER',
     'approvals',
-    'Open My decisions → Open decision. Read the source and clauses / paras, then use the Workflow tab to record your assigned decision. The next stage opens only after the required independent review.',
+    'Open My decisions → Open decision. Read the source and Clauses / Para, then use the Workflow tab to record your assigned decision. The next stage opens only after the required independent review.',
   ],
   [
     'Add a revised source edition',
     'AUTHOR',
     'repository',
-    'Open an approved notification → New version. Upload the new source, explain its changes, select the approved edition it supersedes and capture the new version’s clauses / paras. Earlier sources and decisions remain available.',
+    'Open an approved notification → New version. Upload the new source, explain its changes, select the approved edition it supersedes and capture the new version’s Clauses / Para. Earlier sources and decisions remain available.',
   ],
   [
     'Correct approved register metadata',
@@ -151,7 +151,7 @@ export function renderHelp(_id, query = new URLSearchParams()) {
         '',
       )}</div><div class="mt24">${note('Home department, role scope and personal task assignment are separate mappings. Global technical administration does not grant global business approval.')}</div>`;
   else if (tab === 'release')
-    body = `<div class="grid-equal">${panel('Available now', '<p>Weeks 1–3 cover scoped Standard/LDAP sign-in, reference data, source registration and versioning, clauses / paras, named independent review/approval, history and migration profiling.</p>')}${panel('Upcoming workflows', '<p>Obligation/applicability/ownership transactions follow in Week 4. Actions, evidence, reminders and full dashboards follow in Week 5. Control execution and assurance extensions remain deferred.</p>')}</div><div class="mt24">${link('baseline', 'Open release baseline', 'btn')}</div>`;
+    body = `<div class="grid-equal">${panel('Available now', '<p>Weeks 1–4 cover scoped Standard/LDAP sign-in, masters, source registration/versioning, Clauses / Para, obligations, ownership acceptance, applicability, independent review/approval, history, exceptions and Draft-only imports.</p>')}${panel('Upcoming workflows', '<p>Actions, evidence, reminders and full dashboards follow in Week 5. Control execution and assurance extensions remain deferred.</p>')}</div><div class="mt24">${link('baseline', 'Open release baseline', 'btn')}</div>`;
   else
     body = `<div class="grid-equal">${topics
       .filter((r) => r.join(' ').toLowerCase().includes(q))

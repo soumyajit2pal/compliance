@@ -15,6 +15,7 @@ class Actor:
     grants: list
     units: dict
     notification_instruments: set = field(default_factory=set)
+    ownership_obligations: set = field(default_factory=set)
     @property
     def id(self): return self.user['id']
     @property
@@ -53,10 +54,40 @@ def actor_for(db, user_id):
           sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>today))).mappings().all()
     units={r['id']:dict(r) for r in db.execute(sa.select(m.organisational_unit)).mappings()}
     actor=Actor(dict(user),[dict(g) for g in grants],units)
+    roles={'REGULATORY':'AUTHOR','BUSINESS':'BUSINESS_OWNER','CONTROL':'CONTROL_OWNER','EVIDENCE':'EVIDENCE_OWNER','DATA':'BUSINESS_OWNER'}
+    for proposal in db.execute(sa.select(m.obligation_owner_change,m.compliance_obligation.c.regulatory_owner_unit_id)
+        .join(m.compliance_obligation,m.compliance_obligation.c.id==m.obligation_owner_change.c.obligation_id)
+        .where(m.obligation_owner_change.c.approval_status.in_(['IN_REVIEW','REVIEWED']))).mappings():
+        named=any(actor.id==proposal[key] and actor.covers(proposal['regulatory_owner_unit_id'],{role}) for key,role in [
+            ('created_by','AUTHOR'),('compliance_reviewer_user_id','REVIEWER'),('approver_user_id','APPROVER')])
+        if not named:
+            named=any(actor.covers(item['org_unit_id'],{roles[item['owner_role']]}) for item in db.execute(sa.select(m.owner_change_assignment)
+                .where(m.owner_change_assignment.c.change_id==proposal['id'],m.owner_change_assignment.c.user_id==actor.id)).mappings())
+        if named:actor.ownership_obligations.add(proposal['obligation_id'])
     if actor.roles.intersection(READ_ROLES) and not actor.covers(None,READ_ROLES):
         scopes=db.execute(sa.select(m.notification_scope.c.instrument_id,m.notification_scope.c.org_unit_id)
             .where(m.notification_scope.c.effective_from<=today)).mappings()
         actor.notification_instruments={row['instrument_id'] for row in scopes if actor.covers(row['org_unit_id'],READ_ROLES)}
+        # Participation is derived from obligations, without a second manual
+        # notification/business-scope registration. Home organisation is unchanged.
+        participation=db.execute(sa.select(m.compliance_obligation.c.id,m.compliance_obligation.c.business_owner_unit_id,
+            m.compliance_obligation.c.regulatory_owner_unit_id,m.instrument_version.c.instrument_id)
+            .join(m.regulatory_clause,m.regulatory_clause.c.id==m.compliance_obligation.c.primary_clause_id)
+            .join(m.instrument_version,m.instrument_version.c.id==m.regulatory_clause.c.instrument_version_id)).mappings().all()
+        participating_units={row['id']:{row['business_owner_unit_id'],row['regulatory_owner_unit_id']} for row in participation}
+        for table in [m.obligation_owner,m.obligation_applicability]:
+            query=sa.select(table.c.obligation_id,table.c.org_unit_id).where(table.c.approval_status!='WITHDRAWN')
+            if table is m.obligation_owner:query=query.where(table.c.ended_by_change_id.is_(None))
+            for value in db.execute(query).mappings():
+                participating_units.setdefault(value['obligation_id'],set()).add(value['org_unit_id'])
+        participating={row['id'] for row in participation if any(actor.covers(unit,READ_ROLES) for unit in participating_units.get(row['id'],set()))}
+        participating.update(actor.ownership_obligations)
+        actor.notification_instruments.update(row['instrument_id'] for row in participation if row['id'] in participating)
+        if participating:
+            actor.notification_instruments.update(db.execute(sa.select(m.instrument_version.c.instrument_id)
+                .join(m.regulatory_clause,m.regulatory_clause.c.instrument_version_id==m.instrument_version.c.id)
+                .join(m.obligation_clause_map,m.obligation_clause_map.c.clause_id==m.regulatory_clause.c.id)
+                .where(m.obligation_clause_map.c.obligation_id.in_(participating))).scalars())
         links=db.execute(sa.select(m.notification_link.c.parent_id,m.notification_link.c.child_id)
             .where(m.notification_link.c.approval_status=='APPROVED')).mappings().all()
         changed=True

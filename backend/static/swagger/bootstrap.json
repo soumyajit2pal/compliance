@@ -1,0 +1,10 @@
+{
+  "generated": "Run npm --prefix frontend run build:swagger; do not edit swagger-init.js by hand.",
+  "sources": {
+    "frontend/docs/swagger.ts": "595ace21fbb975cf0ab0f28e1b6d45b64f3ffc69bd82857b0eb0ba6d63fa8592",
+    "frontend/core/login-encryption.ts": "b1ebd04842e84df4eaa4efa09bf7ac2791b1149cfafc86633fc9a721e8a23008",
+    "frontend/core/ldap-readiness.ts": "4b32e405adb450ed9a1a2db680489dcf05b168b65ca866a9eff99643a63f3e7d",
+    "frontend/core/swagger-request.ts": "62bcf9c39527714da7de937d0c0cf285948cf52467e15c6b8c1326a13fc933ac"
+  },
+  "output_sha256": "ec4632870e5e35cf59bdf4273dca8759b23e81b99ab7da96065b830c0a6e4e1a"
+}

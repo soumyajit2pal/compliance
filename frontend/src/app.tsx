@@ -1,6 +1,11 @@
-import { useEffect, useState } from 'react';
-import { bindReactRoot, initialMarkup } from '../core/dom.ts';
-import { escapeMarkup, HtmlFragment } from './html-fragment';
+import { useEffect, useLayoutEffect, useState } from 'react';
+import { bindReactRoot, bindDialogCollections, initialMarkup } from '../core/dom.ts';
+import { escapeMarkup, HtmlFragment, mountImperativeCollections } from './html-fragment';
+import { initializeWizardSteps } from '../ui/wizard.ts';
+import { InstrumentQuickView } from './components/instrument-quick-view';
+import { ObligationQuickView } from './components/obligation-quick-view';
+import { restoreLibraryLocation, retainLibraryLocation } from '../core/library-navigation.ts';
+import { restoreObligationLocation, retainObligationLocation } from '../core/obligation-navigation.ts';
 
 export function App() {
   const [view, setView] = useState({
@@ -13,6 +18,7 @@ export function App() {
       setView((current) => ({ markup, revision: current.revision + 1 }));
     };
     bindReactRoot(renderMarkup);
+    bindDialogCollections(mountImperativeCollections);
     void import('../app.ts').catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : 'The portal could not start.';
       renderMarkup(`<div class="notice error" role="alert">${escapeMarkup(detail)}</div>`);
@@ -20,10 +26,18 @@ export function App() {
     return () => bindReactRoot(() => undefined);
   }, []);
 
+  useLayoutEffect(() => {
+    initializeWizardSteps(document);
+    if(document.querySelector('#obligation-editor'))document.dispatchEvent(new Event('portal:obligation-setup-mounted'));
+  }, [view.revision]);
+
   useEffect(() => {
     const [path, queryString = ''] = location.hash.slice(1).split('?');
     const [page, id] = path.split('/');
     const query = new URLSearchParams(queryString);
+    if (['obligations','accountability','applicability'].includes(page) && !id) restoreObligationLocation();
+    if (page === 'obligations' && id && !['new','imports'].includes(id)) retainObligationLocation(id);
+    if (page === 'repository' && !id) { restoreLibraryLocation(); return; }
     const clauseWorkspace = (page === 'clauses' && query.get('view') !== 'register') ||
       (page === 'repository' && query.get('tab') === 'clauses');
     if (clauseWorkspace && query.has('clause')) {
@@ -37,6 +51,7 @@ export function App() {
       return;
     }
     if (page !== 'repository' || !id || id === 'new') return;
+    retainLibraryLocation(id);
     if (!query.has('tab')) return;
 
     requestAnimationFrame(() => {
@@ -48,10 +63,10 @@ export function App() {
   }, [view.revision]);
 
   return (
-    <div id="root">
+    <><div id="root">
       {/* Legacy root.innerHTML replaced the whole page on every render. Keep that reset behavior
           so native disclosures and uncontrolled fields do not leak state between routes. */}
       <HtmlFragment key={view.revision} markup={view.markup} />
-    </div>
+    </div><InstrumentQuickView viewRevision={view.revision}/><ObligationQuickView viewRevision={view.revision}/></>
   );
 }

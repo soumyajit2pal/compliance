@@ -1,4 +1,4 @@
-"""Week 1–3 Oracle portal. Start after Alembic; no startup DDL or seed side effects."""
+"""Weeks 1–4 Oracle portal. Start after Alembic; no startup DDL or seed side effects."""
 import csv,io,json,hashlib,re,logging
 import ipaddress
 import time
@@ -10,8 +10,10 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError,DatabaseError
 from fastapi import FastAPI,Depends,Request,Response,HTTPException,UploadFile,File,Form
 from fastapi.responses import FileResponse,JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from .runtime import runtime_settings
+from .pagination import page_query, paginate
 from .config import ROOT
 from .storage import prepare_storage, stored_path, write_private
 from .logging_config import configure_logging, request_id as logging_request_id
@@ -32,6 +34,7 @@ from . import clause_carry,notification_families as families
 from .source_documents import file_transaction, save_document, MAX_SOURCE_BYTES
 from . import ldap_department as departments
 from . import master_data
+from .api_docs import install_uat_docs
 
 logger=logging.getLogger('cbd.portal')
 
@@ -50,7 +53,7 @@ def limited(request:Request,db=Depends(get_db)):
 
 def menu(actor):
     common=[('home','Compliance at a Glance'),('tasks','My tasks'),('approvals','My approvals'),('help','Help')]
-    if actor.roles & READ_ROLES:common[1:1]=[('repository','Regulatory library'),('notification-families','Notification families'),('clauses','Clauses / Paras')]
+    if actor.roles & READ_ROLES:common[1:1]=[('repository','Regulatory library'),('notification-families','Notification families'),('clauses','Clauses / Para'),('clause-relationships','Clause / Para relationships'),('obligations','Obligations'),('applicability','Applicability'),('accountability','Accountability')]
     if any(g['role_code'] in {'AUTHOR','REVIEWER'} and g['global_scope_flag'] for g in actor.grants):common.append(('migration','Import existing regulatory records'))
     if 'ADMIN' in actor.roles:common.extend([('masters','Reference masters'),('users','Users and access'),('ldap','LDAP settings')])
     common.extend([('baseline','Release baseline'),('applications','Retained applications')])
@@ -78,7 +81,9 @@ def create_app(settings=None,engine=None):
         finally:
             if engine is None and app.state.engine is not None:app.state.engine.dispose()
             logger.info('Application stopped environment=%s',cfg.environment)
-    app=FastAPI(title='Compliance by Design',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
+    app=FastAPI(title='Compliance by Design',lifespan=lifespan,docs_url=None,redoc_url=None,
+                openapi_url='/openapi.json' if cfg.environment=='uat' else None)
+    install_uat_docs(app,cfg.environment)
     app.state.settings=cfg;app.state.engine=engine
     app.state.login_material=login_material
     app.state.consume_login_challenge=lambda claims:consume_challenge(app.state.engine,claims)
@@ -95,6 +100,7 @@ def create_app(settings=None,engine=None):
             if origin not in cfg.origins or request.headers.get('Sec-Fetch-Site')=='cross-site':
                 return JSONResponse({'detail':'This request must come from the portal.'},status_code=403)
             maximum=(101*1024*1024 if request.url.path=='/api/migration' else
+                     21*1024*1024 if request.url.path=='/api/obligation-imports' else
                      25*1024*1024 if request.url.path=='/api/documents' else
                      2*1024*1024 if request.url.path in {'/api/admin/ldap','/api/admin/ldap/test'} else 1024*1024)
             length=request.headers.get('Content-Length')
@@ -108,6 +114,9 @@ def create_app(settings=None,engine=None):
         preview_document=request.url.path.startswith('/api/documents/') and request.query_params.get('preview')=='true'
         frame_ancestors="'self'" if preview_document else "'none'"
         response.headers['Content-Security-Policy']=f"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors {frame_ancestors}"
+        if cfg.environment=='uat' and request.url.path in {'/docs','/docs/'}:
+            # Swagger's React layout uses style attributes; scripts stay external/self-only.
+            response.headers['Content-Security-Policy']+="; style-src-attr 'unsafe-inline'"
         return response
 
     @app.middleware('http')
@@ -140,7 +149,7 @@ def create_app(settings=None,engine=None):
         return JSONResponse({'detail':'The change could not be saved. It may conflict with a protected record or a concurrent update. Refresh and try again. Reference '+reference},status_code=409 if isinstance(exc,IntegrityError) else 503)
 
     @app.get('/api/health')
-    def health():return {'status':'ok','environment':cfg.environment,'release':'Weeks 1–3'}
+    def health():return {'status':'ok','environment':cfg.environment,'release':'Weeks 1–4'}
 
     def require_demo_login():
         if cfg.environment != 'uat' or not cfg.demo_login_enabled:
@@ -217,7 +226,7 @@ def create_app(settings=None,engine=None):
     @app.get('/api/masters')
     def masters(db=Depends(get_db),actor=Depends(current)):
         result={}
-        for name in ['organisational_unit','regulator','regulatory_domain','instrument_type','confidentiality_class','frequency','evidence_type','obligation_category','role','process','taxonomy_scheme']:
+        for name in ['organisational_unit','regulator','regulatory_domain','instrument_type','confidentiality_class','frequency','evidence_type','obligation_category','role','process','taxonomy_scheme','legal_entity','product','channel','customer_segment','geography']:
             table=getattr(m,name);result[name]=[dict(r) for r in db.execute(sa.select(table)).mappings()]
         users=db.execute(sa.select(m.user.c.id,m.user.c.username,m.user.c.full_name,m.user.c.org_unit_id).where(m.user.c.active_flag==1)).mappings().all()
         result['user']=[dict(u) for u in users]
@@ -382,11 +391,14 @@ def create_app(settings=None,engine=None):
         return FileResponse(path,filename=document['file_name'],media_type=document['content_type'],content_disposition_type='inline' if preview else 'attachment')
 
     @app.get('/api/instruments')
-    def instruments(request:Request,db=Depends(get_db),actor=Depends(current)):
-        return repo.listing(db,actor,dict(request.query_params))
+    def instruments(request:Request,paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+        return paginate(repo.listing(db,actor,dict(request.query_params)),**paging)
     @app.get('/api/notification-families')
-    def family_register(as_of:date|None=None,q:str='',db=Depends(get_db),actor=Depends(current)):
-        return families.view(db,actor,when=as_of,search=q)
+    def family_register(as_of:date|None=None,q:str='',paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+        data=families.view(db,actor,when=as_of,search=q)
+        paged=paginate(data['families'],**paging)
+        if isinstance(paged,dict):data.update(families=paged['items'],pagination=paged['pagination'])
+        return data
     @app.get('/api/notification-families/{identifier}')
     def family_detail(identifier:str,as_of:date|None=None,db=Depends(get_db),actor=Depends(current)):
         return families.view(db,actor,identifier,as_of)
@@ -521,6 +533,8 @@ def create_app(settings=None,engine=None):
                     'correction_id':correction['id'],'instrument_id':correction['instrument_id'],
                     'title':'Metadata correction · '+task['stage'].replace('_',' ').title()})
         result.extend(families.proposal_tasks(db,actor))
+        from . import obligations
+        result.extend(obligations.tasks(db,actor))
         return result
 
     @app.get('/api/notifications')
@@ -546,6 +560,11 @@ def create_app(settings=None,engine=None):
                     instrument,_=families.proposal_context(db,actor,kind,proposal)
                 except HTTPException:continue
                 item.update(source_title=instrument['title'],action_path='notification-families/'+instrument['id']+'?proposal='+item['entity_id'],action_label='Open notification decision')
+            elif item['entity_type']=='obligation':
+                from . import obligations
+                try:record=obligations.read(db,actor,item['entity_id'])
+                except HTTPException:continue
+                item.update(source_title=record['code']+' · '+record['title'],action_path='obligations/'+record['id'],action_label='Open obligation')
             elif item['entity_type']=='user':
                 if 'ADMIN' not in actor.roles and item['entity_id']!=actor.id:continue
                 target=repo.one(db,m.user,item['entity_id']);access=current_access(db,target['id'])
@@ -575,9 +594,14 @@ def create_app(settings=None,engine=None):
             attachments.append((source.filename,content))
         return migration.stage(db,actor,Path(file.filename or '').name[:500],data,source_system,cfg.storage,attachments)
     @app.get('/api/migration')
-    def batches(db=Depends(get_db),actor=Depends(current)):
+    def batches(q:str='',paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
         migration.require_migration(actor)
-        return [dict(r) for r in db.execute(sa.select(m.migration_batch).order_by(m.migration_batch.c.uploaded_at.desc())).mappings()]
+        rows=[dict(r) for r in db.execute(sa.select(m.migration_batch).where(~m.migration_batch.c.record_status.like('OBL_%')).order_by(m.migration_batch.c.uploaded_at.desc(),m.migration_batch.c.id)).mappings()]
+        if paging['page'] is None and paging['page_size'] is None:return rows
+        summary={key:sum(row[key] or 0 for row in rows) for key in ('source_count','loaded_count','pending_count')}
+        summary['batches']=len(rows)
+        matched=[row for row in rows if q.casefold() in json.dumps(jsonable_encoder(row),ensure_ascii=False).casefold()]
+        return {**paginate(matched,**paging),'summary':summary}
     @app.get('/api/migration/{identifier}')
     def batch(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.batch_detail(db,actor,identifier)
     @app.get('/api/migration/{identifier}/sources/{source_id}')
@@ -641,6 +665,10 @@ def create_app(settings=None,engine=None):
     def baseline(actor=Depends(current)):
         return json.loads((ROOT/'docs/release-baseline.json').read_text())
 
+    from .obligation_api import install as install_obligations
+    install_obligations(app,get_db,current)
+    from .regulation_registers import install as install_regulation_registers
+    install_regulation_registers(app,get_db,current)
     frontend_dist=ROOT/'frontend'/'dist'
     @app.get('/')
     def index():

@@ -1,0 +1,67 @@
+.instrument-quick-view { position: fixed; inset: 0 0 0 auto; width: min(520px, 48vw); height: 100dvh; z-index: 450; display: flex; flex-direction: column; background: var(--surface, #fff); color: var(--ink, #302939); border-left: 3px solid var(--primary); box-shadow: -16px 0 40px rgb(49 30 66 / 20%); }
+.instrument-quick-view-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px; flex-shrink: 0; background: var(--selection); border-bottom: 1px solid var(--plum-line); }
+.instrument-quick-view-header > div { min-width: 0; }
+.instrument-quick-view-kicker { color: var(--primary); font-size: 12px; font-weight: 650; margin: 0 0 7px; }
+.instrument-quick-view-header h2 { font-size: 22px; line-height: 1.35; letter-spacing: -.4px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.instrument-quick-view-header .icon-button { flex-shrink: 0; color: var(--primary-dark); background: var(--surface); border: 1px solid var(--plum-line); border-radius: 8px; }
+.instrument-quick-view-header .icon-button:hover { background: var(--soft); }
+.instrument-quick-view-header .record-code { color: var(--muted); }
+.instrument-quick-view-body { overflow-y: auto; overscroll-behavior: contain; padding: 20px 22px; flex: 1; min-height: 0; }
+.instrument-quick-view-badges { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 20px; }
+.instrument-quick-view-edition { display: inline-flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12px; color: var(--muted, #766c82); }
+.instrument-quick-view-reference-note { font-size: 12px; color: var(--muted, #766c82); padding: 10px 12px; margin: 0 0 18px; background: var(--soft); border-radius: 7px; }
+.instrument-quick-view .record-summary-card { padding: 0; margin: 0; border: 0; box-shadow: none; border-radius: 0; }
+.instrument-quick-view .record-summary-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 20px; }
+.instrument-quick-view .record-summary-column { display: contents; }
+.instrument-quick-view .record-summary-row { display: block; min-width: 0; padding: 0; }
+.instrument-quick-view .record-summary-row dt { margin: 0 0 4px; font-size: 12px; }
+.instrument-quick-view .record-summary-row dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.instrument-quick-view .record-summary-row dt { line-height: 1.4; }
+.instrument-quick-view .record-summary-row dd { line-height: 1.45; }
+.instrument-quick-view [data-summary-field=regulator], .instrument-quick-view [data-summary-field=other-domains], .instrument-quick-view [data-summary-field=reference], .instrument-quick-view [data-summary-field=source], .instrument-quick-view [data-summary-field=keywords], .instrument-quick-view [data-summary-field=family] { grid-column: 1 / -1; }
+.instrument-quick-view [data-summary-field=materiality] { display: none; }
+.instrument-quick-view [data-summary-field=regulator] { order: 0; }
+.instrument-quick-view [data-summary-field=reference] { order: 1; }
+.instrument-quick-view [data-summary-field=type] { order: 2; }
+.instrument-quick-view [data-summary-field=primary-domain] { order: 3; }
+.instrument-quick-view [data-summary-field=issue-date] { order: 4; }
+.instrument-quick-view [data-summary-field=effective-date] { order: 5; }
+.instrument-quick-view [data-summary-field=department] { order: 6; }
+.instrument-quick-view [data-summary-field=owner] { order: 7; }
+.instrument-quick-view [data-summary-field=other-domains] { order: 8; }
+.instrument-quick-view [data-summary-field=source] { order: 9; }
+.instrument-quick-view [data-summary-field=keywords] { order: 10; }
+.instrument-quick-view [data-summary-field=family] { order: 11; }
+.instrument-quick-view .record-summary-link { max-width: 100%; text-align: left; }
+.instrument-quick-view .record-summary-link > span { overflow-wrap: anywhere; min-width: 0; }
+.instrument-quick-view-footer { background: var(--selection); border-top: 1px solid var(--plum-line); padding: 16px 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; flex-shrink: 0; }
+.instrument-quick-view-footer > span { font-size: 12px; color: var(--muted, #766c82); }
+.instrument-quick-view-loading { padding: 12px 0; }
+.instrument-quick-view-skeleton { display: grid; grid-template-columns: 1fr 1fr; gap: 25px 18px; margin-top: 26px; }
+.instrument-quick-view-skeleton > span { display: block; height: 52px; border-radius: 6px; background: var(--soft); }
+.library-instrument-cell { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px 12px; }
+.library-instrument-cell > a { flex: 1 1 170px; min-width: 0; }
+.library-instrument-cell .library-quick-view-trigger { flex: 0 0 auto; min-height: 36px; padding: 6px 9px; gap: 6px; font-size: 12px; color: var(--primary-dark); border-color: var(--plum-line); }
+.library-quick-view-trigger .icon { width: 16px; height: 16px; }
+.data-table tbody tr:has([data-instrument-preview]) { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.data-table tbody tr:has([data-instrument-preview]):focus-within > td { background: var(--soft); }
+@media (hover: hover) {
+  .data-table tbody tr:has([data-instrument-preview]):hover > td { background: var(--soft); }
+}
+.data-table tbody tr:has([data-instrument-preview][aria-expanded=true]) > td { background: var(--selection); }
+.data-table tbody tr:has([data-instrument-preview][aria-expanded=true]) > td:first-child { box-shadow: inset 3px 0 var(--primary); }
+.data-table a[data-instrument-preview][aria-expanded=true] .record-title { color: var(--primary); }
+.library-quick-view-trigger[aria-expanded=true] { background: var(--selection); border-color: var(--primary); }
+@media (pointer: coarse) { .library-instrument-cell .library-quick-view-trigger { min-height: 44px; } }
+.instrument-quick-view-backdrop { position: fixed; inset: 0; z-index: 449; background: rgb(40 25 55 / 24%); }
+@media(max-width:900px) {
+  .instrument-quick-view { width: 100%; border-left: 0; }
+  .instrument-quick-view-header { padding: 18px; border-top: 3px solid var(--primary); }
+  .instrument-quick-view-body { padding: 18px; }
+  .instrument-quick-view-footer { padding: 14px 18px; }
+  .instrument-quick-view-header h2 { font-size: 20px; }
+}
+@media(max-width:360px) {
+  .instrument-quick-view .record-summary-grid { gap: 16px 12px; }
+  .instrument-quick-view .record-summary-row dd { font-size: 13px; }
+}

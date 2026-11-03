@@ -3,7 +3,7 @@ from datetime import date,timedelta
 import hashlib,json,re
 import sqlalchemy as sa
 from fastapi import HTTPException
-from . import models as m
+from . import models as m,business_ids
 from .access import READ_ROLES,REGULATORY_ROLES,actor_for,can_read_instrument
 from .events import now,new_id,audit,history,notify
 
@@ -25,7 +25,10 @@ def one(db,table,identifier,lock=False):
     if lock: query=query.with_for_update()
     row=db.execute(query).mappings().first()
     if not row: raise HTTPException(404,'Record not found.')
-    return dict(row)
+    result=dict(row)
+    for kind,target in business_ids.TABLES.items():
+        if table is target:result['legacy_codes']=business_ids.aliases(db,kind,[identifier]).get(identifier,[])
+    return result
 
 def normalize_source_version_number(value):
     number=str(value).strip()
@@ -56,9 +59,8 @@ def next_code(db,entity):
     row=next_counter(db,entity)
     return f"{row['prefix']}-{date.today().year}-{row['next_value']:06d}"
 
-def next_instrument_code(db,regulator_code,domain_code,instrument_type_code):
-    row=next_counter(db,'instrument')
-    return f"{row['prefix']}-{regulator_code.upper()}-{domain_code.upper()}-{instrument_type_code.upper()}-{row['next_value']:03d}"
+def next_instrument_code(db,regulator_code,domain_code,instrument_type_code,issue_date):
+    return business_ids.instrument(db,regulator_code,domain_code,instrument_type_code,issue_date)
 
 def read_instrument(db,actor,identifier,lock=False):
     row=one(db,m.regulatory_instrument,identifier,lock)
@@ -124,7 +126,7 @@ def create_instrument(db,actor,payload):
     if reference and db.execute(sa.select(m.regulatory_instrument.c.id).where(m.regulatory_instrument.c.regulator_id==regulator['id'],
         sa.func.upper(sa.func.trim(m.regulatory_instrument.c.official_reference_number))==reference.upper())).first():
         raise HTTPException(409,'This regulator and official reference number are already registered. Open that record to add a version.')
-    identifier=new_id();version=new_id();code=next_instrument_code(db,regulator['code'],domain['code'],instrument_type['code'])
+    identifier=new_id();version=new_id();code=next_instrument_code(db,regulator['code'],domain['code'],instrument_type['code'],values['issue_date'])
     db.execute(m.regulatory_instrument.insert().values(id=identifier,code=code,created_by=actor.id,**values))
     db.execute(m.instrument_version.insert().values(id=version,instrument_id=identifier,version_number='1.0',
         version_date=values['issue_date'],effective_from=values['effective_date'],source_document_id=values['source_document_id'],
@@ -252,7 +254,7 @@ def edit_version(db,actor,identifier,payload):
 def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False):
     version,instrument=read_version(db,actor,version_id,lock=True);actor.require({'AUTHOR'},instrument['regulatory_owner_unit_id'])
     if version['approval_status']!='DRAFT' or version['created_by']!=actor.id:
-        raise HTTPException(409,'Clauses / Paras can only be edited by the maker while the version is Draft.')
+        raise HTTPException(409,'Clauses / Para can only be edited by the maker while the version is Draft.')
     values=payload.model_dump();level=1
     if not imported and not clause_id and values.get('code'):
         raise HTTPException(422,'Clause references are generated automatically. Enter the regulator’s numbering in Source clause / para number.')
@@ -288,9 +290,11 @@ def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False):
                 m.regulatory_clause.c.instrument_version_id==version_id,
                 m.regulatory_clause.c.parent_clause_id==values['parent_clause_id'])
             values['sequence_number']=(db.execute(siblings).scalar_one() or 0)+1
-        values['code']=values.get('code') or next_code(db,'clause');identifier=new_id()
+        legacy_code=values.get('code')
+        values['code']=business_ids.clause(db,instrument['code']);identifier=new_id()
         db.execute(m.regulatory_clause.insert().values(id=identifier,instrument_version_id=version_id,clause_level=level,
             effective_from=version['effective_from'],created_by=actor.id,**values))
+        if imported:business_ids.retain_alias(db,'clause',identifier,legacy_code,values['code'])
     audit(db,actor,'version',version_id,'CLAUSE_SAVED',new={**values,'clause_id':identifier})
     return {'id':identifier}
 
@@ -343,6 +347,9 @@ def activate(db,actor,version_id):
     history(db,actor,'version',version_id,'APPROVED','CURRENT','Approved effective source activated')
     if old: history(db,actor,'version',old['id'],'CURRENT','SUPERSEDED','Superseded by '+version_id)
     audit(db,actor,'instrument',instrument['id'],'CURRENT_VERSION_CHANGED',old={'version_id':old['id'] if old else None},new={'version_id':version_id})
+    if old:
+        from .obligations import notify_reassessment
+        notify_reassessment(db,actor,'source',instrument['id'])
     return {'id':version_id,'current':True}
 
 def decide(db,actor,version_id,payload):
@@ -610,6 +617,7 @@ def decide_metadata_correction(db,actor,correction_id,payload):
 
 
 def listing(db,actor,filters):
+    legacy=business_ids.aliases(db,'instrument')
     try:
         for key in ['from_date','to_date']:
             if filters.get(key): date.fromisoformat(filters[key])
@@ -624,7 +632,7 @@ def listing(db,actor,filters):
         .join(m.instrument_type,m.instrument_type.c.id==m.regulatory_instrument.c.instrument_type_id)
         .join(m.confidentiality_class,m.confidentiality_class.c.id==m.regulatory_instrument.c.confidentiality_class_id)
         .outerjoin(current_version,current_version.c.id==m.regulatory_instrument.c.current_version_id)
-        .order_by(m.regulatory_instrument.c.created_at.desc())).mappings().all()
+        .order_by(m.regulatory_instrument.c.created_at.desc(),m.regulatory_instrument.c.id)).mappings().all()
     result=[]
     mapping_rows=db.execute(sa.select(m.instrument_domain_map.c.instrument_id,
         m.instrument_domain_map.c.domain_id,m.instrument_domain_map.c.domain_role,m.regulatory_domain.c.name.label('mapped_domain_name'))
@@ -636,6 +644,7 @@ def listing(db,actor,filters):
     for raw in rows:
         row=dict(raw)
         if not can_read_instrument(actor,row,row['confidentiality_rank']): continue
+        row['legacy_codes']=legacy.get(row['id'],[])
         mappings=mappings_by_instrument.get(row['id'],[])
         domain_ids={mapping['domain_id'] for mapping in mappings}
         domain_ids.add(row['primary_domain_id'])
@@ -644,7 +653,7 @@ def listing(db,actor,filters):
         if any(filters.get(k) and row.get(k)!=filters[k] for k in ['regulator_id','instrument_type_id','approval_status','regulatory_status','regulatory_owner_unit_id','interpretation_owner_user_id','materiality']): continue
         if filters.get('from_date') and row['issue_date']<date.fromisoformat(filters['from_date']):continue
         if filters.get('to_date') and row['issue_date']>date.fromisoformat(filters['to_date']):continue
-        haystack=' '.join(str(row.get(k) or '') for k in ['code','official_reference_number','title','short_title','keywords']).casefold()
+        haystack=(' '.join(str(row.get(k) or '') for k in ['code','official_reference_number','title','short_title','keywords'])+' '+' '.join(row['legacy_codes'])).casefold()
         if filters.get('q','').casefold() not in haystack: continue
         secondary_names=sorted({mapping['mapped_domain_name'] for mapping in mappings
             if mapping['domain_role']=='SECONDARY' and mapping['domain_id']!=row['primary_domain_id']})
@@ -696,7 +705,8 @@ def clause_listing(db,actor):
         .where(m.instrument_version.c.instrument_id.in_(visible_ids))
         .order_by(m.regulatory_instrument.c.title,m.instrument_version.c.version_date.desc(),
             m.regulatory_clause.c.sequence_number,m.regulatory_clause.c.code)).mappings().all()
-    return [dict(row) for row in rows]
+    legacy=business_ids.aliases(db,'clause',[row['id'] for row in rows])
+    return [{**dict(row),'legacy_codes':legacy.get(row['id'],[])} for row in rows]
 
 
 def detail(db,actor,identifier):
@@ -711,6 +721,8 @@ def detail(db,actor,identifier):
             m.instrument_domain_map.c.effective_to.is_(None))
         .order_by(m.regulatory_domain.c.name)).mappings()]
     clauses=[dict(c) for c in db.execute(sa.select(m.regulatory_clause).where(m.regulatory_clause.c.instrument_version_id.in_(version_ids)).order_by(m.regulatory_clause.c.sequence_number)).mappings()]
+    legacy=business_ids.aliases(db,'clause',[c['id'] for c in clauses])
+    for clause in clauses:clause['legacy_codes']=legacy.get(clause['id'],[])
     clause_ids=[c['id'] for c in clauses]
     clause_relationships=[dict(r) for r in db.execute(sa.select(m.clause_relationship).where(
         m.clause_relationship.c.source_clause_id.in_(clause_ids),

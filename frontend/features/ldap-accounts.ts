@@ -1,5 +1,5 @@
 import { esc, button } from '../ui/components.ts';
-import { person, note } from '../ui/widgets.ts';
+import { person, note, pagedCollection } from '../ui/widgets.ts';
 import { ldapReadiness } from '../core/ldap-readiness.ts';
 import { departmentStatusBadge } from './ldap-department.ts';
 
@@ -29,6 +29,6 @@ export function ldapAccounts(rows, data, requests, currentUserId, ref) {
         ${button('department-history', 'Department history', `data-id="${esc(user.id)}"`, 'small')}
         ${user.id !== currentUserId ? button('user', 'Manage profile & roles', `data-id="${esc(user.id)}"`, 'small') : '<span class="small muted">Use another administrator to edit your access</span>'}
       </div></footer></article>`;
-  }).join('');
-  return `<section class="panel ldap-directory" aria-labelledby="ldap-directory-title"><header class="panel-header"><h2 id="ldap-directory-title">LDAP directory accounts</h2><p>Department approval, profile confirmation and role access are separate checks.</p></header>${overview}<div class="ldap-account-list">${cards || note('No LDAP accounts match these filters.')}</div><footer class="ldap-directory-count">Showing ${rows.length} of ${ldap.length} LDAP accounts</footer></section>`;
+  });
+  return `<section class="panel ldap-directory" aria-labelledby="ldap-directory-title"><header class="panel-header"><h2 id="ldap-directory-title">LDAP directory accounts</h2><p>Department approval, profile confirmation and role access are separate checks.</p></header>${overview}${pagedCollection(cards, {pageKey:'ldap-accounts', className:'ldap-account-list', label:'LDAP accounts', empty:note('No LDAP accounts match these filters.')})}</section>`;
 }

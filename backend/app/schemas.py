@@ -43,7 +43,7 @@ class VersionInput(Input):
 class CancelDraftInput(Input):
     reason:str=Field(min_length=10,max_length=10000)
 class ClauseInput(Input):
-    code:str|None=Field(default=None,max_length=100)
+    code:str|None=Field(default=None,max_length=200)
     heading:str|None=Field(default=None,max_length=500)
     clause_text:Annotated[str,StringConstraints(strip_whitespace=False)]=Field(min_length=1,max_length=50000)
     internal_interpretation:Annotated[str,StringConstraints(strip_whitespace=False)]|None=Field(default=None,max_length=50000)

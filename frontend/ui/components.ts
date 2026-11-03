@@ -38,6 +38,8 @@ export const badge = (value) => {
         : 'neutral';
   return `<span class="tag badge ${color}">${esc(title(value))}</span>`;
 };
+/** Explicit human-readable status labels without inventing workflow enum values. */
+export const statusTag = (label, tone = 'neutral') => `<span class="tag badge ${['green','amber','red','neutral'].includes(tone)?tone:'neutral'}">${esc(label)}</span>`;
 export const date = (value) =>
   value
     ? new Intl.DateTimeFormat('en-IN', {

@@ -11,7 +11,7 @@ from collections import Counter, defaultdict, deque
 import sqlalchemy as sa
 from fastapi import HTTPException
 
-from . import models as m, repository as repo
+from . import models as m, repository as repo,business_ids
 from .access import actor_for
 from .events import audit, new_id, now
 from .import_template import canonical_header, CLAUSES_SHEET, CLAUSE_FIELDS, FIELDS
@@ -128,7 +128,7 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=
                     result['errors'].append('Existing instrument code or Source edition is too long')
                     continue
                 try:
-                    target = db.execute(sa.select(m.regulatory_instrument.c.id).where(m.regulatory_instrument.c.code == existing)).scalar_one_or_none()
+                    target = business_ids.resolve(db,'instrument',existing)
                     if not target:
                         raise HTTPException(422, 'Existing instrument was not found in your authorised area')
                     instrument = repo.read_instrument(db, uploader, target)
@@ -145,6 +145,9 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=
                         'title': instrument['title'], 'source_document_id': version['source_document_id']}
                     result['target_snapshot'] = digest([dict(version), instrument, existing_clauses])
                     result['existing_parents'] = {r['code']: {'id': r['id'], 'clause_level': r['clause_level']} for r in existing_clauses}
+                    old_codes=business_ids.aliases(db,'clause',[r['id'] for r in existing_clauses])
+                    for row in existing_clauses:
+                        for code in old_codes.get(row['id'],[]):result['existing_parents'][code]={'id':row['id'],'clause_level':row['clause_level']}
                     result['existing_signatures'] = {digest([r['source_clause_reference'], r['heading'], r['clause_text']]) for r in existing_clauses}
                     result['fingerprint'] = digest(['existing-edition', version['id']])
                 except HTTPException as exc:

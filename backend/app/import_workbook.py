@@ -1,14 +1,14 @@
-"""Fill the trusted workbook layout with a per-download Oracle choice snapshot.
+"""Fill trusted import layouts with per-download Oracle choices and references.
 
-Only Choices, its validation ranges and two guidance rows are replaced. Other
-OpenXML parts stay byte-for-byte intact. Database text is written as literal
-inline strings, including values beginning with Excel formula characters.
+Shared OpenXML helpers preserve unrelated layout parts. Database text is written
+as literal inline strings, including values beginning with formula characters.
 """
 import io
 import math
 import posixpath
 import zipfile
 import xml.etree.ElementTree as ET
+from itertools import zip_longest
 from datetime import datetime, timezone
 from .config import ROOT
 from .import_choices import database_choices
@@ -41,6 +41,60 @@ def _sheet_paths(archive):
     workbook = ET.fromstring(archive.read('xl/workbook.xml'))
     return {sheet.get('name'): targets[sheet.get('{' + R + '}id')]
         for sheet in workbook.findall('s:sheets/s:sheet', NS)}
+
+
+def fill_reference_lists(layout,choices,validations,references):
+    """Fill a trusted Excel layout using literal database text and shared XML helpers."""
+    output=io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(layout)) as source:
+        paths=_sheet_paths(source);replacements={}
+        def column_name(number):
+            result=''
+            while number:number,remainder=divmod(number-1,26);result=chr(65+remainder)+result
+            return result
+        matrices={'Choices':list(zip_longest(*choices.values(),fillvalue='')),'References':references}
+        for name,values in matrices.items():
+            sheet=ET.fromstring(source.read(paths[name]));data=sheet.find('s:sheetData',NS)
+            sample=data.find("s:row[@r='2']",NS)
+            styles={cell.get('r').rstrip('0123456789'):cell.get('s') for cell in sample} if sample is not None else {}
+            widths={int(col.get('min')):float(col.get('width',30)) for col in sheet.findall('s:cols/s:col',NS)}
+            for row in list(data):
+                if row.get('r')!='1':data.remove(row)
+            for number,items in enumerate(values,2):
+                height=max([32]+[16*math.ceil(max(1,len(str(value)))/max(1,widths.get(index,30)-3)) for index,value in enumerate(items,1)])
+                row=ET.SubElement(data,_tag('row'),{'r':str(number),'ht':str(min(409,height)),'customHeight':'1'})
+                for index,value in enumerate(items,1):
+                    col=column_name(index)
+                    _literal(row,col+str(number),value,styles.get(col))
+            dimension=sheet.find('s:dimension',NS)
+            if dimension is None:
+                dimension=ET.Element(_tag('dimension'));sheet.insert(1 if sheet.find('s:sheetPr',NS) is not None else 0,dimension)
+            dimension.set('ref',f'A1:{column_name(len(choices) if name=="Choices" else 4)}{max(2,len(values)+1)}')
+            auto=sheet.find('s:autoFilter',NS)
+            if auto is None:
+                auto=ET.Element(_tag('autoFilter'));sheet.insert(list(sheet).index(data)+1,auto)
+            auto.set('ref',dimension.get('ref'))
+            replacements[paths[name]]=sheet
+        for name,columns in validations.items():
+            sheet=ET.fromstring(source.read(paths[name]));rules=sheet.find('s:dataValidations',NS)
+            if rules is not None:sheet.remove(rules)
+            auto=sheet.find('s:autoFilter',NS)
+            if auto is None:
+                auto=ET.Element(_tag('autoFilter'),{'ref':f'A1:{column_name(len(sheet.find("s:sheetData/s:row",NS)))}10001'})
+                sheet.insert(list(sheet).index(sheet.find('s:sheetData',NS))+1,auto)
+            rules=ET.Element(_tag('dataValidations'),{'count':str(len(columns))})
+            # Insert before page-layout/extension nodes, in worksheet schema order.
+            anchor=auto
+            if anchor is None:anchor=sheet.find('s:sheetData',NS)
+            sheet.insert(list(sheet).index(anchor)+1,rules)
+            for column,key in columns.items():
+                choice_column=column_name(list(choices).index(key)+1)
+                rule=ET.SubElement(rules,_tag('dataValidation'),{'type':'list','sqref':f'{column}2:{column}10001','allowBlank':'1','showErrorMessage':'0','showDropDown':'0'})
+                ET.SubElement(rule,_tag('formula1')).text=f'INDIRECT("\'Choices\'!${choice_column}$2:${choice_column}${max(2,len(choices[key])+1)}")'
+            replacements[paths[name]]=sheet
+        with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as target:
+            for item in source.infolist():target.writestr(item,ET.tostring(replacements[item.filename],encoding='utf-8',xml_declaration=True) if item.filename in replacements else source.read(item.filename))
+    return output.getvalue()
 
 
 def fill_choices(layout, values, generated_at=None):

@@ -1,5 +1,6 @@
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
+import { apiPageQuery } from '../core/pagination.ts';
 import { has, covered } from '../core/access.ts';
 import { uploadSource } from '../core/documents.ts';
 import {
@@ -35,11 +36,12 @@ export async function migrationPage(id, query = new URLSearchParams()) {
     state.batch = data;
     return renderBatch(query);
   }
-  const batches = await api('/migration');
+  const result = await api('/migration?' + apiPageQuery(query, 'batches'));
+  const batches = Array.isArray(result) ? result : result.items;
   if (request !== state.routeNumber || !state.identity) return '';
   const q = (query.get('q') || '').toLowerCase(),
-    rows = batches.filter((b) => JSON.stringify(b).toLowerCase().includes(q));
-  const sum = (key) => batches.reduce((n, b) => n + (b[key] || 0), 0);
+    rows = result.pagination ? batches : batches.filter((b) => JSON.stringify(b).toLowerCase().includes(q));
+  const sum = (key) => result.summary ? result.summary[key] : batches.reduce((n, b) => n + (b[key] || 0), 0);
   return (
     heading(
       'Import existing regulatory records',
@@ -49,7 +51,7 @@ export async function migrationPage(id, query = new URLSearchParams()) {
             button('stage', 'Import records & clauses', '', 'primary')
         : '',
     ) +
-    `<div class="kpi-grid">${kpi('Source rows', sum('source_count'), 'Records and clauses', 'file')}${kpi('Loaded rows', sum('loaded_count'), 'Draft targets linked', 'check')}${kpi('Pending rows', sum('pending_count'), 'Review or correction needed', 'clock')}${kpi('Source batches', batches.length, 'Preserved source snapshots', 'layers')}</div>` +
+    `<div class="kpi-grid">${kpi('Source rows', sum('source_count'), 'Records and clauses', 'file')}${kpi('Loaded rows', sum('loaded_count'), 'Draft targets linked', 'check')}${kpi('Pending rows', sum('pending_count'), 'Review or correction needed', 'clock')}${kpi('Source batches', result.summary?.batches ?? batches.length, 'Preserved source snapshots', 'layers')}</div>` +
     searchForm('view-filter', 'Search source file or batch…', query.get('q') || '') +
     tablePanel(
       table(
@@ -62,6 +64,7 @@ export async function migrationPage(id, query = new URLSearchParams()) {
           r.pending_count,
           link('migration/' + r.id, 'Source profile', 'btn small'),
         ]),
+        {pageKey: 'batches', pagination: result.pagination},
       ),
       'Source batches',
       `<div><div class="actions"><a class="btn small" href="/api/migration-template?format=xlsx" download>${icon('download')}Download Excel template</a><a class="btn small" href="/api/migration-template?format=csv" download>CSV template</a></div><p>Choices refreshed from the database on every download.</p></div>`,

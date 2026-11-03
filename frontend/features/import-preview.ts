@@ -1,5 +1,5 @@
 import { esc, badge, link } from '../ui/components.ts';
-import { panel, note } from '../ui/widgets.ts';
+import { panel, note, pagedCollection } from '../ui/widgets.ts';
 import { compareSourceClauses } from '../core/clause-order.ts';
 import { clauseWorkspacePath, instrumentWorkspacePath } from '../core/source-navigation.ts';
 
@@ -68,8 +68,8 @@ export function combinedImportPreview(data, query) {
     return (!status || row.validation_status === status) &&
       (!entity || row.profile.entity_type === entity) && JSON.stringify(row).toLowerCase().includes(q);
   }));
-  const sources = data.sources.length ? `<div class="import-sources">${data.sources.map((source) =>
-    `<div><a class="btn small" href="/api/migration/${esc(data.batch.id)}/sources/${esc(source.id)}" download>Download ${esc(source.file_name)}</a><details><summary>Source integrity</summary><small>${esc(source.file_size)} bytes</small><code>${esc(source.file_hash)}</code></details></div>`).join('')}</div>` : '';
+  const sources = data.sources.length ? pagedCollection(data.sources.map((source) =>
+    `<div><a class="btn small" href="/api/migration/${esc(data.batch.id)}/sources/${esc(source.id)}" download>Download ${esc(source.file_name)}</a><details><summary>Source integrity</summary><small>${esc(source.file_size)} bytes</small><code>${esc(source.file_hash)}</code></details></div>`),{pageKey:'import-sources',className:'import-sources',label:'source files',summary:false}) : '';
   const groups = visible.map((group) => {
     const members: any[] = group.row_ids.map((id) => byId.get(id));
     const record = members.find((row) => row.profile.entity_type === 'instrument');
@@ -80,8 +80,8 @@ export function combinedImportPreview(data, query) {
       return `<li style="--clause-depth:${Math.min(depth, 10)}"><span class="import-source-number">${esc(values.source_clause_reference || 'Unnumbered')}</span><div><strong>${esc(values.heading || p.clause_reference || 'Clause')}</strong><small>${esc(p.clause_reference)}${p.parent_reference ? ` · Parent: ${esc(p.parent_reference)}` : ' · Top level'} · ${esc(values.source_page_reference || 'Page reference missing')} · ${esc(row.sheet_name)} row ${esc(row.row_number)}</small>${findings(row)}<details class="import-wording"><summary>Review wording</summary><div><strong>Original regulatory text</strong><p>${esc(values.clause_text || 'Missing')}</p><strong>Bank’s internal interpretation</strong><p>${esc(values.internal_interpretation || 'Not supplied')}</p></div></details>${row.target_entity_id ? link(importedClausePath(row), 'Open clause →', 'text-link') : ''}</div></li>`;
     }).join('');
     return `<details class="import-group" ${visible.length === 1 ? 'open' : ''}><summary><span><strong>${esc(group.title)}</strong><small>${esc(group.reference)} · Edition ${esc(group.edition_number || 'unresolved')} · ${group.existing_draft ? 'Existing Draft' : 'New regulatory record'} · ${clauses.length} clauses</small></span>${badge(group.status)}</summary><div class="import-group-body">${record ? findings(record) : note('The Regulatory records row is missing or ambiguous.', 'warn')}${source ? `<p class="small">Source: ${esc(source.file_name)}</p>` : ''}${record?.target_entity_id ? `<p>${link(instrumentWorkspacePath(record.target_entity_id, record.profile.target_version_id), 'Open regulatory record →', 'text-link')}</p>` : ''}${rows ? `<ol class="import-clause-preview" aria-label="Clause hierarchy for ${esc(group.reference)}">${rows}</ol>` : '<p class="small muted">No clauses in this group.</p>'}</div></details>`;
-  }).join('');
+  });
   return panel('Validation preview',
-    `<p class="small muted">Regulatory records: ${data.entity_counts.instrument || 0} · Clauses: ${data.entity_counts.clause || 0} · Sources: ${data.sources.length}. Parents stay within their record and edition.</p>${sources}${groups || '<p>No groups match these filters.</p>'}`,
+    `<p class="small muted">Regulatory records: ${data.entity_counts.instrument || 0} · Clauses: ${data.entity_counts.clause || 0} · Sources: ${data.sources.length}. Parents stay within their record and edition. Validation and Draft loading apply to the complete batch.</p>${sources}${pagedCollection(groups,{pageKey:'import-groups',label:'regulatory record groups',empty:'<p>No groups match these filters.</p>'})}`,
     {cls: 'import-preview'});
 }

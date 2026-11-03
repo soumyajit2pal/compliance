@@ -1,12 +1,11 @@
 import { state } from './state.ts';
-import { encryptLogin, type LoginKey } from './login-encryption.ts';
+import { encryptedSignIn } from './login-encryption.ts';
 import { requestLabel, withActivity } from '../ui/loading.ts';
 
 export class SessionExpired extends Error {}
 
 export async function signIn(username: string, password: string) {
-  const key = await api<LoginKey>('/auth/login-key');
-  return api('/auth/login', 'POST', await encryptLogin(key, username, password));
+  return encryptedSignIn(api, username, password);
 }
 
 /** Same-origin cookie authentication; CSRF is required for every write. */

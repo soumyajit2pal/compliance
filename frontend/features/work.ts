@@ -13,7 +13,7 @@ import {
 } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
 import { heading, pageHelp } from '../ui/layout.ts';
-import { note, tabs, table, tablePanel, person, searchForm, recordCell } from '../ui/widgets.ts';
+import { note, tabs, table, tablePanel, person, searchForm, recordCell, pagedCollection } from '../ui/widgets.ts';
 
 export async function tasksPage(page, query = new URLSearchParams()) {
   const tab = query.get('tab') || 'all',
@@ -38,7 +38,11 @@ export async function tasksPage(page, query = new URLSearchParams()) {
   if (tab === 'overdue') rows = rows.filter((t) => t.due_at && t.due_at.slice(0, 10) < localDate());
   if (tab === 'draft') rows = rows.filter((t) => t.kind === 'DRAFT');
   rows.sort((a, b) => (a.due_at || '9999').localeCompare(b.due_at || '9999'));
-  const taskPath = (task) => task.workflow_kind === 'FAMILY'
+  const taskPath = (task) => task.workflow_kind === 'OWNERSHIP_CHANGE'
+    ? 'obligations/'+task.obligation_id+'?tab=owners&ownership_change='+task.ownership_change_id
+    : task.workflow_kind === 'OBLIGATION'
+    ? 'obligations/'+task.obligation_id+'?tab=workflow'
+    : task.workflow_kind === 'FAMILY'
     ? 'notification-families/'+task.instrument_id+'?proposal='+task.proposal_id
     : task.workflow_kind === 'METADATA_CORRECTION'
     ? 'repository/' + task.instrument_id + '?tab=workflow&correction=' + task.correction_id
@@ -86,13 +90,13 @@ export async function tasksPage(page, query = new URLSearchParams()) {
         ],
         rows.map((t) => [
           recordCell(
-            sources.get(t.instrument_id)?.code || t.kind,
-            sources.get(t.instrument_id)?.title || t.title,
+            ['OBLIGATION','OWNERSHIP_CHANGE'].includes(t.workflow_kind)?t.code:sources.get(t.instrument_id)?.code || t.kind,
+            ['OBLIGATION','OWNERSHIP_CHANGE'].includes(t.workflow_kind)?t.title:sources.get(t.instrument_id)?.title || t.title,
             taskPath(t),
           ),
           badge(t.kind === 'DRAFT' ? 'DRAFT' : t.stage || 'DECISION'),
           person(state.identity.user.full_name),
-          esc(ref('organisational_unit', sources.get(t.instrument_id)?.regulatory_owner_unit_id)),
+          esc(ref('organisational_unit', t.department_id||sources.get(t.instrument_id)?.regulatory_owner_unit_id)),
           date(t.due_at) +
             (t.due_at && t.due_at.slice(0, 10) < localDate()
               ? '<small class="portal-overdue">Overdue</small>'
@@ -128,13 +132,12 @@ export async function notificationsPage(_id, query = new URLSearchParams()) {
       query,
     ) +
     tablePanel(
-      rows
+      pagedCollection(rows
         .map(
           (r) =>
             `<div class="notification-item ${r.read_at ? '' : 'unread'}"><div class="notification-icon">${icon('bell')}</div><div class="grow"><h3>${esc(({LDAP_DEPARTMENT_APPROVAL_REQUIRED: 'LDAP department approval required', LDAP_DEPARTMENT_APPROVED: 'LDAP department approved — sign in again', LDAP_DEPARTMENT_REJECTED: 'LDAP department request rejected', LDAP_PROFILE_CONFIRMATION_PENDING: 'LDAP profile confirmation pending', ACCESS_APPROVAL_REQUIRED: 'Access approval or role assignment required', ACCESS_ROLES_ASSIGNED: 'User roles assigned', LDAP_PROFILE_CONFIRMED: 'LDAP profile confirmed', USER_ACCESS_UPDATED: 'User access updated'})[r.notification_type] || title(r.notification_type))}</h3><p>${esc(r.source_title || 'Historical workflow update')}</p>${r.message ? `<p>${esc(r.message)}</p><span class="tag neutral">Current status: ${esc(r.access_status_label)}</span>` : ''}<small>${date(r.triggered_at)}${r.version_number ? ' · Version ' + esc(versionLabel(r.version_number)) : ''}</small>${r.action_path ? link(r.action_path, r.action_label + ' →', 'text-link') : r.instrument_id ? link('repository/' + r.instrument_id + (r.entity_type === 'metadata_correction' ? '?tab=workflow&correction=' + r.entity_id : '?version=' + r.entity_id + '&tab=workflow'), r.entity_type === 'metadata_correction' ? 'Open correction request →' : 'Open source version →', 'text-link') : ''}</div>${!r.read_at ? button('read-notification', 'Mark read', `data-id="${r.id}"`, 'small') : ''}</div>`,
-        )
-        .join('') ||
-        `<div class="empty">${icon('check')}<h3>You’re all caught up</h3><p>There are no ${tab === 'unread' ? 'unread ' : ''}notifications.</p></div>`,
+        ),{pageKey:'notifications',label:'notifications',empty:
+        `<div class="empty">${icon('check')}<h3>You’re all caught up</h3><p>There are no ${tab === 'unread' ? 'unread ' : ''}notifications.</p></div>`}),
     )
   );
 }

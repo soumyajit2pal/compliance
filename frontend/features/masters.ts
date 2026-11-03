@@ -6,9 +6,9 @@ import { modal, close } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
 import { heading } from '../ui/layout.ts';
 import { domainStatus } from '../ui/domains.ts';
-import { panel, table, tablePanel, tabs, note, searchForm, detailFields } from '../ui/widgets.ts';
+import { panel, table, tablePanel, tabs, note, searchForm, detailFields, pagedCollection } from '../ui/widgets.ts';
 
-const otherLookups = ['frequency', 'evidence_type', 'confidentiality_class', 'process', 'role'];
+const otherLookups = ['frequency', 'evidence_type', 'confidentiality_class', 'process', 'legal_entity', 'product', 'channel', 'customer_segment', 'geography', 'role'];
 const availableNow = (row) => row.active_flag &&
   (!row.effective_from || row.effective_from <= localDate()) &&
   (!row.effective_to || row.effective_to > localDate());
@@ -29,8 +29,8 @@ function organisationView(query) {
     panel('No organisation units', '<p>Add the first organisation unit to start the hierarchy.</p>');
   const indexed = childIndex(all, 'parent_org_unit_id');
   const children = indexed.get(selected.id) || [];
-  function branch(parent = null, seen = new Set()) {
-    return (indexed.get(parent) || [])
+  function branch(parent = null, seen = new Set(), units = indexed.get(parent) || []) {
+    return units
       .map((u) => {
         if (seen.has(u.id)) return '';
         const next = new Set(seen);
@@ -39,13 +39,22 @@ function organisationView(query) {
       })
       .join('');
   }
+  const roots = indexed.get(null) || [];
+  const root = roots.length === 1 ? roots[0] : null;
+  const branches = root ? indexed.get(root.id) || [] : roots;
+  const byId = new Map(all.map(unit => [unit.id, unit])), ancestry = new Set<string>();
+  for (let unit = selected; unit && !ancestry.has(unit.id); unit = byId.get(unit.parent_org_unit_id)) ancestry.add(unit.id);
+  const revealIndex = branches.findIndex(unit => ancestry.has(unit.id));
+  const pages = pagedCollection(branches.map(unit => branch(null, new Set(root ? [root.id] : []), [unit])),
+    {pageKey:'org-tree',label:'organisation branches',summary:false,revealIndex});
+  const tree = root ? `<div class="runtime-tree-branch"><a class="tree-node ${root.id === selected.id ? 'active' : ''}" href="#masters?tab=organisation&unit=${root.id}">${icon('org')}<span>${esc(root.name)}${root.active_flag ? '' : ' · inactive'}</span></a><div class="runtime-tree-children">${pages}</div></div>` : pages;
   return (
     heading(
       'Organisation hierarchy',
       '',
       addButton('organisational_unit'),
     ) +
-    `<div class="tree-layout">${panel('Organisation units', `<div class="tree">${branch()}</div>`, { sub: all.length + ' active and retained units' })}<div class="stack">${panel(
+    `<div class="tree-layout">${panel('Organisation units', `<div class="tree">${tree}</div>`, { sub: all.length + ' active and retained units' })}<div class="stack">${panel(
       selected.name,
       detailFields([
         ['Code', esc(selected.code)],
@@ -66,7 +75,7 @@ function organisationView(query) {
           badge(c.active_flag ? 'ACTIVE' : 'INACTIVE'),
           `<a class="btn small" href="#masters?tab=organisation&unit=${c.id}">Open unit</a>`,
         ]),
-        { summary: false },
+        { summary: false, pageKey: 'org-children' },
       ),
     )}${note('Role scope applies to the assigned organisation and its active, effective descendants. Home organisation describes membership; a task still needs a named owner.')}</div></div>`
   );

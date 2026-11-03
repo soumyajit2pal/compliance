@@ -1,0 +1,48 @@
+.obligation-applicability-panel .panel-head>div { max-width:75ch; }
+.obligation-scope-included>h3 { margin:0 0 16px; font-size:15px; color:var(--muted); }
+.obligation-scope-departments { display:grid; gap:16px; }
+.obligation-scope-department { border:1px solid var(--plum-line); border-radius:12px; overflow:hidden; min-width:0; }
+.obligation-scope-department>header { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px 16px; padding:16px 20px; background:var(--selection); }
+.obligation-scope-department>header h3 { font-size:17px; margin:0; overflow-wrap:anywhere; }
+.obligation-scope-department>header>span { font-size:12px; color:var(--muted); }
+.obligation-scope-record { padding:20px; border-top:1px solid var(--line); min-width:0; }
+.obligation-scope-decision { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-bottom:18px; }
+.obligation-scope-decision>strong { font-size:15px; }
+.obligation-scope-decision .tag { flex:0 1 auto; max-width:100%; white-space:normal; overflow-wrap:normal; word-break:normal; }
+.obligation-scope-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 26px; margin:0; }
+.obligation-scope-facts>div { min-width:0; }
+.obligation-scope-facts dt { color:var(--muted); font-size:12px; margin:0 0 5px; }
+.obligation-scope-facts dd { margin:0; font-size:14px; overflow-wrap:anywhere; }
+.obligation-scope-limits,.obligation-scope-reason { margin-top:18px; }
+.obligation-scope-limits { padding:14px 16px; background:var(--soft); border-radius:8px; }
+.obligation-scope-limits h4,.obligation-scope-reason h4 { font-size:13px; margin:0 0 7px; }
+.obligation-scope-limits p,.obligation-scope-reason p { margin:0; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.obligation-scope-bottom { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:14px 20px; margin-top:20px; border-top:1px solid var(--line); padding-top:16px; }
+.obligation-scope-bottom>span { font-size:12px; color:var(--muted); }
+.obligation-scope-bottom>details { flex:1 1 280px; max-width:100%; }
+.obligation-scope-bottom summary,.obligation-assessment-past summary { cursor:pointer; color:var(--primary-dark); font-size:13px; font-weight:600; }
+.obligation-scope-bottom details>.obligation-scope-facts,.obligation-assessment-past details>.obligation-scope-facts { margin-top:18px; }
+.obligation-scope-exclusions { border:1px solid var(--plum-line); border-radius:10px; margin-top:24px; }
+.obligation-scope-exclusions>summary { padding:16px 20px; cursor:pointer; color:var(--primary-dark); }
+.obligation-scope-exclusions>summary>span { display:inline-block; color:var(--muted); margin-left:14px; font-size:12px; }
+.obligation-scope-exclusions>div { padding:0 16px 16px; }
+.obligation-scope-empty { background:var(--soft); border-radius:10px; padding:20px; }
+.obligation-scope-empty h3 { font-size:16px; margin:0 0 8px; }
+.obligation-scope-empty p { color:var(--muted); margin:0; font-size:14px; }
+.obligation-scope-unnamed { margin:0; padding:14px 20px; color:var(--muted); font-size:13px; }
+.obligation-assessment-history-note { margin:0 0 20px; color:var(--muted); font-size:13px; }
+.obligation-assessment-past-list { display:grid; gap:18px; }
+.obligation-assessment-past { padding:18px; border:1px solid var(--line); border-radius:10px; min-width:0; }
+.obligation-assessment-past>header { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:10px 20px; margin-bottom:18px; }
+.obligation-assessment-past h3 { font-size:15px; margin:0; }
+.obligation-assessment-past header p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+.obligation-assessment-past header small { display:block; margin-top:5px; color:var(--muted); font-size:12px; }
+.obligation-assessment-past>details { border-top:1px solid var(--line); padding-top:14px; margin-top:18px; }
+@media(max-width:600px) {
+  .obligation-scope-facts { grid-template-columns:minmax(0,1fr); gap:14px; }
+  .obligation-scope-record { padding:16px; }
+  .obligation-scope-department>header { padding:14px 16px; }
+  .obligation-scope-exclusions>summary { padding:14px 16px; }
+  .obligation-scope-exclusions>summary>span { display:block; margin:8px 0 0 16px; }
+  .obligation-scope-exclusions>div { padding:0 10px 10px; }
+}
