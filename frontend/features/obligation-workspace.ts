@@ -5,6 +5,7 @@ import { obligationViews, workspacePath, type ObligationView } from '../core/obl
 import { esc } from '../ui/components.ts';
 import { heading } from '../ui/layout.ts';
 import { icon } from '../ui/icons.ts';
+import { obligationExportButton } from '../ui/obligation-export.ts';
 
 const viewDetails = {
   register: {icon: 'checkSquare', description: 'Requirements & status'},
@@ -26,6 +27,6 @@ export async function obligationWorkspacePage(view: 'applicability' | 'accountab
   request.set('group_by', 'obligation');
   const data = await api('/' + view + '?' + request);
   const props = {view, data, query: query.toString(), returnPath: workspacePath(view, query), masters: state.masters};
-  return heading('Obligations', 'Requirements, department applicability and named responsibilities.') + workspaceTabs(view, query) +
+  return heading('Obligations', 'Requirements, department applicability and named responsibilities.',obligationExportButton()) + workspaceTabs(view, query) +
     `<div data-obligation-workspace="${esc(JSON.stringify(props))}"></div>`;
 }

@@ -4,6 +4,21 @@ import { requestLabel, withActivity } from '../ui/loading.ts';
 
 export class SessionExpired extends Error {}
 
+/** Shared JSON/file failure handling preserves the existing session boundary. */
+export function throwApiError(status: number, data: any, path: string): never {
+  const detail = typeof data?.detail === 'string' ? data.detail : data?.detail?.message
+    ? [data.detail.message, data.detail.guidance, data.detail.code ? '(' + data.detail.code + ')' : ''].filter(Boolean).join(' ')
+    : JSON.stringify(data?.detail || data || 'The service returned an unexpected response.');
+  if (status === 401 && path !== '/auth/login') {
+    const hadIdentity = Boolean(state.identity);
+    state.identity = null; state.ready = false; state.masters = null; state.record = null;
+    state.batch = null; state.view = {}; state.work = []; state.notifications = [];
+    if (hadIdentity) window.dispatchEvent(new Event('portal:session-expired'));
+    throw new SessionExpired(detail);
+  }
+  throw Object.assign(new Error(detail), {status});
+}
+
 export async function signIn(username: string, password: string) {
   return encryptedSignIn(api, username, password);
 }
@@ -27,28 +42,7 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
     } catch {
       data = { detail: 'The service returned an unexpected response.' };
     }
-    if (!response.ok) {
-      const detail =
-        typeof data.detail === 'string' ? data.detail : data.detail?.message
-          ? [data.detail.message, data.detail.guidance, data.detail.code ? '(' + data.detail.code + ')' : ''].filter(Boolean).join(' ')
-          : JSON.stringify(data.detail || data);
-      if (response.status === 401 && path !== '/auth/login') {
-        const hadIdentity = Boolean(state.identity);
-        state.identity = null;
-        state.ready = false;
-        state.masters = null;
-        state.record = null;
-        state.batch = null;
-        state.view = {};
-        state.work = [];
-        state.notifications = [];
-        // An anonymous startup check is not an expired session. Notify once when
-        // concurrent protected requests discover an existing session has ended.
-        if (hadIdentity) window.dispatchEvent(new Event('portal:session-expired'));
-        throw new SessionExpired(detail);
-      }
-      throw Object.assign(new Error(detail), { status: response.status });
-    }
+    if (!response.ok) throwApiError(response.status,data,path);
     return data as T;
   });
 }

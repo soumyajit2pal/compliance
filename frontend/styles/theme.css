@@ -423,6 +423,75 @@ table:not(.data-table) td {
   scroll-margin-top: 20px;
 }
 
+.edition-next-step {
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid var(--plum-line);
+  border-radius: 10px;
+  background: var(--soft);
+  padding: clamp(16px, 2.5vw, 24px);
+  scroll-margin-block: 16px;
+  overflow-wrap: anywhere;
+}
+
+.edition-next-step.action {
+  border-color: var(--plum-line);
+  border-inline-start-color: var(--primary);
+  background: var(--selection);
+}
+
+.edition-next-step.blocked {
+  border-color: #e8ce94;
+  border-inline-start-color: #a57420;
+  background: #fff7e7;
+}
+
+.edition-next-step-label {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.edition-next-step h3 {
+  margin: 5px 0 8px;
+  font-size: 21px;
+  line-height: 1.25;
+}
+
+.edition-next-step p,
+.edition-next-step ul {
+  margin: 8px 0 0;
+  line-height: 1.55;
+}
+
+.edition-next-step ul {
+  padding-inline-start: 22px;
+}
+
+.edition-next-step-actions,
+.edition-other-actions .actions {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.edition-next-step-actions {
+  margin-top: 16px;
+}
+
+.edition-next-step-actions .btn {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+.edition-other-actions {
+  margin-top: 16px;
+}
+
+.edition-other-actions .actions {
+  margin-top: 8px;
+}
+
 .record-summary-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

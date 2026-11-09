@@ -47,6 +47,15 @@ export async function tasksPage(page, query = new URLSearchParams()) {
     : task.workflow_kind === 'METADATA_CORRECTION'
     ? 'repository/' + task.instrument_id + '?tab=workflow&correction=' + task.correction_id
     : 'repository/' + task.instrument_id + '?version=' + task.version_id + '&tab=workflow';
+  const nextAction = (task) => {
+    if (page !== 'approvals') return link(taskPath(task), 'Open assigned work', 'btn small');
+    const editionDecision = !task.workflow_kind && task.version_id;
+    if (editionDecision && task.stage === 'COMPLIANCE_REVIEW')
+      return link(taskPath(task), 'Open Compliance review', 'btn primary');
+    if (editionDecision && task.stage === 'FINAL_APPROVAL')
+      return link(taskPath(task), 'Open final approval', 'btn primary');
+    return link(taskPath(task), 'Open decision', 'btn small');
+  };
   return (
     pageHelp(
       page === 'approvals' ? 'Know which decisions are yours' : 'Your personal work',
@@ -55,7 +64,7 @@ export async function tasksPage(page, query = new URLSearchParams()) {
     heading(
       page === 'approvals' ? 'My decisions' : 'My work',
       page === 'approvals'
-        ? 'Review the source and record the decision for your assigned stage.'
+        ? 'Open your assigned stage, then record your review or approval on the record’s Workflow tab.'
         : 'Personal assignments that your role and organisation scope permit you to perform.',
     ) +
     note(
@@ -101,11 +110,7 @@ export async function tasksPage(page, query = new URLSearchParams()) {
             (t.due_at && t.due_at.slice(0, 10) < localDate()
               ? '<small class="portal-overdue">Overdue</small>'
               : ''),
-          link(
-            taskPath(t),
-            page === 'approvals' ? 'Open decision' : 'Open assigned work',
-            'btn small',
-          ),
+          nextAction(t),
         ]),
       ),
       page === 'approvals' ? 'Assigned decisions' : 'Assigned work',

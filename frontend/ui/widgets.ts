@@ -57,5 +57,5 @@ export function stat(label, value, sub, path, ic = 'file', color = 'sage') {
 export function stepFlow(status) {
   const stages = ['Draft', 'Compliance review', 'Final approval', 'Approved'];
   const position = { DRAFT: 0, IN_REVIEW: 1, REVIEWED: 2, APPROVED: 3 }[status] ?? 0;
-  return `<ol class="runtime-stage-flow">${stages.map((name, i) => `<li class="${i === position ? 'active' : i < position ? 'done' : ''}"><span>${i < position ? icon('check') : i + 1}</span><strong>${name}</strong></li>`).join('')}</ol>`;
+  return `<ol class="runtime-stage-flow" aria-label="Source edition approval stages">${stages.map((name, i) => `<li class="${i === position ? 'active' : i < position ? 'done' : ''}"${i === position ? ' aria-current="step"' : ''}><span aria-hidden="true">${i < position ? icon('check') : i + 1}</span><strong>${name}</strong></li>`).join('')}</ol>`;
 }

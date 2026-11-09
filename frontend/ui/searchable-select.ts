@@ -8,6 +8,7 @@ let active: SearchableSelect | null = null;
 
 const normalize = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase().trim();
 const eligible = (select: HTMLSelectElement) => !select.multiple && select.size <= 1;
+const optionTitle = (option?: HTMLOptionElement) => option?.dataset.optionTitle?.trim() || option?.label.trim() || '';
 const labelText = (label: HTMLLabelElement) => {
   const copy = label.cloneNode(true) as HTMLElement;
   copy.querySelectorAll('input, select, textarea, button, .searchable-select, [aria-hidden="true"]').forEach(node => node.remove());
@@ -116,12 +117,13 @@ export class SearchableSelect {
     const selection = this.select.value + '\u001f' + this.select.selectedIndex;
     if (this.opened && selection !== this.selection) this.close();
     this.selection = selection;
-    const selected = this.select.selectedOptions[0]?.label.trim() || '';
-    this.input.title = selected;
-    if (!this.opened) this.input.value = selected;
+    const selected = this.select.selectedOptions[0];
+    this.input.title = selected?.label.trim() || '';
+    if (!this.opened) this.input.value = optionTitle(selected);
     if (disabled || this.select.hidden || !eligible(this.select)) this.close();
     const signature = Array.from(this.select.options).map(option =>
-      [option.label, option.value, option.disabled, option.hidden, option.parentElement?.getAttribute('disabled'), option.dataset.search].join('\u001f')
+      [option.label, option.value, option.disabled, option.hidden, option.parentElement?.getAttribute('disabled'),
+        option.dataset.search, option.dataset.optionTitle, option.dataset.optionDetail].join('\u001f')
     ).join('\u001e');
     if (this.opened && signature !== this.optionSignature) this.renderOptions();
     this.optionSignature = signature;
@@ -142,7 +144,7 @@ export class SearchableSelect {
     Array.from(this.select.options).forEach((option, index) => {
       if (option.hidden || option.parentElement?.hidden) return;
       const group = option.parentElement instanceof HTMLOptGroupElement ? option.parentElement : null;
-      const text = [option.label, option.value, option.dataset.search, group?.label].join(' ');
+      const text = [option.label, option.value, option.dataset.search, option.dataset.optionTitle, option.dataset.optionDetail, group?.label].join(' ');
       if (!words.every(word => normalize(text).includes(word))) return;
       if (group && group !== lastGroup) {
         container = document.createElement('div');
@@ -163,7 +165,19 @@ export class SearchableSelect {
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', String(option.selected));
       row.setAttribute('aria-disabled', String(!this.enabled(index)));
-      row.textContent = option.label.trim() || 'Select…';
+      const detail = option.dataset.optionDetail;
+      if (detail) {
+        const title = document.createElement('span');
+        title.className = 'searchable-select-option-title';
+        title.textContent = optionTitle(option);
+        const subtitle = document.createElement('span');
+        subtitle.className = 'searchable-select-option-detail';
+        subtitle.textContent = detail;
+        row.append(title, subtitle);
+        row.setAttribute('aria-label', option.label.trim());
+      } else {
+        row.textContent = optionTitle(option) || 'Select…';
+      }
       if (option.selected) {
         const check = document.createElement('span');
         check.className = 'searchable-select-check';
@@ -230,7 +244,7 @@ export class SearchableSelect {
     this.query = query;
     this.opened = true;
     this.input.value = query;
-    this.input.placeholder = 'Search options…';
+    this.input.placeholder = this.select.dataset.searchPlaceholder || 'Search options…';
     this.input.setAttribute('aria-expanded', 'true');
     this.wrapper.classList.add('is-open');
     this.renderOptions();
@@ -247,7 +261,7 @@ export class SearchableSelect {
     this.input.removeAttribute('aria-activedescendant');
     this.wrapper.classList.remove('is-open');
     if (this.popup.matches(':popover-open')) this.popup.hidePopover();
-    this.input.value = this.select.selectedOptions[0]?.label.trim() || '';
+    this.input.value = optionTitle(this.select.selectedOptions[0]);
     this.input.placeholder = 'Select…';
   }
 
@@ -257,7 +271,8 @@ export class SearchableSelect {
     const viewport = window.visualViewport;
     const top = viewport?.offsetTop || 0;
     const bottom = top + (viewport?.height || innerHeight);
-    const width = Math.min(Math.max(anchor.width, 220), innerWidth - 16);
+    const minimumWidth = Number(this.select.dataset.popupMinWidth) || 220;
+    const width = Math.min(Math.max(anchor.width, minimumWidth), innerWidth - 16);
     const below = bottom - anchor.bottom - 8;
     const above = anchor.top - top - 8;
     const upwards = below < 180 && above > below;
@@ -321,7 +336,8 @@ export function installSearchableSelects() {
       Array.from(record.removedNodes).some(node => node instanceof Element && (node.matches('select') || node.querySelector('select'))))) scheduleRefresh();
   });
   observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true,
-    attributeFilter: ['disabled', 'required', 'selected', 'value', 'hidden', 'label', 'data-search', 'multiple', 'size', 'aria-label', 'aria-labelledby', 'aria-describedby'] });
+    attributeFilter: ['disabled', 'required', 'selected', 'value', 'hidden', 'label', 'data-search', 'data-option-title', 'data-option-detail',
+      'multiple', 'size', 'aria-label', 'aria-labelledby', 'aria-describedby'] });
   for (const event of ['input', 'change', 'click']) document.addEventListener(event, scheduleRefresh, true);
   document.addEventListener('reset', event => queueMicrotask(() => {
     for (const [select, control] of controls) if (select.form === event.target) control.reset();

@@ -93,7 +93,7 @@ def coverage_totals(groups):
     return counts
 
 
-def obligation_coverage(db,actor,filters,perspective):
+def obligation_coverage(db,actor,filters,perspective,parents=None):
     """Page whole authorised revisions, never a partial collection of their departments.
 
     Filters select obligations by a matching department; all recorded departments
@@ -101,7 +101,7 @@ def obligation_coverage(db,actor,filters,perspective):
     """
     actor.require(READ_ROLES)
     if filters.get('response') and filters['response'] not in {'PENDING','ACCEPT','OBJECT'}:raise HTTPException(422,'Choose a listed owner response.')
-    parents=obligation_parents(db,actor,filters)
+    parents=obligation_parents(db,actor,filters) if parents is None else parents
     groups={key:{**parent,'departments':{},'unallocated_assessments':[]} for key,parent in parents.items()}
     selection={'history':filters.get('history','')}
     for collection,rows in [('owners',ownership(db,actor,selection,parents)),('assessments',applicability(db,actor,selection,parents))]:

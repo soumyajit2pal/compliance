@@ -157,28 +157,38 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
           clauses: state.record.clauses.filter((row) => row.instrument_version_id === v.id),
         }], 'clause', c);
       },
-      'submit-version': async () => {
+      'submit-version': async (_data, trigger: HTMLElement) => {
         const i = state.record.instrument,
           v = state.view.version;
-        const reviewers = await choosePeople('REVIEWER', i.regulatory_owner_unit_id, [
-          v.created_by,
+        const [reviewers, approvers] = await Promise.all([
+          choosePeople('REVIEWER', i.regulatory_owner_unit_id, [v.created_by]),
+          choosePeople('APPROVER', i.regulatory_owner_unit_id, [v.created_by]),
         ]);
-        const approvers = await choosePeople('APPROVER', i.regulatory_owner_unit_id, [
-          v.created_by,
-        ]);
+        if (!trigger.isConnected) return;
+        if (!reviewers.some(reviewer => approvers.some(approver => approver.id !== reviewer.id))) {
+          modal('Review assignments unavailable',
+            '<p>Submission needs two different eligible people in the owning department’s scope. Ask an Admin to check the Compliance reviewer and final approver role assignments.</p>');
+          return;
+        }
         modal(
-          'Submit for independent review',
-          `${field('Compliance reviewer', select('reviewer_id', reviewers, '', 'full_name', 'required'))}${field('Final approver', select('approver_id', approvers, '', 'full_name', 'required'))}${field('Submission notes', area('comments', '', 'required minlength="3"'))}<div class="notice">The maker, reviewer and final approver must be different people. Approval cannot start before the named review is completed.</div>`,
+          'Submit for Compliance review',
+          `${field('Compliance reviewer', select('reviewer_id', reviewers, '', 'full_name', 'required'), 'This person receives the first task in My decisions.')}
+          ${field('Final approver', select('approver_id', approvers, '', 'full_name', 'required'), 'Choose a different person. Their task opens after the reviewer records their review.')}
+          ${field('Submission notes', area('comments', '', 'required minlength="3"'))}`,
           'submit-version',
-          'Submit for review',
+          'Send to Compliance reviewer',
+          'Edition ' + versionLabel(v.version_number) + ' · ' + i.code,
         );
+        document.querySelector<HTMLFormElement>('#submit-version').dataset.versionId = v.id;
       },
-      decision: async ({ decision }) => {
-        state.view.decision = decision;
+      decision: async ({ decision }, trigger: HTMLElement) => {
+        const v = state.view.version;
+        const isReview = decision === 'REVIEW';
+        const isApproval = decision === 'APPROVE';
+        const actionLabel = isReview ? 'Record Compliance review' : isApproval ? 'Approve source edition' : title(decision) + ' version';
         let extra = '';
         if (decision === 'DELEGATE') {
-          const v = state.view.version,
-            task = state.record.tasks.find(
+          const task = state.record.tasks.find(
               (t) =>
                 t.entity_id === v.id &&
                 t.workflow_status === 'OPEN' &&
@@ -205,22 +215,27 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
             ),
           );
         }
+        if (!trigger.isConnected) return;
         modal(
-          title(decision) + ' version',
+          actionLabel,
           detailFields([
             ['Source', esc(state.record.instrument.title), true],
-            ['Version', esc(versionLabel(state.view.version.version_number))],
-            ['Maker', esc(ref('user', state.view.version.created_by))],
+            ['Version', esc(versionLabel(v.version_number))],
+            ['Maker', esc(ref('user', v.created_by))],
             ['Decision maker', esc(state.identity.user.full_name)],
             ['Decision', esc(title(decision))],
           ]) +
             `<div class="divider"></div>${decision === 'WITHDRAW' ? '<div class="notice">Withdraw this submission to Draft for editing. Current review is closed; submitting again starts a fresh independent review.</div>' : ''}${extra}${field(
               'Decision and rationale',
               area('comments', '', 'required minlength="3"'),
-            )}${['REVIEW', 'APPROVE'].includes(decision) ? '<label class="check-label mt24"><input type="checkbox" required>I confirm I am independent of the maker and have reviewed the source and Clauses / Para.</label>' : ''}`,
+            )}${isReview || isApproval ? `<label class="check-label mt24"><input type="checkbox" required>I confirm I am independent of the maker${isApproval ? ' and reviewer' : ''} and have reviewed the source and Clauses / Para.</label>` : ''}`,
           'decision',
-          'Record ' + title(decision),
+          isReview || isApproval ? actionLabel : 'Record ' + title(decision),
+          isReview ? 'Recording this review sends final approval to the named approver’s My decisions queue.' : '',
         );
+        const form = document.querySelector<HTMLFormElement>('#decision');
+        form.dataset.versionId = v.id;
+        form.dataset.decision = decision;
       },
       'correction-decision': async ({ decision, id }) => {
         const correction = state.record.metadata_corrections.find((row) => row.id === id);
@@ -343,13 +358,16 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
         await render();
       },
       'submit-version': async (form) => {
+        const values = Object.fromEntries(new FormData(form));
+        if (values.reviewer_id === values.approver_id)
+          throw new Error('Choose a different person for final approval.');
         await api(
-          '/versions/' + state.view.version.id + '/submit',
+          '/versions/' + form.dataset.versionId + '/submit',
           'POST',
-          Object.fromEntries(new FormData(form)),
+          values,
         );
         close();
-        message('Submitted to the named Compliance reviewer.');
+        message('Submitted. The Compliance reviewer can open this edition from My decisions.');
         await render();
       },
       'metadata-correction': async (form) => {
@@ -374,12 +392,19 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
         await render();
       },
       decision: async (form) => {
-        await api('/versions/' + state.view.version.id + '/decision', 'POST', {
+        const decision = form.dataset.decision;
+        await api('/versions/' + form.dataset.versionId + '/decision', 'POST', {
           ...Object.fromEntries(new FormData(form)),
-          decision: state.view.decision,
+          decision,
         });
         close();
-        message(state.view.decision === 'WITHDRAW' ? 'Submission withdrawn to Draft. Edit the edition and submit for fresh review; the earlier workflow history is retained.' : state.view.decision === 'RETURN' ? 'Edition returned to Draft for correction and fresh review.' : 'Decision recorded with audit history.');
+        const feedback = {
+          REVIEW: 'Compliance review recorded. The final approver can now open this edition from My decisions.',
+          APPROVE: 'Source edition approved. The decision is recorded in History.',
+          WITHDRAW: 'Submission withdrawn to Draft. Edit the edition and submit for fresh review. The earlier workflow history is retained.',
+          RETURN: 'Edition returned to Draft for correction and fresh review.',
+        };
+        message(feedback[decision] || 'Decision recorded with audit history.');
         await render();
       },
       comment: async (form) => {

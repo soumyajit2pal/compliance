@@ -1,5 +1,6 @@
 """Routes share the application's authentication, database transaction and paging."""
 import csv,io
+from typing import Literal
 from fastapi import Depends,Query,Request,Response,HTTPException,UploadFile,File,Form
 from fastapi.responses import FileResponse
 from .storage import stored_path
@@ -33,6 +34,13 @@ def install(app,get_db,current):
         for row in rows:writer.writerow([*[safe_cell('; '.join(row[k]) if k=='issues' else row[k]) for k in fields],safe_cell(departments.get(row['business_owner_unit_id']))])
         audit(db,actor,'obligation_report','register','EXPORTED',new={'count':len(rows),'filters':dict(request.query_params)})
         return Response('\ufeff'+output.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="obligation-exceptions.csv"'})
+
+    @app.get('/api/obligations/export')
+    def export(request:Request,format:Literal['xlsx','csv']='xlsx',view:Literal['register','applicability','accountability']='register',obligation_id:str|None=Query(None,max_length=36),db=Depends(get_db),actor=Depends(current)):
+        from . import obligation_export
+        result=obligation_export.build(db,actor,view,format,dict(request.query_params),obligation_id)
+        audit(db,actor,'obligation_report',obligation_id or view,'EXPORTED',new={'view':view,'format':format,'count':result['count'],'rows':result['rows'],'filters':result['filters']})
+        return Response(result['data'],media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if format=='xlsx' else 'text/csv',headers={'Content-Disposition':f'attachment; filename="{result["filename"]}"','Cache-Control':'private, no-store','X-Export-Obligations':str(result['count'])})
 
     @app.get('/api/obligations/assignees')
     def assignees(role:str,unit_id:str,db=Depends(get_db),actor=Depends(current)):

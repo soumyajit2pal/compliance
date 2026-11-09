@@ -55,6 +55,14 @@ export function App() {
     if (!query.has('tab')) return;
 
     requestAnimationFrame(() => {
+      const nextStep = query.get('tab') === 'workflow' && !query.has('correction')
+        ? document.getElementById('edition-next-step-heading')
+        : null;
+      if (nextStep) {
+        nextStep.focus({ preventScroll: true });
+        nextStep.closest('.edition-next-step')?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
       const target = document.getElementById('record-sections');
       if (!target) return;
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;

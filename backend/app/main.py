@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError,DatabaseError
-from fastapi import FastAPI,Depends,Request,Response,HTTPException,UploadFile,File,Form
+from fastapi import FastAPI,Depends,Request,Response,HTTPException,UploadFile,File,Form,Query
 from fastapi.responses import FileResponse,JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +16,7 @@ from .runtime import runtime_settings
 from .pagination import page_query, paginate
 from .config import ROOT
 from .storage import prepare_storage, stored_path, write_private
-from .logging_config import configure_logging, request_id as logging_request_id
+from .logging_config import configure_logging, request_id as logging_request_id, client_ip as logging_client_ip, client_ip_from_scope
 from . import models as m,schemas as s,repository as repo,migration_service as migration
 from . import authentication as auth
 from .login_encryption import load_material, public_login_key, consume_challenge, encrypted_login_credentials
@@ -124,6 +124,7 @@ def create_app(settings=None,engine=None):
         reference=new_id()
         request.state.request_id=reference
         token=logging_request_id.set(reference);started=time.perf_counter()
+        client_token=logging_client_ip.set(client_ip_from_scope(request.scope))
         def route_name():
             route=request.scope.get('route')
             return getattr(route,'path','[unmatched]')
@@ -141,6 +142,7 @@ def create_app(settings=None,engine=None):
             response.headers['X-Request-ID']=reference
             return response
         finally:
+            logging_client_ip.reset(client_token)
             logging_request_id.reset(token)
 
     @app.exception_handler(DatabaseError)
@@ -458,8 +460,8 @@ def create_app(settings=None,engine=None):
     def clauses(db=Depends(get_db),actor=Depends(current)):
         return repo.clause_listing(db,actor)
     @app.get('/api/source-editions')
-    def source_editions(db=Depends(get_db),actor=Depends(current)):
-        return repo.source_edition_listing(db,actor)
+    def source_editions(instrument:str|None=Query(None,max_length=36),db=Depends(get_db),actor=Depends(current)):
+        return repo.source_edition_listing(db,actor,instrument)
     @app.post('/api/instruments')
     def register(payload:s.InstrumentInput,db=Depends(get_db),actor=Depends(current)):return repo.create_instrument(db,actor,payload)
     @app.put('/api/instruments/{identifier}')
@@ -669,6 +671,8 @@ def create_app(settings=None,engine=None):
     install_obligations(app,get_db,current)
     from .regulation_registers import install as install_regulation_registers
     install_regulation_registers(app,get_db,current)
+    from .clause_browser import install as install_clause_browser
+    install_clause_browser(app,get_db,current)
     frontend_dist=ROOT/'frontend'/'dist'
     @app.get('/')
     def index():

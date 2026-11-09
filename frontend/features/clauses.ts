@@ -12,163 +12,314 @@ import {
   title,
   versionLabel,
 } from '../ui/components.ts';
-import { heading, pageHelp } from '../ui/layout.ts';
+import { heading } from '../ui/layout.ts';
 import { close, modal } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
 import { note, recordCell, table, tablePanel } from '../ui/widgets.ts';
 import { clausePayload, openClauseDialog, type ClauseDraftTarget } from './clause-dialog.ts';
-import { clauseEditionBadges, renderClauseWorkingView } from './clause-workspace.ts';
+import { clauseEditionBadges, renderClauseDetail } from './clause-workspace.ts';
+import { browsePath, clauseBatch, clauseBrowserActions, renderLazyHierarchy, type BrowserClause, type ClauseBatch } from './clause-browser.ts';
 import { sourceEditionStatus } from '../core/source-editions.ts';
 import { selectClauseScope } from '../core/clause-scope.ts';
 import { clauseWorkspacePath } from '../core/source-navigation.ts';
 
-function workingPath(row, query = new URLSearchParams(), matchingIds?: Set<string>) {
-  const next = new URLSearchParams(query);
-  next.delete('view');
-  if (matchingIds && !matchingIds.has(row.id)) {
-    next.delete('q');
-    next.delete('status');
-    const edition=next.get('edition');
-    if(edition&&edition!=='all'&&(edition==='current'?!row.version_is_effective_current:edition!==row.instrument_version_id)){
-      next.set('edition',row.instrument_version_id);next.set('instrument',row.instrument_id);
-    }
-    if(next.get('instrument')&&next.get('instrument')!=='all'&&next.get('instrument')!==row.instrument_id)next.set('instrument',row.instrument_id);
-  }
-  return clauseWorkspacePath(row.id, next);
+interface OpenClause {
+  clause: BrowserClause;
+  ancestors: BrowserClause[];
+  edition: BrowserClause;
+  owner_unit_id: string;
+  source_document?: { id: string; name: string };
+  provenance?: BrowserClause;
+  original?: BrowserClause;
 }
 
-function clauseRegister(rows, query) {
+function pageLinks(query: URLSearchParams, page: number, batch: ClauseBatch) {
+  const to = (pageNumber: number) => {
+    const next = new URLSearchParams(query);
+    next.delete('clause');
+    next.set('page', String(pageNumber));
+    return 'clauses?' + next;
+  };
+  if (page === 1 && !batch.next_page) return '';
+  return `<nav class="actions clause-browser-paging" aria-label="Clause result pages">
+    ${page > 1 ? link(to(page - 1), 'Previous results', 'btn small') : ''}
+    <span>Page ${page}</span>
+    ${batch.next_page ? link(to(batch.next_page), 'Next results', 'btn small') : ''}
+  </nav>`;
+}
+
+function parentPath(row: BrowserClause) {
+  return row.parent_path?.length ? row.parent_path.join(' → ') : 'Top level';
+}
+
+function clauseRegister(batch: ClauseBatch, query: URLSearchParams, page: number) {
   return tablePanel(table(
-    ['Clause', 'Instrument', 'Source edition', 'Parent / page reference', 'Interpretation', 'Status', ''],
-    rows.map((row) => {
-      const path = workingPath(row, query);
-      return [
-        recordCell(row.code, row.heading || 'Source clause / para', path, row.source_clause_reference ? 'Source clause / para ' + row.source_clause_reference : ''),
-        `<a class="text-link" href="#repository/${esc(row.instrument_id)}">${esc(row.instrument_code)}</a><small>${esc(row.instrument_short_title || row.instrument_title)}</small><small>${esc(row.regulator_code)} · ${esc(row.domain_name)}</small>`,
-        clauseEditionBadges(row),
-        esc(row.parent_code || 'Top level') + `<small>${esc(row.source_page_reference || 'Page not recorded')}</small>`,
-        esc(row.internal_interpretation || 'Interpretation pending'),
-        badge(row.approval_status || 'DRAFT'),
-        `<a class="btn small clause-open-button" href="#${esc(path)}">Open <span class="sr-only">${esc(row.code)}</span></a>`,
-      ];
-    }),
-    { caption: 'Authorised source clauses and Para', empty: 'No clauses or Para match this search.' },
-  ), 'Clause and para register', '', 'clause-register-panel');
+    ['Clause', 'Instrument', 'Source edition', 'Parent path', 'Page', 'Clause approval'],
+    batch.items.map(row => [
+      recordCell(row.code, row.heading || 'Source clause / para', browsePath(row, query), row.source_clause_reference || ''),
+      `${link('repository/' + encodeURIComponent(row.instrument_id), row.instrument_code, 'text-link')}<small>${esc(row.instrument_short_title || row.instrument_title)}</small>`,
+      clauseEditionBadges(row),
+      esc(parentPath(row)),
+      esc(row.source_page_reference || '—'),
+      badge(row.approval_status),
+    ]),
+    { caption: 'Authorised source clauses and Para', empty: 'No clauses or Para match this search.', paginate: false, summary: false },
+  ) + pageLinks(query, page, batch), 'Clause and para register', '', 'clause-register-panel');
+}
+
+function searchNavigation(batch: ClauseBatch, query: URLSearchParams, page: number) {
+  return `<section class="panel clause-results-panel" aria-labelledby="clause-results-heading">
+    <h2 id="clause-results-heading">Search results</h2>
+    <nav class="clause-browser-results" aria-label="Clause search results">
+    ${batch.items.length ? `<ul class="clause-hierarchy-list">${batch.items.map(row =>
+      `<li><a class="clause-tree-node ${query.get('clause') === row.id ? 'active' : ''}" href="#${esc(browsePath(row, query))}"
+        ${query.get('clause') === row.id ? 'aria-current="true"' : ''}><span>
+        <strong>${esc([row.source_clause_reference, row.heading || 'Source clause / para'].filter(Boolean).join(' · '))}</strong>
+        <code>${esc(row.code)}</code><small>${esc(row.instrument_short_title || row.instrument_title)}</small>
+        ${clauseEditionBadges(row)}<small>Parent path · ${esc(parentPath(row))}</small></span></a></li>`,
+    ).join('')}</ul>` : '<p class="clause-hierarchy-empty">No clauses match this search.</p>'}
+    ${pageLinks(query, page, batch)}
+    </nav>
+  </section>`;
+}
+
+async function openClause(identifier: string): Promise<OpenClause | null> {
+  try {
+    return await api<OpenClause>('/clause-browser/' + encodeURIComponent(identifier));
+  } catch (error) {
+    if (error.status === 404) return null;
+    throw error;
+  }
+}
+
+type ClauseScope = ReturnType<typeof selectClauseScope>;
+
+function sourceControls(instruments: BrowserClause[], scope: ClauseScope, today: string) {
+  const editionOptions = scope.instrument ? scope.scopedEditions.map(version => {
+    const approval = scope.currentIds.has(version.id) ? 'Current approved' : title(sourceEditionStatus(version));
+    const position = version.effective_from > today ? ' · Future effective' :
+      version.approval_status === 'APPROVED' && version.effective_to && version.effective_to <= today ? ' · Historical' : '';
+    return `<option value="${esc(version.id)}" ${version.id === scope.editionFilter ? 'selected' : ''}>Version ${esc(versionLabel(version.version_number))} · ${esc(approval)}${position}</option>`;
+  }).join('') : '';
+  return `<div class="clause-browse-fields">
+    <div>
+      <label for="clause-instrument">Instrument</label>
+      <select id="clause-instrument" name="clause_workspace_instrument" data-popup-min-width="480"
+        data-search-placeholder="Find by instrument title or reference">
+        <option value="all" ${scope.instrumentId === 'all' ? 'selected' : ''}>All instruments</option>
+        ${instruments.map(row => {
+          const name = row.short_title || row.title;
+          const terms = [row.title, row.official_reference_number, ...(row.legacy_codes || [])].filter(Boolean).join(' ');
+          return `<option value="${esc(row.id)}" ${row.id === scope.instrumentId ? 'selected' : ''}
+            data-option-title="${esc(name)}" data-option-detail="${esc(row.code)}" data-search="${esc(terms)}">${esc(name)} · ${esc(row.code)}</option>`;
+        }).join('')}
+      </select>
+    </div>
+    <div>
+      <label for="clause-source-edition">Source edition</label>
+      <select id="clause-source-edition" name="clause_workspace_edition" data-instrument-id="${esc(scope.instrumentId)}">
+        <option value="all" ${scope.editionFilter === 'all' ? 'selected' : ''}>All editions</option>
+        <option value="current" ${scope.editionFilter === 'current' ? 'selected' : ''}>Current approved</option>
+        ${editionOptions}
+      </select>
+    </div>
+  </div>
+  ${scope.specific ? `<p class="clause-scope-note">Effective from ${date(scope.specific.effective_from)}${scope.specific.effective_to ? ' until ' + date(scope.specific.effective_to) + ' (exclusive)' : ''}</p>` : ''}`;
+}
+
+function searchForm(scope: ClauseScope, search: string, searchType: string, status: string, registerView: boolean) {
+  const clearQuery = new URLSearchParams({ instrument: scope.instrumentId, edition: scope.editionFilter });
+  if (registerView) clearQuery.set('view', 'register');
+  const edition = scope.specific ? 'version ' + versionLabel(scope.specific.version_number) :
+    scope.editionFilter === 'current' ? 'current approved editions' : 'all editions';
+  const source = scope.instrument ? scope.instrument.short_title || scope.instrument.title : 'all authorised instruments';
+  return `<form id="clause-filters" class="panel clause-search-panel" role="search" aria-label="Find clauses">
+    ${registerView ? '<input type="hidden" name="view" value="register">' : ''}
+    <input type="hidden" name="instrument" value="${esc(scope.instrumentId)}">
+    <input type="hidden" name="edition" value="${esc(scope.editionFilter)}">
+    <label for="clause-query">Search clauses</label>
+    <div class="clause-search-row">
+      <div class="search-field">${icon('search')}${input('q', search, 'search', 'id="clause-query" maxlength="200" placeholder="Enter a reference, heading or wording" aria-label="Search clauses"')}</div>
+      <button class="btn primary search-submit" type="submit">Search</button>
+    </div>
+    <div class="clause-search-meta">
+      <p class="clause-scope-note">Searching ${esc(source)} · ${esc(edition)}</p>
+      ${search || status || searchType !== 'keyword' ? link('clauses?' + clearQuery, 'Clear filters', 'text-link') : ''}
+    </div>
+    <details class="clause-options" ${status || searchType !== 'keyword' ? 'open' : ''}>
+      <summary>Search options</summary>
+      <div class="clause-browse-fields">
+        <div>
+          <label for="clause-search-type">Search type</label>
+          <select id="clause-search-type" name="search_type">
+            <option value="keyword" ${searchType === 'keyword' ? 'selected' : ''}>Words or reference</option>
+            <option value="phrase" ${searchType === 'phrase' ? 'selected' : ''}>Phrase</option>
+            <option value="reference" ${searchType === 'reference' ? 'selected' : ''}>Reference only</option>
+            <option value="literal" ${searchType === 'literal' ? 'selected' : ''} ${scope.specific ? '' : 'disabled'}>Exact wording${scope.specific ? '' : ' (choose an edition)'}</option>
+          </select>
+        </div>
+        <div>
+          <label for="clause-status">Clause approval status</label>
+          <select id="clause-status" name="status">
+            <option value="">All clause statuses</option>
+            ${['DRAFT', 'IN_REVIEW', 'REVIEWED', 'APPROVED', 'REJECTED', 'WITHDRAWN'].map(value => `<option value="${value}" ${status === value ? 'selected' : ''}>${esc(title(value))}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <p class="clause-scope-note">Phrase matches consecutive words. Choose a specific source edition to search for exact wording.</p>
+    </details>
+  </form>`;
 }
 
 export async function clausesPage(_id, query = new URLSearchParams()) {
+  const request = state.routeNumber;
   const registerView = query.get('view') === 'register';
-  const [sourceRows, instruments, editions] = await Promise.all([
-    api('/clauses'), api('/instruments'), api('/source-editions'),
-  ]);
-  instruments.sort((a, b) => a.title.localeCompare(b.title));
-  const scope = selectClauseScope(instruments, editions, query, localDate());
-  const editionById = new Map<string, any>(editions.map((row) => [row.id, row]));
-  const visibleIds = new Set(scope.visibleEditions.map((row) => row.id));
-  const allRows = sourceRows.map((row) => {
-    const version = editionById.get(row.instrument_version_id);
-    return { ...row, version_is_effective_current: scope.currentIds.has(row.instrument_version_id),
-      version_cancelled_draft: version?.cancelled_draft, version_effective_from: version?.effective_from,
-      version_effective_to: version?.effective_to };
-  });
-  const population = allRows.filter((row) => (scope.instrumentId === 'all' || row.instrument_id === scope.instrumentId) &&
-    visibleIds.has(row.instrument_version_id));
-  const search = (query.get('q') || '').trim().toLocaleLowerCase();
+  const identifier = query.get('clause');
+  const search = (query.get('q') || '').trim();
+  const requestedSearchType = query.get('search_type');
+  const searchType = ['phrase', 'reference', 'literal'].includes(requestedSearchType) ? requestedSearchType : 'keyword';
   const status = query.get('status') || '';
-  const rows = population.filter((row) => {
-    const haystack = [row.code, ...(row.legacy_codes || []), row.source_clause_reference, row.source_page_reference, row.heading,
-      row.clause_text, row.internal_interpretation, row.instrument_code, row.instrument_title,
-      row.instrument_short_title, row.official_reference_number, row.regulator_code, row.regulator_name, row.domain_name]
-      .filter(Boolean).join(' ').toLocaleLowerCase();
-    return (!search || haystack.includes(search)) && (!status || row.approval_status === status);
-  });
-  const selected = rows.find((row) => row.id === query.get('clause')) || rows[0];
-  // Only the opened clause needs full document/workflow detail, even in the All view.
-  const record = selected && !registerView ? await api('/instruments/' + selected.instrument_id) : null;
-  const selectedVersion = record?.versions.find((row) => row.id === selected?.instrument_version_id);
-  const editable = selected && record && covered(record.instrument.regulatory_owner_unit_id, ['AUTHOR']) &&
-    selectedVersion?.approval_status === 'DRAFT' && selectedVersion.created_by === state.identity.user.id && selected.approval_status === 'DRAFT';
-  const matchingIds = new Set<string>(rows.map((row) => row.id));
-  const contextQuery = new URLSearchParams(query);
-  contextQuery.set('instrument', scope.instrumentId);
-  contextQuery.set('edition', scope.editionFilter);
-  contextQuery.delete('version');
-  const clearQuery = new URLSearchParams(contextQuery);
-  for (const key of ['q', 'status', 'clause']) clearQuery.delete(key);
-  const clearPath = 'clauses?' + clearQuery;
-  const viewQuery = new URLSearchParams(contextQuery);
-  if (selected) viewQuery.set('clause', selected.id);
+  const filtering = Boolean(search || status);
+  const [instruments, detail] = await Promise.all([
+    api('/instruments'),
+    identifier && !registerView ? openClause(identifier) : Promise.resolve(null),
+  ]);
+  if (request !== state.routeNumber || !state.identity) return '';
+  const selected = detail?.clause;
+  const today = localDate();
+  instruments.sort((a, b) => a.title.localeCompare(b.title));
+  const filters = new URLSearchParams(query);
+  const requestedInstrument = filters.get('instrument');
+  const requestedEdition = filters.get('edition') || filters.get('version');
+  if (selected && !filtering && (
+    requestedInstrument !== selected.instrument_id ||
+    (!requestedEdition || requestedEdition === 'current') && !selected.version_is_effective_current ||
+    requestedEdition && !['all', 'current', selected.instrument_version_id].includes(requestedEdition)
+  )) {
+    filters.set('instrument', selected.instrument_id);
+    filters.set('edition', selected.instrument_version_id);
+  }
+  const instrument = instruments.find(row => row.id === filters.get('instrument'));
+  const legacy = !filters.has('edition') && filters.has('version');
+  const editionInstrument = instrument?.id || (!legacy ? selected?.instrument_id : '');
+  const editions = editionInstrument || legacy
+    ? await api('/source-editions' + (editionInstrument ? '?instrument=' + encodeURIComponent(editionInstrument) : '')) : [];
+  if (instrument && !filters.has('edition') && !legacy) filters.set('edition', 'current');
+  const scope = selectClauseScope(instruments, editions, filters, today);
+  const exactUnavailable = Boolean(search && searchType === 'literal' && !scope.specific);
+  const context = new URLSearchParams({ instrument: scope.instrumentId, edition: scope.editionFilter });
+  if (search) context.set('q', search);
+  if (searchType !== 'keyword') context.set('search_type', searchType);
+  if (status) context.set('status', status);
+  if (selected) context.set('clause', selected.id);
+  if (selected && query.get('return_view') === 'register') context.set('return_view', 'register');
+  const requestedPage = Number(query.get('page'));
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 && requestedPage <= 1_000_000 ? requestedPage : 1;
+  const searchMode = registerView || filtering;
+  if (searchMode && page > 1) context.set('page', String(page));
+  if (registerView) context.set('view', 'register');
+  const browsing = Boolean(scope.instrument || filtering);
+  const readerScope = selected ? new URLSearchParams({ instrument: selected.instrument_id, edition: selected.instrument_version_id }) : null;
+  const parameters = new URLSearchParams({ instrument: scope.instrumentId, edition: scope.editionFilter });
+  if (searchMode) {
+    parameters.set('mode', 'search');
+    if (searchType !== 'keyword') parameters.set('search_type', searchType);
+    if (search) parameters.set('q', search);
+    if (status) parameters.set('status', status);
+    if (page > 1) parameters.set('page', String(page));
+  }
+  const batch = readerScope || (browsing && !exactUnavailable)
+    ? await clauseBatch(readerScope || parameters) : { items: [], next_page: null };
+  if (request !== state.routeNumber || !state.identity) return '';
+
+  const viewQuery = new URLSearchParams(context);
   viewQuery.delete('view');
   const workspacePath = 'clauses?' + viewQuery;
+  viewQuery.delete('clause');
+  viewQuery.delete('return_view');
+  const backQuery = new URLSearchParams(viewQuery);
+  if (context.has('return_view')) backQuery.set('view', 'register');
   viewQuery.set('view', 'register');
   const registerPath = 'clauses?' + viewQuery;
-  const sourceDocument = selectedVersion?.source_document_id ? {
-    id: selectedVersion.source_document_id,
-    name: record.source_documents[selectedVersion.source_document_id] || 'Source document',
-  } : undefined;
-  const editionOptions = scope.instrument ? scope.scopedEditions.map((version) => {
-    const status = scope.currentIds.has(version.id) ? 'Current approved' : title(sourceEditionStatus(version));
-    const position = version.effective_from > localDate() ? ' · Future effective' :
-      version.approval_status === 'APPROVED' && version.effective_to && version.effective_to <= localDate() ? ' · Historical' : '';
-    return `<option value="${esc(version.id)}" ${version.id === scope.editionFilter ? 'selected' : ''}>Version ${esc(versionLabel(version.version_number))} · ${esc(status)}${position}</option>`;
-  }).join('') : '';
-  const navigationControls = `<div class="clause-source-controls">
-    <label for="clause-instrument">Instrument</label>
-    <select id="clause-instrument" name="clause_workspace_instrument">
-      <option value="all" ${scope.instrumentId === 'all' ? 'selected' : ''}>All instruments</option>
-      ${instruments.map((row) => `<option value="${esc(row.id)}" ${row.id === scope.instrumentId ? 'selected' : ''}>${esc(row.short_title || row.title)} · ${esc(row.code)}</option>`).join('')}
-    </select>
-    <label for="clause-source-edition">Source edition</label>
-    <select id="clause-source-edition" name="clause_workspace_edition" data-instrument-id="${esc(scope.instrumentId)}">
-      <option value="all" ${scope.editionFilter === 'all' ? 'selected' : ''}>All editions</option>
-      <option value="current" ${scope.editionFilter === 'current' ? 'selected' : ''}>Current approved</option>
-      ${editionOptions}
-    </select>
-    <p>${scope.instrument ? 'Specific editions are listed for this instrument.' : 'Choose an instrument to select a specific edition.'}</p>
-    ${scope.specific ? `<p>Effective from ${date(scope.specific.effective_from)}${scope.specific.effective_to ? ' until ' + date(scope.specific.effective_to) + ' (exclusive)' : ''}</p>` : ''}
-  </div>`;
-  let editionNotice = '';
+  let notices = '';
   if (scope.invalidInstrument || scope.invalidEdition)
-    editionNotice += note('A requested instrument or edition is unavailable. The filters shown above identify the available selection.', 'warn');
-  if (scope.editionFilter === 'all')
-    editionNotice += note('All editions are shown, including Draft and historical sources. Edition/status badges identify each clause’s source.');
-  else if (scope.editionFilter === 'current' && !scope.visibleEditions.length)
-    editionNotice += note('No approved source edition is effective today for this selection. All editions remains available for reference.', 'warn');
-  else if (scope.specific && !scope.currentIds.has(scope.specific.id)) {
-    const currentQuery = new URLSearchParams({ instrument: scope.instrumentId, edition: 'current' });
-    editionNotice += note('Viewing a specific ' + esc(title(sourceEditionStatus(scope.specific)).toLowerCase()) +
-      ' edition for reference. ' + link('clauses?' + currentQuery, 'View current approved', 'text-link'), 'warn');
-  }
-  return pageHelp('Read the specific provision',
-    'The workspace starts with All instruments and All editions. Filter to Current approved, or choose an instrument and a specific edition. Each branch retains parents from its own edition. Search applies to the selected scope. Authors can edit clauses only in their own Draft editions.') +
-    heading(registerView ? 'Clause register' : 'Clause workspace',
-      'Keep original regulatory wording separate from the bank’s internal interpretation.',
-      `${has('AUTHOR') ? `<button type="button" class="btn primary" data-action="add-clause" data-version="${esc(selectedVersion?.id || scope.specific?.id || '')}" data-instrument="${esc(selected?.instrument_id || scope.instrument?.id || '')}">${icon('plus')}<span>Add clause</span></button>` : ''}`) +
+    notices += note('The requested instrument or edition is unavailable. Choose from the available filters.', 'warn');
+  if (identifier && !registerView && !detail)
+    notices += note('The requested clause is unavailable in your authorised area.', 'warn');
+  if (!selected && scope.instrument && scope.editionFilter === 'current' && !scope.visibleEditions.length)
+    notices += note('No approved source edition is effective today. Select an available Draft, historical or other edition to browse it.', 'warn');
+  if (exactUnavailable && !selected)
+    notices += note('Choose a specific source edition to use Exact wording, or switch to Words or reference to search across editions.', 'warn');
+
+  const pageHeading = heading(registerView ? 'Clause register' : selected ? 'Clause workspace' : 'Find a clause',
+    selected ? '' : 'Search the regulatory catalogue by clause reference, heading or wording.',
     `<nav class="clause-view-switch" aria-label="Clause views"><a href="#${esc(workspacePath)}" ${registerView ? '' : 'aria-current="page"'}>${icon('layers')}Workspace</a><a href="#${esc(registerPath)}" ${registerView ? 'aria-current="page"' : ''}>${icon('grid')}Register</a></nav>` +
-    `<form id="clause-filters" class="filters">
-      ${registerView ? '<input type="hidden" name="view" value="register">' : ''}
-      <input type="hidden" name="instrument" value="${esc(scope.instrumentId)}">
-      <input type="hidden" name="edition" value="${esc(scope.editionFilter)}">
-      <div class="search-field">${icon('search')}${input('q', query.get('q') || '', 'search', 'placeholder="Search clauses in this selection…" aria-label="Search clauses"')}</div>
-      <select class="filter-select" name="status" aria-label="Clause approval status">
-        <option value="">All clause statuses</option>
-        ${['DRAFT', 'IN_REVIEW', 'REVIEWED', 'APPROVED', 'REJECTED', 'WITHDRAWN'].map((value) => `<option value="${value}" ${status === value ? 'selected' : ''}>${esc(title(value))}</option>`).join('')}
-      </select>
-      <button class="btn small primary search-submit" type="submit">Search</button>
-      ${search || status ? link(clearPath, 'Clear filters', 'btn small') : ''}
-    </form>` +
-    (registerView ? navigationControls + clauseRegister(rows, contextQuery) : editionNotice + renderClauseWorkingView({
-      rows, allRows, allEditions: true, navigationControls, selectedId: selected?.id, provenance: record?.clause_carry_forward||[],
-      pathFor: (row) => workingPath(row, contextQuery, matchingIds),
-      editAction: (editable ? `<button type="button" class="btn small" data-action="workspace-edit-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">${icon('pen')}<span>Edit Draft clause</span></button>` : '')+(selected&&record&&(editable||selectedVersion?.approval_status==='APPROVED')&&covered(record.instrument.regulatory_owner_unit_id,['AUTHOR'])?`<button type="button" class="btn small" data-action="link-earlier-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">Link earlier clause</button>`:''),
-      sourceDocument, emptyAction: search || status ? link(clearPath, 'Clear filters', 'btn') : '',
-    })) +
-    `<div class="source-note">Showing ${rows.length} of ${population.length} authorised Clauses / Para in this selection. Each clause retains its exact source edition.</div>`;
+    (has('AUTHOR') ? `<button type="button" class="btn" data-action="add-clause" data-version="${esc(detail?.edition.id || scope.specific?.id || '')}" data-instrument="${esc(selected?.instrument_id || scope.instrument?.id || '')}">${icon('plus')}<span>Add clause</span></button>` : ''));
+  const hierarchy = (treeScope: URLSearchParams, trail: BrowserClause[], open: boolean) =>
+    `<details class="clause-hierarchy-disclosure" ${open ? 'open' : ''}>
+      <summary><span><strong>Instrument &amp; clause hierarchy</strong><small>Expand a branch to load its children</small></span>${icon('down')}</summary>
+      ${renderLazyHierarchy(batch, treeScope, trail, context)}
+    </details>`;
+
+  if (!selected) {
+    const browse = `<section class="panel clause-browse-panel" aria-labelledby="clause-browse-heading">
+      <h2 id="clause-browse-heading">Browse an instrument</h2>
+      <p>Choose an instrument to explore its clause hierarchy by source edition.</p>
+      ${sourceControls(instruments, scope, today)}
+    </section>`;
+    const results = !browsing || exactUnavailable ? '' : registerView ? clauseRegister(batch, context, page) :
+      filtering ? searchNavigation(batch, context, page) : `<section class="panel">${hierarchy(context, [], true)}</section>`;
+    return `<div class="clause-workspace-page">${pageHeading}
+      <div class="clause-workspace-stack">${searchForm(scope, search, searchType, status, registerView)}${notices}
+        ${filtering && results ? results + browse : browse + results}
+      </div>
+    </div>`;
+  }
+
+  const canAuthor = detail && covered(detail.owner_unit_id, ['AUTHOR']);
+  const editable = canAuthor && detail.edition.approval_status === 'DRAFT' &&
+    detail.edition.created_by === state.identity.user.id && selected.approval_status === 'DRAFT';
+  const editAction = (editable ? `<button type="button" class="btn small" data-action="workspace-edit-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">${icon('pen')}<span>Edit Draft clause</span></button>` : '') +
+    (canAuthor && (editable || detail.edition.approval_status === 'APPROVED')
+      ? `<button type="button" class="btn small" data-action="link-earlier-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">Link earlier clause</button>` : '');
+  const reader = renderClauseDetail({
+    selected, parent: detail.ancestors.at(-1), carry: detail.provenance, original: detail.original,
+    ancestors: detail.ancestors,
+    pathFor: row => browsePath(row, row.instrument_version_id === selected.instrument_version_id ? context :
+      new URLSearchParams({ instrument: row.instrument_id, edition: row.instrument_version_id })),
+    editAction, sourceDocument: detail.source_document,
+  });
+  const readerEditions = editions.some(row => row.id === selected.instrument_version_id) ? editions :
+    [...editions, { ...detail.edition, instrument_id: selected.instrument_id, cancelled_draft: selected.version_cancelled_draft }];
+  const readerControls = selectClauseScope(instruments, readerEditions, readerScope, today);
+  return `<div class="clause-workspace-page">${pageHeading}
+    <div id="clause-working-view" class="clause-workspace-stack">
+      ${notices}
+      <section class="panel clause-reader-source" aria-label="Selected source">
+        <div class="clause-reader-source-row">
+          <div class="clause-reader-instrument">
+            <strong>${esc(selected.instrument_short_title || selected.instrument_title)}</strong>
+            <code>${esc(selected.instrument_code)}</code>
+          </div>
+          ${clauseEditionBadges(selected)}
+          ${link('clauses?' + backQuery, filtering ? 'Back to results' : backQuery.has('view') ? 'Back to register' : 'Back to browse', 'btn small')}
+        </div>
+        <details class="clause-options"><summary>Change instrument or edition</summary>
+          ${sourceControls(instruments, readerControls, today)}
+        </details>
+      </section>
+      <div class="clause-working-layout clause-reader-layout">
+        <aside class="panel clause-hierarchy-panel">${hierarchy(readerScope, [...detail.ancestors, selected], !window.matchMedia('(max-width: 900px)').matches)}</aside>
+        ${reader}
+      </div>
+    </div>
+  </div>`;
 }
 
 export function clauseHandlers({ render }) {
   return {
     actions: {
+      ...clauseBrowserActions,
       'workspace-edit-clause': async ({ id, instrument }) => {
         const record = await api('/instruments/' + instrument);
         const clause = record.clauses.find((row) => row.id === id);
@@ -214,7 +365,7 @@ export function clauseHandlers({ render }) {
         const result = await api('/versions/' + form.dataset.versionId + '/clauses/' + form.dataset.clauseId, 'PUT', clausePayload(form));
         close();
         message('Draft clause saved. Original wording and interpretation are kept separately.');
-        location.hash = workingPath(result);
+        location.hash = clauseWorkspacePath(result.id);
         await render();
       },
       'create-clause': async (form: HTMLFormElement) => {
@@ -224,13 +375,13 @@ export function clauseHandlers({ render }) {
         const result = await api('/versions/' + versionId + '/clauses', 'POST', clausePayload(form));
         close();
         message('Clause / para saved in Draft. Submit its source edition when it is ready for review.');
-        location.hash = workingPath(result);
+        location.hash = clauseWorkspacePath(result.id);
         await render();
       },
       'clause-filters': (form) => {
         const data = new FormData(form);
         const query = new URLSearchParams();
-        for (const key of ['q', 'status', 'view', 'instrument', 'edition']) {
+        for (const key of ['q', 'status', 'search_type', 'view', 'instrument', 'edition']) {
           const value = String(data.get(key) || '').trim();
           if (value) query.set(key, value);
         }

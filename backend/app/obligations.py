@@ -37,6 +37,43 @@ def visible(db,actor,row):
     return any(actor.covers(r['org_unit_id'],READ_ROLES) for table in CHILDREN for r in rows(db,table,row['id']))
 
 
+def instrument_links(db,actor,instrument_id,clause_ids):
+    """List exact revisions citing an instrument already authorised by repository.detail."""
+    if not clause_ids:return []
+    clauses=sa.select(m.regulatory_clause.c.id).join(m.instrument_version,
+        m.instrument_version.c.id==m.regulatory_clause.c.instrument_version_id).where(m.instrument_version.c.instrument_id==instrument_id)
+    obligation=m.compliance_obligation
+    mapping=m.obligation_clause_map
+    # The primary pointer also covers retained records without a primary map row.
+    citations=sa.union(
+        sa.select(obligation.c.id.label('obligation_id'),obligation.c.primary_clause_id.label('clause_id')).where(obligation.c.primary_clause_id.in_(clauses)),
+        sa.select(mapping.c.obligation_id,mapping.c.clause_id).where(mapping.c.link_type=='SUPPORTING',mapping.c.clause_id.in_(clauses)),
+    ).subquery()
+    fields=('id','code','title','version_number','business_owner_unit_id','approval_status','record_status')
+    query=sa.select(*(obligation.c[key] for key in fields),obligation.c.regulatory_owner_unit_id,
+        obligation.c.primary_clause_id,citations.c.clause_id).join(citations,citations.c.obligation_id==obligation.c.id).order_by(
+        obligation.c.created_at.desc(),obligation.c.id,citations.c.clause_id)
+    result={}
+    denied=set()
+    source_ids=set(clause_ids)
+    for row in db.execute(query).mappings():
+        identifier=row['id']
+        if row['clause_id'] not in source_ids or identifier in denied:continue
+        if identifier not in result:
+            if not visible(db,actor,row):
+                denied.add(identifier)
+                continue
+            if row['primary_clause_id'] not in source_ids:
+                try:source(db,actor,row['primary_clause_id'])
+                except HTTPException:
+                    denied.add(identifier)
+                    continue
+            result[identifier]={**{key:row[key] for key in fields},'citations':[]}
+        result[identifier]['citations'].append({'clause_id':row['clause_id'],
+            'role':'PRIMARY' if row['clause_id']==row['primary_clause_id'] else 'SUPPORTING'})
+    return list(result.values())
+
+
 def read(db,actor,identifier,lock=False):
     row=repo.one(db,m.compliance_obligation,identifier)
     if lock:

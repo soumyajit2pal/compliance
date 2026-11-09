@@ -1,10 +1,11 @@
-"""QualityOps-style persistent operational logs, without request/profile data.
+"""Persistent operational logs with safe request metadata and no profile/payload data.
 
 POSIX workers coordinate rollover through a stable flock file. The filesystem
 must support flock; use a log collector for hosts without shared lock semantics.
 """
 import contextvars
 import fcntl
+import ipaddress
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -14,8 +15,22 @@ from zoneinfo import ZoneInfo
 from .storage import writable_directory
 
 request_id = contextvars.ContextVar('cbd_request_id', default='-')
+client_ip = contextvars.ContextVar('cbd_client_ip', default='-')
 _configured = None
 _handlers = []
+
+
+def client_ip_from_scope(scope):
+    """Read the ASGI connection address; forwarding headers belong to server trust.
+
+    Canonical numeric addresses keep arbitrary host/header text out of the log.
+    IPv6 zone identifiers are unnecessary here; packed bytes remove them safely.
+    """
+    try:
+        address = ipaddress.ip_address(scope['client'][0])
+        return str(ipaddress.ip_address(address.packed))
+    except (KeyError, IndexError, TypeError, ValueError):
+        return '-'
 
 
 class ProcessSafeRotatingFileHandler(RotatingFileHandler):
@@ -42,6 +57,7 @@ class ProcessSafeRotatingFileHandler(RotatingFileHandler):
 class ContextFilter(logging.Filter):
     def filter(self, record):
         record.request_id = request_id.get()
+        record.client_ip = client_ip.get()
         return True
 
 
@@ -78,7 +94,7 @@ def configure_logging(cfg):
     except OSError:
         raise RuntimeError('LOG_DIR must allow application log and lock creation.') from None
     level = logging.DEBUG if cfg.deep_logging else logging.INFO
-    formatter = SafeFormatter('%(asctime)s %(levelname)-8s [%(name)s] [pid=%(process)d request_id=%(request_id)s] %(message)s')
+    formatter = SafeFormatter('%(asctime)s %(levelname)-8s [%(name)s] [pid=%(process)d request_id=%(request_id)s client_ip=%(client_ip)s] %(message)s')
     handlers = [handler, logging.StreamHandler()]
     for target in handlers:
         target.setLevel(level); target.setFormatter(formatter); target.addFilter(ContextFilter())

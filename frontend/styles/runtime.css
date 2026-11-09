@@ -1402,38 +1402,6 @@ pre {
   .family-summary { grid-template-columns: 1fr; }
   .family-selected-heading { flex-direction: column; }
 }
-.clause-source-controls {
-  display: grid;
-  gap: 8px;
-  padding: 18px;
-  border-bottom: 1px solid var(--line);
-}
-.clause-source-controls label {
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 650;
-}
-.clause-source-controls label:not(:first-child) {
-  margin-top: 6px;
-}
-.clause-source-controls select {
-  width: 100%;
-  min-width: 0;
-  min-height: 42px;
-  padding: 10px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background-color: #fff;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-}
-.clause-source-controls p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.6;
-}
 .clause-edition-badges {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1456,19 +1424,6 @@ pre {
 }
 .clause-working-meta .clause-edition-badges {
   margin-top: 0;
-}
-.clause-view-switch ~ .clause-source-controls {
-  grid-template-columns: auto minmax(160px, 1fr) auto minmax(160px, 1fr);
-  align-items: center;
-  margin-bottom: 18px;
-}
-.clause-view-switch ~ .clause-source-controls p {
-  grid-column: 1 / -1;
-}
-@media (max-width: 600px) {
-  .clause-view-switch ~ .clause-source-controls {
-    grid-template-columns: 1fr;
-  }
 }
 .clause-hierarchy-disclosure > summary {
   display: flex;
@@ -1502,8 +1457,37 @@ pre {
   padding: 0 12px 16px;
   scrollbar-width: thin;
 }
-.clause-source-controls + .clause-hierarchy-disclosure .clause-hierarchy {
-  max-height: max(240px, calc(100dvh - 420px));
+.clause-browser-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.clause-browser-row > .clause-tree-node {
+  flex: 1;
+  min-width: 0;
+}
+.clause-browser-row > .clause-branch-toggle {
+  flex: none;
+  width: 40px;
+  height: 44px;
+}
+.clause-branch-toggle[aria-expanded="false"] .icon {
+  transform: rotate(-90deg);
+}
+.clause-browser-children[hidden] {
+  display: none;
+}
+.clause-browser-results {
+  max-height: max(280px, calc(100dvh - 360px));
+  overflow: auto;
+  padding: 12px;
+}
+.clause-browser-more {
+  margin-top: 6px;
+  white-space: normal;
+}
+.clause-browser-paging {
+  padding: 12px;
 }
 .clause-instrument-group + .clause-instrument-group {
   margin-top: 14px;
@@ -1856,8 +1840,7 @@ pre {
   .clause-hierarchy-panel {
     position: static;
   }
-  .clause-hierarchy,
-  .clause-source-controls + .clause-hierarchy-disclosure .clause-hierarchy {
+  .clause-hierarchy {
     max-height: 320px;
   }
 }

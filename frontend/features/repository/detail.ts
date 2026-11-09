@@ -16,10 +16,11 @@ import {
   button,
   area,
   field,
+  empty,
 } from '../../ui/components.ts';
 import { icon } from '../../ui/icons.ts';
-import { domainGuidance, domainReadiness } from '../../ui/domains.ts';
 import { recordClauseRows, renderClauseWorkingView } from '../clause-workspace.ts';
+import { editionNextStep, renderEditionNextStep } from './workflow.ts';
 import {
   panel,
   pagedCollection,
@@ -29,6 +30,7 @@ import {
   note,
   stepFlow,
   person,
+  recordCell,
 } from '../../ui/widgets.ts';
 
 function recordPath(i, v, tab, extra = {}) {
@@ -59,54 +61,6 @@ function correctionSummary(row) {
   const proposed = correctionValues(row, 'proposed_values_json');
   return `<div class="metadata-correction-values">${Object.keys(proposed).map((key) =>
     `<div><strong>${esc(correctionLabel(key))}</strong><span>${esc(correctionValue(key, before[key]))} <span aria-label="changes to">→</span> ${esc(correctionValue(key, proposed[key]))}</span></div>`).join('')}</div>`;
-}
-function workflowActions(v, active, editable) {
-  const assignedDomains = [
-    state.record.instrument.primary_domain_id,
-    ...(state.record.secondary_domains || []).map((domain) => domain.id),
-  ].map((id) => state.masters.regulatory_domain.find((domain) => domain.id === id));
-  const domainsReady = assignedDomains.every((domain) => domainReadiness(domain)?.ready);
-  let html = editable
-    ? button(
-        'submit-version',
-        'Submit for Compliance review',
-        domainsReady
-          ? ''
-          : 'disabled title="Ask an Admin to complete setup for every affected domain before review submission."',
-        'primary',
-      )
-    : '';
-  if (
-    active &&
-    v.created_by === state.identity.user.id &&
-    covered(state.record.instrument.regulatory_owner_unit_id, ['AUTHOR'])
-  )
-    html += button('decision', 'Withdraw to Draft', 'data-decision="WITHDRAW"');
-  if (
-    active?.assignee_user_id === state.identity.user.id &&
-    covered(state.record.instrument.regulatory_owner_unit_id, [
-      active.stage === 'COMPLIANCE_REVIEW' ? 'REVIEWER' : 'APPROVER',
-    ])
-  )
-    html +=
-      button(
-        'decision',
-        active.stage === 'COMPLIANCE_REVIEW' ? 'Record review' : 'Approve version',
-        `data-decision="${active.stage === 'COMPLIANCE_REVIEW' ? 'REVIEW' : 'APPROVE'}"`,
-        'primary',
-      ) +
-      button('decision', 'Return for correction', 'data-decision="RETURN"') +
-      button('decision', 'Reject', 'data-decision="REJECT"', 'danger') +
-      button('decision', 'Delegate task', 'data-decision="DELEGATE"');
-  if (
-    v.approval_status === 'APPROVED' &&
-    !v.current_version_flag &&
-    !v.effective_to &&
-    v.effective_from <= localDate() &&
-    covered(state.record.instrument.regulatory_owner_unit_id, ['APPROVER'])
-  )
-    html += button('activate', 'Make effective version current');
-  return html;
 }
 function activity(events, pageKey = 'record-activity') {
   return pagedCollection(events.map((r) => `<div class="runtime-audit-event">${icon('activity')}<div><strong>${esc(title(r.action || r.new_status || r.stage))}</strong><p>${esc(r.reason || r.comments || '')}</p><small>${date(r.event_at || r.changed_at)}${r.actor_user_id ? ' · ' + esc(ref('user', r.actor_user_id)) : ''}</small>${r.old_value || r.new_value ? `<details><summary>Retained change details</summary><pre>${esc(r.old_value || '')}\n${esc(r.new_value || '')}</pre></details>` : ''}</div></div>`), {pageKey, className:'runtime-audit-list', label:'events', summary:false, empty:'<p class="small muted">No activity recorded in this view.</p>'});
@@ -151,6 +105,42 @@ function clauseView(i, v, editable, q) {
     sourceDocument: documentId ? { id: documentId, name: state.record.source_documents[documentId] || i.title } : undefined,
   });
 }
+function obligationView(i, versions, clauses, obligations, registerPath) {
+  const clausesById = new Map<string, { id: string; instrument_version_id: string; source_clause_reference?: string; code: string }>(
+    clauses.map((clause) => [clause.id, clause]),
+  );
+  const versionsById = new Map<string, { id: string; version_number: string }>(
+    versions.map((version) => [version.id, version]),
+  );
+  let body = note('Linked obligations are unavailable. Open the obligation register or refresh the page to try again.', 'warn');
+  if (obligations?.length) {
+    body = table(
+      ['Obligation', 'Source citations', 'Accountable department', 'Record status', 'Approval'],
+      obligations.map((obligation) => [
+        recordCell(obligation.code, obligation.title, 'obligations/' + encodeURIComponent(obligation.id), 'Revision ' + obligation.version_number),
+        obligation.citations.map(({ clause_id, role }) => {
+          const clause = clausesById.get(clause_id);
+          const version = versionsById.get(clause.instrument_version_id);
+          return link(
+            recordPath(i, version, 'clauses', { clause: clause.id }),
+            (clause.source_clause_reference || clause.code) + ' · Edition ' + versionLabel(version.version_number),
+            'text-link',
+          ) + '<small>' + esc(title(role)) + ' citation</small>';
+        }).join(''),
+        esc(ref('organisational_unit', obligation.business_owner_unit_id)),
+        badge(obligation.record_status),
+        badge(obligation.approval_status),
+      ]),
+      { caption: 'Linked obligation revisions', pageKey: 'instrument-obligations' },
+    );
+  } else if (obligations) {
+    body = empty('No linked obligations', 'There are no linked obligation revisions available to you for this instrument.');
+  }
+  return panel('Linked obligations', body, {
+    sub: 'Obligation revisions with primary or supporting citations to any edition of this instrument.',
+    action: link(registerPath, 'View primary obligations in register', 'btn small'),
+  });
+}
 export function renderRecord(q) {
   const {
     instrument: i,
@@ -158,6 +148,7 @@ export function renderRecord(q) {
     secondary_domains = [],
     source_documents = {},
     clauses,
+    linked_obligations,
     tasks,
     audit,
     history,
@@ -171,7 +162,6 @@ export function renderRecord(q) {
   q = new URLSearchParams(q);
   q.set('version', v.id);
   state.view.version = v;
-  const domain = state.masters.regulatory_domain.find((d) => d.id === i.primary_domain_id);
   const editable =
     v.approval_status === 'DRAFT' &&
     v.created_by === state.identity.user.id &&
@@ -189,8 +179,14 @@ export function renderRecord(q) {
     t.workflow_status === 'OPEN' && t.stage === t.current_stage && !t.decision);
   const selectedClauses = clauses.filter((c) => c.instrument_version_id === v.id),
     tab = q.get('tab') || 'overview';
-  let actions = editable ? button('edit-version', 'Edit draft version', '', 'primary') : '';
-  actions+=link('obligations?instrument='+i.id,'Linked obligations','btn');
+  const workflowPath = recordPath(i, v, 'workflow');
+  const nextStep = editionNextStep(state.record, v, active, editable, recordPath(i, v, 'clauses'));
+  const workflowShortcut = tab !== 'workflow' && nextStep.shortcut
+    ? link(workflowPath, nextStep.shortcut, nextStep.tone === 'action' ? 'btn primary' : 'btn soft')
+    : '';
+  const obligationRegisterPath = 'obligations?' + new URLSearchParams({ instrument: i.id });
+  let actions = workflowShortcut + (editable ? button('edit-version', 'Edit draft version') : '');
+  actions += link(obligationRegisterPath, 'Linked obligations', 'btn');
   if (editable && !active) actions += button('cancel-draft', 'Cancel draft', '', 'danger');
   if (selection.pending.length)
     actions += link(recordPath(i, selection.pending[0], 'overview'), 'Open pending edition', 'btn');
@@ -262,26 +258,16 @@ export function renderRecord(q) {
       ).replace('<table class="data-table">', '<table class="data-table version-history-table">'),
     );
   else if (tab === 'clauses') body = clauseView(i, v, editable, q);
+  else if (tab === 'obligations') body = obligationView(i, versions, clauses, linked_obligations, obligationRegisterPath);
   else if (tab === 'workflow')
     body = panel(
       'Review & approval lifecycle',
-      (v.cancelled_draft ? note('This Draft was cancelled and has no active review workflow.') : stepFlow(v.approval_status)) +
-        (v.approval_status === 'DRAFT' ? domainGuidance(domain) : '') +
-        (active
-          ? note(
-              'Current task: ' +
-                esc(title(active.stage)) +
-                ' · assigned to ' +
-                esc(ref('user', active.assignee_user_id)) +
-                ' · due ' +
-                date(active.due_at) +
-                '.',
-            )
-          : '') +
-        `<div class="record-actions actions">${workflowActions(v, active, editable)}</div>` +
+      (['DRAFT', 'IN_REVIEW', 'REVIEWED', 'APPROVED'].includes(sourceEditionStatus(v)) ? stepFlow(v.approval_status) : '') +
+        renderEditionNextStep(nextStep, v) +
+        '<div class="mt16">' +
         note(
-          'Maker, Compliance reviewer and final approver must be different people. Technical Admin and CCO oversight do not confer content approval.',
-        ) +
+          'The maker, Compliance reviewer and final approver must be different people. Decisions are available to the named recipients for their assigned stage.',
+        ) + '</div>' +
         `<div class="mt24">${table(
           ['Stage', 'Named decision maker', 'Decision', 'Comments'],
           tasks
@@ -294,7 +280,7 @@ export function renderRecord(q) {
             ]),
           { summary: false },
         )}</div>`,
-      { action: link('approvals', 'Open my decisions', 'btn small') },
+      { action: state.identity.menu.some(item => item.id === 'approvals') ? link('approvals', 'My decisions', 'btn small') : '' },
     );
   if (tab === 'workflow' && correction) {
     const canWithdraw = correction.created_by === state.identity.user.id &&
@@ -316,8 +302,8 @@ export function renderRecord(q) {
         { summary: false },
       ), 'Metadata correction history')}</div>` : '') +
       `<div class="mt24">${panel('Status history', activity(history, 'record-status-history'))}</div>`;
-  else if (!['versions', 'clauses', 'workflow'].includes(tab))
-    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauses.length + ' source Clauses / Para', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(recordPath(i, v, 'workflow'), 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}</div></div><div class="mt24">${panel('Next step', `<div class="actions">${editable ? link(recordPath(i, v, 'clauses'), 'Capture source Clauses / Para', 'btn') : ''}${workflowActions(v, active, editable) || link(recordPath(i, v, 'workflow'), 'View workflow', 'btn')}</div>`)}</div>`;
+  else if (!['versions', 'clauses', 'obligations', 'workflow'].includes(tab))
+    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauses.length + ' source Clauses / Para', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(workflowPath, 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}</div></div>`;
   const discussion = panel(
     'Discussion',
     comments
@@ -346,6 +332,7 @@ export function renderRecord(q) {
         ['overview', 'Overview'],
         ['versions', 'Versions', versions.length],
         ['clauses', 'Clauses', selectedClauses.length],
+        ['obligations', 'Obligations', linked_obligations?.length],
         ['workflow', 'Workflow'],
         ['history', 'History', audit.length + metadata_corrections.length],
       ],

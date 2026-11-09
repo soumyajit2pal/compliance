@@ -110,14 +110,22 @@ export function renderClauseWorkingView({ rows, allRows, editionId, allEditions 
   const selected = rows.find((row) => row.id === selectedId) || rows[0];
   const navigation = hierarchy(rows, allRows, selected, pathFor, navigationControls);
   if (!selected) return `<div class="clause-working-layout" id="clause-working-view">${navigation}<section class="panel clause-workspace-empty"><span>${icon('layers')}</span><h2>No clauses to display</h2><p>Adjust the search or filters, or add a clause to a Draft source edition.</p>${emptyAction}</section></div>`;
-  const flags = ['mandatory', 'conditional', 'reporting', 'disclosure', 'retention'].filter((flag) => selected[flag + '_flag']);
   const parent = allRows.find((row) => row.id === selected.parent_clause_id && row.instrument_id === selected.instrument_id && row.instrument_version_id === selected.instrument_version_id);
   const carry=provenance.find(row=>row.target_clause_id===selected.id);
   const original=carry&&allRows.find(row=>row.id===carry.source_clause_id);
+  return `<div class="clause-working-layout" id="clause-working-view">${navigation}${renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument })}</div>`;
+}
+
+export function renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument, ancestors = [] }) {
+  const flags = ['mandatory', 'conditional', 'reporting', 'disclosure', 'retention'].filter((flag) => selected[flag + '_flag']);
   const versionQuery = new URLSearchParams({ version: selected.instrument_version_id, tab: 'versions' });
   const workflowQuery = new URLSearchParams({ version: selected.instrument_version_id, tab: 'workflow' });
-  return `<div class="clause-working-layout" id="clause-working-view">${navigation}<div class="clause-working-content">
+  return `<div class="clause-working-content">
     <article class="panel clause-working-detail" id="working-clause-detail" aria-labelledby="working-clause-heading">
+      ${ancestors.length ? `<nav class="clause-reader-path" aria-label="Clause path"><ol>
+        ${ancestors.map(row => `<li><a class="text-link" href="#${esc(pathFor(row))}">${esc(row.source_clause_reference || row.code)}</a></li>`).join('')}
+        <li aria-current="location">${esc(selected.source_clause_reference || selected.code)}</li>
+      </ol></nav>` : ''}
       <div class="clause-working-heading"><h2 id="working-clause-heading" tabindex="-1">${esc(selected.heading || 'Source clause / para')}</h2>${editAction}</div>
       <div class="clause-working-meta"><code class="clause-reference-chip">${esc(selected.code)}</code>${selected.source_clause_reference ? `<span>Source clause / para ${esc(selected.source_clause_reference)}</span>` : ''}<span>${esc(selected.source_page_reference || 'Page reference not recorded')}</span>${clauseEditionBadges(selected)}<span class="clause-approval-label">Clause approval ${badge(selected.approval_status || 'DRAFT')}</span></div>
       ${selected.legacy_codes?.length ? `<p class="clause-working-meta">Legacy references: ${selected.legacy_codes.map(esc).join(', ')}</p>` : ''}
@@ -130,5 +138,5 @@ export function renderClauseWorkingView({ rows, allRows, editionId, allEditions 
       <div class="clause-working-links">${sourceDocument ? `<button type="button" class="btn small" data-action="source-document-preview" data-id="${esc(sourceDocument.id)}" data-name="${esc(sourceDocument.name)}">${icon('file')}<span>Source document</span></button>` : ''}<a class="btn small" href="#repository/${esc(selected.instrument_id)}?${esc(versionQuery.toString())}">${icon('book')}<span>Source edition</span></a><a class="text-link" href="#repository/${esc(selected.instrument_id)}?${esc(workflowQuery.toString())}">Review workflow ${icon('arrow')}</a></div>
       ${state.identity?.menu.some(item=>item.id==='obligations')?`<div class="clause-working-actions"><a class="btn small" href="#obligations?clause=${esc(selected.id)}">View linked obligations</a>${has('AUTHOR')&&selected.approval_status==='APPROVED'&&selected.version_approval_status==='APPROVED'?`<a class="btn small primary" href="#obligations/new?clause=${esc(selected.id)}">Create obligation from this clause</a>`:''}</div>`:''}
     </article>
-  </div></div>`;
+  </div>`;
 }

@@ -67,6 +67,7 @@ export function installEvents({ actions, forms }) {
     const finish = beginInteraction(event.submitter instanceof HTMLElement ? event.submitter : form, form.id === 'login' ? 'Signing in…'
       : form.id.includes('search') ? 'Searching…'
       : form.id.includes('filter') ? 'Loading results…'
+      : form.id.includes('export') ? 'Preparing export…'
       : form.id.includes('upload') ? 'Uploading…' : 'Saving changes…');
     try {
       await forms[form.id](form, event.submitter);
@@ -138,7 +139,7 @@ export function installEvents({ actions, forms }) {
       }
       if (target.name === 'clause_workspace_instrument') {
         const previous = new URLSearchParams(location.hash.split('?')[1]);
-        const next = new URLSearchParams({ instrument: target.value, edition: previous.get('edition') === 'current' ? 'current' : 'all' });
+        const next = new URLSearchParams({ instrument: target.value, edition: target.value === 'all' ? 'all' : 'current' });
         if (previous.get('view') === 'register') next.set('view', 'register');
         location.hash = 'clauses?' + next;
       }

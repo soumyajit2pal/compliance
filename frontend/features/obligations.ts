@@ -19,6 +19,8 @@ import { obligationImportsPage,obligationImportHandlers } from './obligation-imp
 import { obligationSummary,ownershipSummary,applicabilitySummary,processSummary } from './obligation-summary.ts';
 import { obligationView } from '../core/obligation-workspace.ts';
 import { obligationWorkspacePage, workspaceTabs } from './obligation-workspace.ts';
+import { obligationExportHandlers } from './obligation-export.ts';
+import { obligationExportButton } from '../ui/obligation-export.ts';
 
 const criticalities=['CRITICAL','HIGH','MEDIUM','LOW'];
 const roles=['REGULATORY','BUSINESS','CONTROL','EVIDENCE','DATA'];
@@ -48,7 +50,7 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
   const filter=(name,rows,label,blank)=>select(name,rows,query.get(name),label,'class="filter-select"',blank);
   return heading('Obligations','Requirements, department applicability and named responsibilities.',
     (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+
-    (has('AUTHOR','REVIEWER','APPROVER','CCO')?`<a class="btn" href="/api/obligations/report.csv?${esc(query.toString())}" download>Export report</a>`:''))+
+    obligationExportButton())+
     workspaceTabs('register',query)+
     `<form id="view-filter" class="obligation-register-filters" aria-label="Register filters"><div class="obligation-register-filter-heading"><label class="obligation-register-mode"><span>Register view</span><select name="tab" aria-label="Register view"><option value="register" ${report?'':'selected'}>All obligations</option><option value="reports" ${report?'selected':''}>Exceptions</option></select></label><span class="obligation-register-total">${response.pagination.total} obligation${response.pagination.total===1?'':'s'}</span></div><div class="filters obligation-filters obligation-register-filter-fields"><div class="search-field">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Search obligations or sources" aria-label="Search obligations"')}</div>
     ${filter('domain',active('regulatory_domain'),'name','All domains')}
@@ -372,7 +374,8 @@ export function installObligationEditorEvents(){
 
 export function obligationHandlers(context){
   const imported=obligationImportHandlers(context);
-  return {actions:{...imported.actions,
+  const exported=obligationExportHandlers();
+  return {actions:{...imported.actions,...exported.actions,
     'obl-assign-owner':()=>openOwnerAssignment(),
     'obl-review-applicability':()=>{close();location.hash='obligations/'+current().obligation.id+'?tab=applicability';},
     'obl-copy-reference':async()=>{await copyText(current().obligation.code);message('Obligation reference copied.');},
@@ -423,7 +426,7 @@ export function obligationHandlers(context){
     'obl-revise':({section})=>modal('Create governed revision',recordContext()+input('edit_section',Object.hasOwn(sectionSteps,section)?section:'','hidden')+field('Reason for revision / ownership change',area('reason','','required minlength="10" maxlength="2000"')),'obl-revision-form','Create Draft revision'),
     'obl-cancel':()=>modal('Cancel unapproved Draft',recordContext()+field('Cancellation reason',area('reason','','required minlength="10" maxlength="2000"')),'obl-cancel-form','Cancel Draft'),
     'obl-activate':async()=>{await api('/obligations/'+current().obligation.id+'/activate','POST',{});await context.render();},
-  },forms:{...imported.forms,
+  },forms:{...imported.forms,...exported.forms,
     'obl-owner-form':async form=>{
       const id=form.elements.obligation_id.value;current(id);validateBusinessAccountability(form);if(!form.reportValidity())return;
       const value={

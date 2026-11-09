@@ -7,6 +7,7 @@ import { ownershipSummary,applicabilitySummary,processSummary,requirementEntries
 import { renderObligationApplicability } from './obligation-applicability.ts';
 import { partitionOwnerAssignments } from '../core/obligation-ownership.ts';
 import { renderLinkedRegulatoryClauses } from './obligation-sources.ts';
+import { obligationExportButton } from '../ui/obligation-export.ts';
 
 const sectionNames={owners:'owners',applicability:'where it applies',sources:'sources & processes',history:'history & decisions',evidence:'evidence requirement',requirement:'requirement'};
 const compactEmpty=(text)=>`<p class="obligation-empty-state">${esc(text)}</p>`;
@@ -175,7 +176,7 @@ function history(d){
 }
 export function renderObligationDetail(d,p,query,returnPath='obligations'){
   const o=d.obligation,today=localDate(),status=statusLabel(o,p.stage,today),guidance=nextStep(d,p,today),tab=detailTab(query.get('tab'));
-  const recordActions=(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?button('obl-decision','Withdraw to Draft','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
+  const recordActions=obligationExportButton(o.id)+(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?button('obl-decision','Withdraw to Draft','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
   const contents=tab==='overview'?renderObligationOverview(d):tab==='owners'?owners(d,p):tab==='applicability'?applicability(d,p):tab==='sources'?sources(d,p):history(d);
   const checks=readiness(d,p),foldChecks=o.approval_status!=='APPROVED'&&checks;
   const checklist=foldChecks?`<details class="obligation-setup-checks"><summary>Setup and activation checks · ${activationChecklistItems(d,p,today).length} outstanding</summary>${checks}</details>`:checks;

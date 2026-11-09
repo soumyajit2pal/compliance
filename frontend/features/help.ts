@@ -77,13 +77,13 @@ const topics = [
     'Submit for independent review',
     'AUTHOR',
     'repository',
-    'Open the source record → Workflow → Submit for Compliance review. Select an eligible Reviewer and a different Approver. A preserved source, at least one clause / para and a domain marked Ready for review are required. Draft-only domains need Admin setup first.',
+    'Open the source record → Workflow. Next step lists anything blocking submission. When ready, choose Submit for Compliance review, select two different people for review and approval, and send the edition to the reviewer’s My decisions queue.',
   ],
   [
     'Record a review or final decision',
     'REVIEWER · APPROVER',
     'approvals',
-    'Open My decisions → Open decision. Read the source and Clauses / Para, then use the Workflow tab to record your assigned decision. The next stage opens only after the required independent review.',
+    'For source editions, choose Open Compliance review or Open final approval in My decisions. Both open the assigned edition’s Workflow tab at Next step. Check the source and Clauses / Para, then record your review or approval there. Final approval opens after the named reviewer records their review.',
   ],
   [
     'Add a revised source edition',

@@ -101,6 +101,14 @@
   cursor: pointer;
 }
 .searchable-select-option.is-highlighted, .searchable-select-option:hover:not([aria-disabled='true']) { color: var(--ink); background: var(--selection); }
+.searchable-select-option-title,
+.searchable-select-option-detail { display: block; }
+.searchable-select-option-title { font-weight: 650; }
+.searchable-select-option-detail {
+  margin-top: 3px;
+  color: var(--muted);
+  font: 12px/1.4 ui-monospace, monospace;
+}
 .searchable-select-check { position: absolute; right: 10px; top: 10px; color: var(--primary); }
 .searchable-select-option[aria-disabled='true'] { color: var(--muted); cursor: not-allowed; opacity: .65; }
 .searchable-select-group { padding: 9px 10px 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
@@ -109,7 +117,7 @@
 .searchable-select-error[hidden] { display: none; }
 .filters > .searchable-select.filter-select { flex: 1 1 160px; width: auto; min-width: 130px; max-width: 220px; min-height: 0; padding: 0; border: 0; }
 .source-edition-strip > .searchable-select { flex: 0 1 280px; max-width: 280px; }
-.clause-source-controls > .searchable-select, .field > .searchable-select, .demo-picker > .searchable-select { width: 100%; max-width: 100%; }
+.field > .searchable-select, .demo-picker > .searchable-select { width: 100%; max-width: 100%; }
 @media (max-width: 600px) {
   .searchable-select[data-enhanced] > .searchable-select-input { font-size: 16px; }
   .filters > .searchable-select.filter-select { max-width: none; }

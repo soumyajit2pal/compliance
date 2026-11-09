@@ -663,19 +663,20 @@ def listing(db,actor,filters):
     return result
 
 
-def source_edition_listing(db,actor):
+def source_edition_listing(db,actor,instrument_id=None):
     """Authorised edition metadata, including sources with no captured clauses."""
-    visible_ids=[row['id'] for row in listing(db,actor,{})]
+    visible_ids=[read_instrument(db,actor,instrument_id)['id']] if instrument_id else [row['id'] for row in listing(db,actor,{})]
     if not visible_ids: return []
+    scope=sa.or_(*(m.instrument_version.c.instrument_id.in_(visible_ids[start:start+900]) for start in range(0,len(visible_ids),900)))
     rows=[dict(row) for row in db.execute(sa.select(m.instrument_version)
-        .where(m.instrument_version.c.instrument_id.in_(visible_ids))
+        .where(scope)
         .order_by(m.instrument_version.c.instrument_id,m.instrument_version.c.effective_from.desc(),
             m.instrument_version.c.id)).mappings()]
     # Use a subquery rather than a potentially unbounded list of edition IDs.
     cancelled=set(db.execute(sa.select(m.audit_log.c.entity_id).where(
         m.audit_log.c.entity_type=='version',m.audit_log.c.action=='DRAFT_CANCELLED',
         m.audit_log.c.entity_id.in_(sa.select(m.instrument_version.c.id)
-            .where(m.instrument_version.c.instrument_id.in_(visible_ids))))).scalars())
+            .where(scope)))).scalars())
     return [{**row,'cancelled_draft':row['id'] in cancelled} for row in rows]
 
 
@@ -710,6 +711,7 @@ def clause_listing(db,actor):
 
 
 def detail(db,actor,identifier):
+    from .obligations import instrument_links
     row=read_instrument(db,actor,identifier)
     versions=[dict(v) for v in db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.instrument_id==identifier).order_by(m.instrument_version.c.effective_from.desc())).mappings()]
     version_ids=[v['id'] for v in versions]
@@ -753,4 +755,5 @@ def detail(db,actor,identifier):
     carried=[dict(r) for r in db.execute(sa.select(m.clause_carry_forward).where(m.clause_carry_forward.c.target_version_id.in_(version_ids))).mappings()] if version_ids else []
     return {'instrument':row,'versions':versions,'secondary_domains':secondary_domains,'source_documents':source_documents,'clause_carry_forward':carried,
         'clauses':clauses,'clause_relationships':clause_relationships,'tasks':tasks,
+        'linked_obligations':instrument_links(db,actor,identifier,clause_ids),
         'metadata_corrections':metadata_corrections,'audit':audit_rows,'history':statuses,'comments':comments}

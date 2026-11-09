@@ -528,3 +528,11 @@ for t in [obligation_owner_change,owner_change_assignment]:
             digest=__import__('hashlib').sha1((t.name+c.name).encode()).hexdigest()[:8]
             sa.Index('ix_'+t.name[4:18]+'_'+digest,c)
 sa.Index('ix_cbd_owner_ended_change',obligation_owner.c.ended_by_change_id)
+
+# Oracle Text domain indexes are maintained by the dedicated search revision.
+sa.Index('ix_cbd_cls_find_code', sa.func.upper(regulatory_clause.c.code))
+sa.Index('ix_cbd_cls_find_number', sa.func.upper(regulatory_clause.c.source_clause_reference))
+sa.Index('ix_cbd_cls_find_page', sa.func.upper(regulatory_clause.c.source_page_reference))
+sa.Index('ix_cbd_cls_find_legacy', sa.func.upper(business_code_alias.c.legacy_code))
+sa.Index('ix_cbd_ins_find_code', sa.func.upper(regulatory_instrument.c.code))
+sa.Index('ix_cbd_ins_find_reference', sa.func.upper(regulatory_instrument.c.official_reference_number))

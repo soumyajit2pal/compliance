@@ -31,6 +31,7 @@
     "test:obligation-sources": "node tests/obligation-sources.browser.cjs",
     "test:compact-departments": "node tests/compact-departments.browser.cjs",
     "test:obligation-workspace": "node tests/obligation-workspace.browser.cjs",
+    "test:obligation-export": "node tests/obligation-export.browser.cjs",
     "test:swagger": "node --test tests/swagger-bootstrap.test.mjs",
     "test:swagger:live": "node tests/swagger.live.cjs",
     "test:swagger-login": "node tests/swagger-login.browser.cjs",
