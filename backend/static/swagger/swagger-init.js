@@ -51,23 +51,34 @@
 		const status = user.ldap_department_status;
 		const approved = user.department_code;
 		const current = user.ldap_last_seen_department_code;
-		const valid = (value) => typeof value === "string" && value.trim().length > 0 && [...value].length <= 100 && !/[\x00-\x1f\x7f]/.test(value);
-		const matches = Boolean(valid(approved) && valid(current) && approved === current);
+		const valid = (value, maximum = 100) => typeof value === "string" && value.trim().length > 0 && [...value].length <= maximum && !/[\x00-\x1f\x7f]/.test(value);
+		const fields = [[
+			"ldap_division",
+			"ldap_last_seen_division",
+			250
+		], [
+			"ldap_info",
+			"ldap_last_seen_info",
+			2e3
+		]];
+		const optionalValid = fields.every(([a, b, max]) => [user[a], user[b]].every((value) => value == null || valid(value, max)));
+		const differs = approved !== current || fields.some(([a, b]) => (user[a] ?? null) !== (user[b] ?? null));
+		const matches = Boolean(valid(approved) && valid(current) && optionalValid && !differs);
 		if (status === "UNAVAILABLE") return {
 			key: "unavailable",
-			label: "LDAP department code unavailable",
+			label: "LDAP department details unavailable",
 			tone: "amber",
 			approved: false,
 			blocked: true,
-			detail: "LDAP must return one valid department code before it can be verified."
+			detail: "LDAP must return a valid department code and single valid division/info values when present."
 		};
-		if (status === "MISMATCH" || ["VERIFIED", "RECHECK_REQUIRED"].includes(status) && valid(approved) && valid(current) && approved !== current) return {
+		if (status === "MISMATCH" || ["VERIFIED", "RECHECK_REQUIRED"].includes(status) && valid(approved) && valid(current) && differs) return {
 			key: "changed",
-			label: "Department code changed — approval required",
+			label: "Department details changed — approval required",
 			tone: "amber",
 			approved: false,
 			blocked: true,
-			detail: "The current LDAP code differs from the approved code. Application access is blocked."
+			detail: "The current LDAP department code, division or info differs from the approved details. Application access is blocked."
 		};
 		if (status === "RECHECK_REQUIRED" && matches) return {
 			key: "recheck",
@@ -75,23 +86,23 @@
 			tone: "neutral",
 			approved: true,
 			blocked: true,
-			detail: "The update is approved. The user must sign in with LDAP again to verify the current code."
+			detail: "The update is approved. The user must sign in with LDAP again to verify the current details."
 		};
 		if (status === "VERIFIED" && matches) return {
 			key: "approved",
-			label: "Department code approved",
+			label: "Department details approved",
 			tone: "green",
 			approved: true,
 			blocked: false,
-			detail: "The current LDAP code matches the approved code."
+			detail: "The current LDAP department code, division and info match the approved details."
 		};
 		return {
 			key: "not-approved",
-			label: "Department code not approved",
+			label: "Department details not approved",
 			tone: "amber",
 			approved: false,
 			blocked: true,
-			detail: "Application access is blocked until the LDAP department code is independently approved."
+			detail: "Application access is blocked until the LDAP department code, division and info are independently approved."
 		};
 	}
 	// core/swagger-request.ts
@@ -216,7 +227,7 @@
 			const department = ldapDepartmentState(user);
 			if (department.blocked) {
 				requirements.push(department.label + ".");
-				if (user.department_code || user.ldap_last_seen_department_code) requirements.push("Approved LDAP code: " + (user.department_code || "Not approved") + "; current LDAP code: " + (user.ldap_last_seen_department_code || "Unavailable") + ".");
+				if (user.department_code || user.ldap_last_seen_department_code) requirements.push("Approved / current LDAP code: " + (user.department_code || "Not approved") + " / " + (user.ldap_last_seen_department_code || "Unavailable") + "; division: " + (user.ldap_division || "Not recorded") + " / " + (user.ldap_last_seen_division || "Not returned") + "; info: " + (user.ldap_info || "Not recorded") + " / " + (user.ldap_last_seen_info || "Not returned") + ".");
 			}
 		}
 		if (!identity.roles.length) requirements.push("Administrator-approved roles and scope are required.");

@@ -48,6 +48,8 @@ export async function ldapPage() {
       ${field('Full name attribute', input('attr_full_name', data.attr_full_name))}
       ${field('Email attribute', input('attr_email', data.attr_email))}
       ${field('Department code attribute', input('attr_department_code', data.attr_department_code || 'department', 'text', 'required'), 'LDAP department contains the code. Home organisation is assigned separately.')}
+      ${field('Division attribute', input('attr_division', data.attr_division || 'division', 'text', 'required'), 'Stored and compared with the approved LDAP division.')}
+      ${field('Info attribute', input('attr_info', data.attr_info || 'info', 'text', 'required'), 'Stored and compared with the approved LDAP info value.')}
     </div>`)}</div>
     <div class="mt24">${panel('Test before saving', `
       <p class="small muted">Test the values currently shown, including unsaved certificate changes. Test credentials are used once. Testing does not create an account or save the configuration.</p>

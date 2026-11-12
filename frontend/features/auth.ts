@@ -2,11 +2,12 @@ import { assetUrl } from '../core/assets.ts';
 import { state } from '../core/state.ts';
 import { root } from '../core/dom.ts';
 import { api, signIn } from '../core/api.ts';
-import { esc, button, field, input, select, message } from '../ui/components.ts';
+import { esc, button, field, input, message } from '../ui/components.ts';
 import { close } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
 import { shell, heading } from '../ui/layout.ts';
-import { departmentDetails, departmentGate, departmentStatusNotice } from './ldap-department.ts';
+import { departmentGate } from './ldap-department.ts';
+import { workProfilePage } from './work-profile.ts';
 import { loadingMarkup } from '../ui/loading.ts';
 
 let demoUsers = [];
@@ -181,8 +182,8 @@ export async function loadIdentity() {
     if (department.blocked && !initialProfile) {
       state.masters = null; state.record = null; state.batch = null;
       state.work = []; state.notifications = [];
-      const title = department.status === 'MISMATCH' ? 'Your LDAP department code has changed'
-        : department.status === 'UNAVAILABLE' ? 'Your LDAP department code could not be verified'
+      const title = department.status === 'MISMATCH' ? 'Your LDAP department details have changed'
+        : department.status === 'UNAVAILABLE' ? 'Your LDAP department details could not be verified'
         : department.status === 'RECHECK_REQUIRED' ? 'Sign in again to verify your department'
         : 'Verify your LDAP department';
       shell(heading(title, 'Review your directory department details before opening the workspace.') + departmentGate(department), '');
@@ -225,27 +226,8 @@ export async function loadIdentity() {
     state.identity.user.needs_department_selection_flag
   ) {
     const units = await api('/auth/departments');
-    shell(
-      heading(
-        'Confirm your work profile',
-        'Confirm your work email and Home organisation. LDAP department and portal access need administrator approval.',
-      ) +
-        /* HTML */ `<section class="card">
-          <form id="onboard">
-            ${department ? departmentStatusNotice(state.identity.user) + departmentDetails(department) : ''}
-            ${field(
-              'Work email',
-              input('email', state.identity.user.email || '', 'email', 'required'),
-            )}${field(
-              'Home organisation',
-              select('org_unit_id', units, state.identity.user.org_unit_id, 'name', 'required'),
-            )}
-            <p class="inline-error" id="form-error" role="alert"></p>
-            <button class="primary">Confirm and request verification</button>
-          </form>
-        </section>`,
-      '',
-    );
+    document.title = 'Confirm your work profile · Compliance by Design';
+    shell(workProfilePage(state.identity.user, department, units, state.identity.roles), '');
     return false;
   }
   if (!state.identity.roles.length) {

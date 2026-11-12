@@ -23,7 +23,7 @@ def access_state(user, assignments):
         states={
             'UNVERIFIED':('LDAP_DEPARTMENT_REQUIRED','LDAP department verification required','Review the LDAP department baseline separately from Home organisation and roles.'),
             'MISMATCH':('LDAP_DEPARTMENT_CHANGED','LDAP department changed','Access is blocked. Review the old/current LDAP department and pending update request.'),
-            'UNAVAILABLE':('LDAP_DEPARTMENT_UNAVAILABLE','LDAP department code unavailable','LDAP did not supply one valid department code. Check the directory attribute mapping and permissions.'),
+            'UNAVAILABLE':('LDAP_DEPARTMENT_UNAVAILABLE','LDAP department details unavailable','LDAP did not supply valid department code, division or info values. Check the directory attribute mappings and permissions.'),
             'RECHECK_REQUIRED':('LDAP_DEPARTMENT_RECHECK','Fresh LDAP sign-in required','The department update is approved. The user must sign in again before access opens.')}
         status,label,message=states.get(user.get('ldap_department_status'),states['UNVERIFIED'])
     elif not count:

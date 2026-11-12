@@ -91,7 +91,7 @@ def runtime_settings():
         'LDAP_SERVER_URI','LDAP_BASE_DN','LDAP_BIND_DN','LDAP_BIND_PASSWORD','LDAP_CA_CERT_FILE',
         'LDAP_USER_DN_TEMPLATE','LDAP_USER_SEARCH_FILTER',
         'LDAP_ATTR_FULL_NAME','LDAP_ATTR_EMAIL','LDAP_ATTR_DEPARTMENT',
-        'LDAP_ATTR_DEPARTMENT_CODE']}
+        'LDAP_ATTR_DEPARTMENT_CODE','LDAP_ATTR_DIVISION','LDAP_ATTR_INFO']}
     ldap['user_search_filter'] = ldap['user_search_filter'] or '(sAMAccountName={username})'
     ldap['enabled'] = values.get('LDAP_ENABLED', str(bool(ldap['server_uri']))).lower() == 'true'
     ldap['use_ssl'] = values.get('LDAP_USE_SSL', 'true').lower() == 'true'
@@ -101,6 +101,8 @@ def runtime_settings():
     ldap['attr_email'] = ldap['attr_email'] or 'mail'
     legacy_department_attribute = ldap.pop('attr_department')
     ldap['attr_department_code'] = ldap['attr_department_code'] or legacy_department_attribute or 'department'
+    ldap['attr_division'] = ldap['attr_division'] or 'division'
+    ldap['attr_info'] = ldap['attr_info'] or 'info'
     key_file = values.get('LOGIN_ENCRYPTION_PRIVATE_KEY_FILE', '')
     key_path = Path(key_file).expanduser() if key_file else None
     if key_path is not None and not key_path.is_absolute(): key_path = ROOT / key_path

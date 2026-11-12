@@ -29,6 +29,7 @@ DEFAULTS = {
     'ca_cert_file': '', 'ca_certificate_pem': '', 'ca_certificate_name': '',
     'ca_certificate_metadata': [], 'attr_full_name': 'displayName',
     'attr_email': 'mail', 'attr_department_code': 'department',
+    'attr_division': 'division', 'attr_info': 'info',
 }
 
 
@@ -139,7 +140,7 @@ def validate_directory(cfg):
         raise HTTPException(422, 'Configure a base DN and read-only bind account, or a direct user DN template.')
     if template.count('{username}') != 1 or re.search(r'[{}]', template.replace('{username}', '')):
         raise HTTPException(422, 'The selected username pattern must include {username} exactly once, with no other placeholders.')
-    for name in ('attr_full_name', 'attr_email', 'attr_department_code'):
+    for name in ('attr_full_name', 'attr_email', 'attr_department_code', 'attr_division', 'attr_info'):
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9;-]*', cfg.get(name, DEFAULTS[name])):
             raise HTTPException(422, 'Enter valid directory profile attribute names.')
 
@@ -193,9 +194,10 @@ def mock_profile(settings, username, password):
     full_name = 'Mock LDAP ' + (suffix or username)
     email = username + '@mock-ldap.test'
     return {'full_name': full_name, 'email': email, 'department_code':'DEMO-001',
+            'division': 'DEMO DIVISION', 'info': 'DEMO INFO',
             'source': 'uat_mock', 'distinguished_name': None, 'attributes_available': True,
             'attributes': {'uid': [username], 'displayName': [full_name], 'mail': [email],
-                           'department':['DEMO-001']}}, True
+                           'department':['DEMO-001'], 'division':['DEMO DIVISION'], 'info':['DEMO INFO']}}, True
 
 
 def authenticate_directory(db, settings, username, password, *, config_override=None, allow_mock=True):
@@ -239,8 +241,10 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                 raise
 
         attributes = list(dict.fromkeys([ALL_ATTRIBUTES, ALL_OPERATIONAL_ATTRIBUTES] +
-            [cfg[k] for k in ('attr_full_name', 'attr_email', 'attr_department_code') if cfg.get(k)] + ['cn']))
-        profile = {'full_name': username, 'email': None, 'department_code':None,
+            [cfg.get(k, DEFAULTS[k]) for k in ('attr_full_name', 'attr_email', 'attr_department_code',
+                'attr_division', 'attr_info') if cfg.get(k, DEFAULTS[k])] + ['cn']))
+        profile = {'full_name': username, 'email': None, 'department_code':None, 'division':None, 'info':None,
+                   'comparison_attributes_valid': True,
                    'source': 'ldap', 'distinguished_name': None,
                    'attributes_available': False, 'attributes': {}}
 
@@ -256,11 +260,18 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                     if isinstance(value, (str, int, float, bool)): profile[key] = str(value)
             def single(name):
                 value=attrs.get(name.casefold()) if name else None
+                if value is None or value == []:return None
                 if isinstance(value,(list,tuple)):
-                    if len(value)!=1:return None
+                    if len(value)!=1:
+                        profile['comparison_attributes_valid']=False
+                        return None
                     value=value[0]
-                return str(value) if isinstance(value,(str,int)) and not isinstance(value,bool) else None
+                if isinstance(value,(str,int)) and not isinstance(value,bool):return str(value)
+                profile['comparison_attributes_valid']=False
+                return None
             profile['department_code']=single(cfg.get('attr_department_code',''))
+            profile['division']=single(cfg.get('attr_division', 'division'))
+            profile['info']=single(cfg.get('attr_info', 'info'))
 
         if cfg.get('bind_dn') and cfg.get('base_dn'):
             stage = 'service_bind'

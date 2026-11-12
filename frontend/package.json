@@ -19,6 +19,8 @@
     "test:loading": "node tests/loading.browser.cjs",
     "test:searchable-selects:live": "node tests/searchable-selects.live.cjs",
     "test:ldap-department": "node tests/ldap-department.browser.cjs",
+    "test:ldap-identity": "node tests/ldap-identity.browser.cjs",
+    "test:work-profile": "node tests/work-profile.browser.cjs",
     "test:ldap-readiness": "node --test tests/ldap-readiness.test.mjs",
     "test:pagination": "node --test tests/pagination.test.mjs",
     "test:instrument-summary": "node --test tests/instrument-summary.test.mjs",

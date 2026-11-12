@@ -175,9 +175,11 @@ class DirectoryInput(Input):
     attr_full_name:str=Field(default='displayName',max_length=100)
     attr_email:str=Field(default='mail',max_length=100)
     attr_department_code:str=Field(default='department',min_length=1,max_length=100)
+    attr_division:str=Field(default='division',min_length=1,max_length=100)
+    attr_info:str=Field(default='info',min_length=1,max_length=100)
 
     @field_validator('server_uri','base_dn','bind_dn','user_dn_template','user_search_filter',
-                     'ca_cert_file','attr_full_name','attr_email','attr_department_code')
+                     'ca_cert_file','attr_full_name','attr_email','attr_department_code','attr_division','attr_info')
     @classmethod
     def strip_directory_values(cls,value):return value.strip()
 
