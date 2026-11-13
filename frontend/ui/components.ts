@@ -70,7 +70,9 @@ export const field = (label, control, help = '', css = '') => {
   if (control.startsWith('<label')) return `<div class="field ${css}">${control}</div>`;
   const id = 'field-' + ++fieldSequence;
   const hint = id + '-hint';
-  const required = /\srequired\b/.test(control);
+  // Only the control's attributes determine its required marker, never option text.
+  const openingControl = /<(?:input|select|textarea)\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/i.exec(control)?.[0] || '';
+  const required = /\srequired(?=\s|=|\/?>)/i.test(openingControl.replace(/"[^"]*"|'[^']*'/g, '""'));
   control = control
     .replace(/aria-label="[^"]*"/, `aria-label="${esc(label)}"`)
     .replace(

@@ -8,7 +8,7 @@ import { obligationSetupSteps,assessmentChoices } from '../core/obligation-setup
 import { renderSetupQuestions,renderSetupReview,refreshScopeProcessLimits,refreshDepartmentFields,setupDepartmentCard } from './obligation-setup.ts';
 import { primaryBusinessOwnerFields,refreshPrimaryBusinessOwner,primaryBusinessSelectionChanged,syncAdditionalOwnerRole,validateBusinessAccountability } from './obligation-accountability.ts';
 import { copyText } from '../ui/clipboard.ts';
-import { apiPageQuery } from '../core/pagination.ts';
+import { apiPageQuery,withoutPaging } from '../core/pagination.ts';
 import { esc,title,ref,badge,button,field,input,select,fixedSelect,area,link,localDate,date,message,options,statusTag } from '../ui/components.ts';
 import { heading } from '../ui/layout.ts';
 import { panel,table,tablePanel,detailFields,note,recordCell } from '../ui/widgets.ts';
@@ -18,7 +18,7 @@ import { modal,close } from '../ui/dialog.ts';
 import { obligationImportsPage,obligationImportHandlers } from './obligation-import.ts';
 import { obligationSummary,ownershipSummary,applicabilitySummary,processSummary } from './obligation-summary.ts';
 import { obligationView } from '../core/obligation-workspace.ts';
-import { obligationWorkspacePage, workspaceTabs } from './obligation-workspace.ts';
+import { obligationWorkspacePage, workspaceTabs, workspaceHeading } from './obligation-workspace.ts';
 import { obligationExportHandlers } from './obligation-export.ts';
 import { obligationExportButton } from '../ui/obligation-export.ts';
 
@@ -48,25 +48,58 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
   const response=await api('/obligations?'+apiPageQuery(query,'obligations'));
   const report=query.get('tab')==='reports';
   const filter=(name,rows,label,blank)=>select(name,rows,query.get(name),label,'class="filter-select"',blank);
-  return heading('Obligations','Requirements, department applicability and named responsibilities.',
-    (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+
-    obligationExportButton())+
+  const advanced=['domain','criticality','owner','exception'];
+  const advancedCount=advanced.filter(key=>query.get(key)).length;
+  const selectedLabel=(key)=>{
+    const value=query.get(key);
+    if(key==='q')return 'Search: '+value;
+    if(key==='status')return 'Stage: '+stageLabel(value);
+    if(key==='criticality')return 'Criticality: '+title(value);
+    if(key==='exception')return 'Finding: '+(issueNames[value]||title(value));
+    const master={domain:'regulatory_domain',department:'organisational_unit',owner:'user'}[key];
+    const row=active(master).find(item=>item.id===value);
+    return ({domain:'Domain',department:'Department',owner:'Owner'}[key])+': '+(row?.name||row?.full_name||value);
+  };
+  const applied=['q','department','status',...advanced].filter(key=>query.get(key));
+  const chips=applied.map(key=>{
+    const next=withoutPaging(query);next.delete(key);
+    const label=selectedLabel(key);
+    return `<a class="obligation-filter-chip" href="#${esc('obligations'+(next.size?'?'+next:''))}" title="${esc(label)}" aria-label="Remove ${esc(label)}"><span>${esc(label)}</span>${icon('x')}</a>`;
+  }).join('');
+  const rows=response.items.map(r=>{
+    const status=statusLabel(r,r.stage,localDate());
+    return [
+      `<div class="obligation-register-cell"><a href="#obligations/${esc(r.id)}" data-obligation-preview="${esc(r.id)}" aria-haspopup="dialog" aria-expanded="false" aria-controls="obligation-quick-view"><span class="record-title">${esc(r.title)}</span><span class="obligation-register-reference"><span class="record-code">${esc(r.code)}</span><span class="obligation-register-revision">v${esc(r.version_number)}</span></span></a><button type="button" class="btn small obligation-quick-view-trigger" data-obligation-preview="${esc(r.id)}" aria-label="Quick view: ${esc(r.title)}" aria-haspopup="dialog" aria-expanded="false" aria-controls="obligation-quick-view">${icon('eye')}Quick view</button></div>`,
+      `<div class="obligation-register-source">${icon('file')}<div><a href="#repository/${esc(r.instrument_id)}">${esc(r.instrument_code)}</a><small>Clause ${esc(r.source_clause_reference||r.clause_code)}<span>Edition ${esc(r.source_version)}</span></small></div></div>`,
+      `<span class="obligation-register-department">${icon('org')}<span>${esc(ref('organisational_unit',r.business_owner_unit_id))}</span></span>`,
+      statusTag(status.label,status.tone),
+      `<span class="obligation-criticality is-${esc(String(r.criticality).toLowerCase())}"><i aria-hidden="true"></i>${esc(title(r.criticality))}</span>`,
+      r.issues.length?`<ul class="obligation-register-findings">${r.issues.map(k=>`<li>${esc(issueNames[k]||title(k))}</li>`).join('')}</ul>`:'<span class="obligation-register-no-findings">None reported</span>',
+    ];
+  });
+  return `<div class="obligation-register">`+workspaceHeading(
+    (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+obligationExportButton())+
     workspaceTabs('register',query)+
-    `<form id="view-filter" class="obligation-register-filters" aria-label="Register filters"><div class="obligation-register-filter-heading"><label class="obligation-register-mode"><span>Register view</span><select name="tab" aria-label="Register view"><option value="register" ${report?'':'selected'}>All obligations</option><option value="reports" ${report?'selected':''}>Exceptions</option></select></label><span class="obligation-register-total">${response.pagination.total} obligation${response.pagination.total===1?'':'s'}</span></div><div class="filters obligation-filters obligation-register-filter-fields"><div class="search-field">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Search obligations or sources" aria-label="Search obligations"')}</div>
-    ${filter('domain',active('regulatory_domain'),'name','All domains')}
-    ${filter('department',active('organisational_unit'),'name','All departments')}
-    ${filter('status',['DRAFT','COMPLIANCE_REVIEW','BUSINESS_VALIDATION','FINAL_APPROVAL','ACTIVE','APPROVED','REJECTED','SUPERSEDED'].map(id=>({id,name:stageLabel(id)})),'name','All statuses')}
-    ${filter('criticality',criticalities.map(id=>({id,name:stageLabel(id)})),'name','All criticalities')}
-    ${filter('owner',active('user'),'full_name','All owners')}
-    ${filter('exception',Object.entries(issueNames).map(([id,name])=>({id,name})),'name','All findings')}
-    <button class="btn primary" type="submit">Apply filters</button>${link('obligations','Clear','btn')}</div></form>`+
+    `<form id="view-filter" class="obligation-register-filters" aria-label="Register filters">
+      <div class="obligation-register-filter-heading"><div><h2>Find an obligation</h2><p>Search requirements and narrow your view.</p></div><div class="obligation-register-filter-heading-actions"><label class="obligation-register-mode"><span>Register view</span><select name="tab" aria-label="Register view"><option value="register" ${report?'':'selected'}>All obligations</option><option value="reports" ${report?'selected':''}>Exceptions</option></select></label>${link('obligations','Clear','obligation-register-clear')}</div></div>
+      <div class="obligation-register-filter-fields">
+        ${field('Search obligations',`<div class="search-field">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Requirement or regulatory source"')}</div>`)}
+        ${field('Accountable department',filter('department',active('organisational_unit'),'name','All departments'))}
+        ${field('Stage',filter('status',['DRAFT','COMPLIANCE_REVIEW','BUSINESS_VALIDATION','FINAL_APPROVAL','ACTIVE','APPROVED','REJECTED','SUPERSEDED'].map(id=>({id,name:stageLabel(id)})),'name','All stages'))}
+        <button class="btn primary obligation-register-apply" type="submit">Apply filters</button>
+        <details class="obligation-register-more" ${advancedCount?'open':''}><summary>${icon('filter')}More filters${advancedCount?`<span class="obligation-filter-count">${advancedCount}</span>`:''}${icon('down')}</summary><div class="obligation-register-more-fields">
+          ${field('Regulatory domain',filter('domain',active('regulatory_domain'),'name','All domains'))}
+          ${field('Criticality',filter('criticality',criticalities.map(id=>({id,name:title(id)})),'name','All criticalities'))}
+          ${field('Named owner',filter('owner',active('user'),'full_name','All owners'))}
+          ${field('Finding',filter('exception',Object.entries(issueNames).map(([id,name])=>({id,name})),'name','All findings'))}
+        </div></details>
+      </div>
+      ${chips?`<div class="obligation-applied-filters"><span>Applied filters</span>${chips}</div>`:''}
+    </form>`+
     (report?note('Current Draft and Active records are shown by default. Unmapped legacy clauses and owners remain in '+link('obligations/imports','Import validation findings')+'.'):'')+
-    tablePanel(table(['Obligation','Regulatory source','Accountable department','Stage','Criticality','Findings'],response.items.map(r=>[
-      `<div class="obligation-register-cell">${recordCell(r.code+' · v'+r.version_number,r.title,'obligations/'+r.id,'',`data-obligation-preview="${esc(r.id)}" aria-haspopup="dialog" aria-expanded="false" aria-controls="obligation-quick-view"`)}<button type="button" class="btn small obligation-quick-view-trigger" data-obligation-preview="${esc(r.id)}" aria-label="Quick view: ${esc(r.title)}" aria-haspopup="dialog" aria-expanded="false" aria-controls="obligation-quick-view">${icon('eye')}Quick view</button></div>`,
-      link('repository/'+r.instrument_id,r.instrument_code)+`<small>${esc(r.source_clause_reference||r.clause_code)} · edition ${esc(r.source_version)}</small>`,
-      esc(ref('organisational_unit',r.business_owner_unit_id)),statusTag(statusLabel(r,r.stage,localDate()).label,statusLabel(r,r.stage,localDate()).tone),badge(r.criticality),
-      r.issues.map(k=>`<small>${esc(issueNames[k]||title(k))}</small>`).join('')||'—',
-    ]),{pageKey:'obligations',pagination:response.pagination,empty:'No obligations match this view.'}));
+    `<section class="obligation-register-results ${rows.length?'':'is-empty'}" aria-labelledby="obligation-register-results-title"><header class="obligation-register-results-heading"><div><h2 id="obligation-register-results-title">${report?'Exceptions':'Obligation register'}<span class="obligation-register-total">${response.pagination.total}</span></h2><p>${applied.length?'Matching your applied filters.':'Requirements in your authorised view.'}</p></div><span class="obligation-register-results-note">${icon('eye')}Select a record for quick view</span></header>`+
+    tablePanel(table(['Obligation','Regulatory source','Accountable department','Stage','Criticality','Findings'],rows,{pageKey:'obligations',pagination:response.pagination,empty:'No obligations match this view.'}))+`</section></div>`;
+
 }
 
 async function detailPage(identifier,query){

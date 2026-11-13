@@ -85,6 +85,20 @@ export function ObligationQuickView({viewRevision}:{viewRevision:number}) {
   useEffect(() => {close(false);},[viewRevision,close]);
   const isOpen = Boolean(preview);
   useEffect(() => {
+    if (!isOpen || mobile) return;
+    // The desktop preview overlays the right side. Return that space as soon
+    // as a register filter is edited, without moving focus out of its field.
+    const editingFilters = (event:Event) => {
+      if (event.target instanceof Element && event.target.closest('.obligation-register-filters')) close(false);
+    };
+    document.addEventListener('input',editingFilters);
+    document.addEventListener('change',editingFilters);
+    return () => {
+      document.removeEventListener('input',editingFilters);
+      document.removeEventListener('change',editingFilters);
+    };
+  },[isOpen,mobile,close]);
+  useEffect(() => {
     if (!isOpen) return;
     const keydown = (event:KeyboardEvent) => {
       if (document.querySelector('dialog[open]') || event.defaultPrevented) return;

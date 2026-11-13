@@ -23,76 +23,86 @@ export function loginView() {
   document.body.classList.add('portal-mode');
   root.innerHTML = /* HTML */ `
     <div class="auth-page">
+      <header class="auth-masthead">
+        <img class="auth-bank-logo" src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}" alt="Bank of Maharashtra" />
+        <div class="auth-brand">
+          <span class="auth-brand-icon">${icon('shield')}</span>
+          <span class="auth-brand-name">Compliance <span>by Design</span></span>
+        </div>
+      </header>
       <main class="auth-shell" aria-label="Compliance by Design sign in">
-        <aside class="auth-story" aria-label="About Compliance by Design">
-          <header class="auth-story-header">
-            <div class="auth-brand">
-              <span class="auth-brand-icon">${icon('shield')}</span>
-              <span class="auth-brand-name">Compliance <span>by Design</span></span>
-            </div>
-            <img
-              class="auth-bank-logo"
-              src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}"
-              alt="Bank of Maharashtra"
-            />
-          </header>
-          <div class="auth-copy">
-            <p class="auth-eyebrow">Embedded in every decision.</p>
-            <h2>Clarity in every requirement. <span>Confidence in every action.</span></h2>
-            <p class="auth-description">
-              One connected view of regulatory sources, clear interpretations and independently approved decisions.
-            </p>
-          </div>
-          <div class="auth-capabilities">
-            <div class="auth-capability">${icon('book')}<div><strong>Clarity at the source</strong><p>Original wording, editions and clauses, together.</p></div></div>
-            <div class="auth-capability">${icon('shield')}<div><strong>Independent decisions</strong><p>Clear responsibilities at every review and approval.</p></div></div>
-            <div class="auth-capability">${icon('clock')}<div><strong>A history you can follow</strong><p>Source changes and recorded decisions stay traceable.</p></div></div>
-          </div>
-          <footer class="auth-story-footer"><span>${icon('shield')} Controlled access</span><span>Compliance by Design</span></footer>
-          <div class="auth-emblem" aria-hidden="true">${icon('shield')}</div>
-        </aside>
         <section class="auth-card" aria-labelledby="sign-in-title">
-          <div class="auth-mobile-brand">
-            <div class="auth-brand">
-              <span class="auth-brand-icon">${icon('shield')}</span>
-              <span class="auth-brand-name">Compliance <span>by Design</span></span>
+          <div class="auth-form-inner">
+            <div class="auth-card-heading">
+              <div class="auth-kicker"><span></span> Your compliance workspace</div>
+              <h1 id="sign-in-title">Welcome back</h1>
+              <p>Sign in with your Standard or LDAP account.</p>
             </div>
-            <img
-              class="auth-bank-logo"
-              src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}"
-              alt="Bank of Maharashtra"
-            />
-          </div>
-          <div class="auth-card-heading">
-            <span class="auth-security-mark">${icon('lock')}</span>
-            <div class="auth-kicker">Secure portal access</div>
-            <h1 id="sign-in-title">Welcome back</h1>
-          </div>
-          <form id="login">
-            <div id="demo-sign-in" aria-busy="true">${demoLoading()}</div>
-            <div class="auth-credentials">
-              <div class="field"><label for="login-username">Username</label>
-                <div class="auth-input-wrap">${icon('users')}
-                  <input id="login-username" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+            <form id="login">
+              <div class="auth-credentials">
+                <div class="field"><label for="login-username">Username</label>
+                  <div class="auth-input-wrap">${icon('users')}
+                    <input id="login-username" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+                  </div>
+                </div>
+                <div class="field"><label for="login-password">Password</label>
+                  <div class="auth-input-wrap">${icon('lock')}
+                    <input id="login-password" name="password" type="password" required autocomplete="current-password">
+                    <button class="auth-password-toggle" type="button" data-action="toggle-login-password" aria-label="Show password" aria-pressed="false" aria-controls="login-password">${icon('eye')}</button>
+                  </div>
                 </div>
               </div>
-              <div class="field"><label for="login-password">Password</label>
-                <div class="auth-input-wrap">${icon('lock')}
-                  <input id="login-password" name="password" type="password" required autocomplete="current-password">
-                  <button class="auth-password-toggle" type="button" data-action="toggle-login-password" aria-label="Show password" aria-pressed="false" aria-controls="login-password">${icon('eye')}</button>
-                </div>
-              </div>
+              <p class="inline-error" id="login-error" role="alert"></p>
+              <button class="btn primary auth-submit" type="submit"><span>Sign in</span>${icon('arrow')}</button>
+              <div id="demo-sign-in" aria-busy="true">${demoLoading()}</div>
+            </form>
+            <div class="auth-footer">
+              <span>${icon('lock')} Secure access</span>
+              <a href="${assetUrl('guides/week-1-3-navigation.html')}" target="_blank" rel="noopener">
+                User guide ${icon('external')}
+              </a>
             </div>
-            <p class="inline-error" id="login-error" role="alert"></p>
-            <button class="btn primary auth-submit" type="submit"><span>Sign in</span>${icon('arrow')}</button>
-          </form>
-          <div class="auth-footer">
-            <a href="${assetUrl('guides/week-1-3-navigation.html')}" target="_blank" rel="noopener">
-              User guide ${icon('external')}
-            </a>
           </div>
         </section>
+        <aside class="auth-story" aria-label="About Compliance by Design">
+          <div class="auth-story-topline"><span>Compliance, connected.</span><span class="auth-story-symbol" aria-hidden="true">${icon('sparkle')}</span></div>
+          <div class="auth-copy">
+            <h2>Every requirement.<br>A clear way <em>forward.</em></h2>
+            <p class="auth-description">Bring regulatory sources, considered decisions and clear responsibilities into one connected view.</p>
+          </div>
+          <div class="auth-pathway" role="img" aria-label="A continuous line connects regulatory sources, interpretation and accountable action.">
+            <svg viewBox="0 0 500 240" fill="none" aria-hidden="true">
+              <path class="auth-thread-muted" d="M-20 190H75Q105 190 105 160V75Q105 45 135 45H220Q250 45 250 75V165Q250 195 280 195H365Q395 195 395 165V80Q395 50 425 50H525" />
+              <path class="auth-thread" d="M-20 190H75Q105 190 105 160V75Q105 45 135 45H220Q250 45 250 75V165Q250 195 280 195H365Q395 195 395 165V80Q395 50 425 50H525" />
+              <g class="auth-document-motion auth-document-motion-first">
+                <g class="auth-page-drawing" transform="translate(48 62) rotate(-9 50 60)">
+                <rect width="104" height="126" rx="5" /><path d="M22 29H65M22 42H82M22 68H82M22 81H70M22 94H58" />
+                <circle cx="80" cy="104" r="5" />
+                </g>
+              </g>
+              <g class="auth-document-motion auth-document-motion-middle">
+                <g class="auth-page-drawing auth-page-drawing-middle" transform="translate(197 71) rotate(7 50 60)">
+                <rect width="104" height="126" rx="5" /><path d="M22 29H64M22 42H82M22 69H82M22 82H65M22 95H76" />
+                <path class="auth-document-mark" d="M14 61H87" />
+                </g>
+              </g>
+              <g class="auth-document-motion auth-document-motion-last">
+                <g class="auth-page-drawing auth-page-drawing-last" transform="translate(344 40) rotate(-7 50 60)">
+                <rect width="104" height="126" rx="5" /><path d="M22 29H65M22 42H82M22 70H82M22 83H67M22 96H75" />
+                <path class="auth-document-mark" d="M75 102l7 7 15-18" />
+                </g>
+              </g>
+              <circle class="auth-thread-dot" cx="250" cy="219" r="4" />
+              <path class="auth-thread-tick" d="M250 223V240" />
+            </svg>
+          </div>
+          <ol class="auth-principles" aria-label="A connected approach">
+            <li><span>01</span> Source</li><li><span>02</span> Interpretation</li><li><span>03</span> Action</li>
+          </ol>
+          <footer class="auth-story-footer"><span>Clarity at the source.<br>Accountability at every step.</span>${icon('arrow')}</footer>
+        </aside>
       </main>
+      <footer class="auth-page-footer"><span>Compliance by Design</span><span>Clarity <i></i> Accountability <i></i> Traceability</span></footer>
     </div>
   `;
   loadDemoOptions(revision);

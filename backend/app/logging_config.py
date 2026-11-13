@@ -9,6 +9,7 @@ import ipaddress
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import re
 import traceback
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -18,6 +19,27 @@ request_id = contextvars.ContextVar('cbd_request_id', default='-')
 client_ip = contextvars.ContextVar('cbd_client_ip', default='-')
 _configured = None
 _handlers = []
+
+
+def database_error_code(exc):
+    """Return only a structured Oracle/driver code, never exception text.
+
+    SQLAlchemy wraps python-oracledb's error in ``orig``; the driver's first
+    argument holds ``full_code`` and the numeric Oracle ``code``. Other driver
+    shapes deliberately yield an unknown marker rather than parsing messages.
+    """
+    original = getattr(exc, 'orig', None)
+    arguments = getattr(original, 'args', ())
+    if not arguments:
+        return '-'
+    detail = arguments[0]
+    full_code = getattr(detail, 'full_code', None)
+    if isinstance(full_code, str) and re.fullmatch(r'(?:ORA-[0-9]{5}|(?:DPY|DPI)-[0-9]{4})', full_code):
+        return full_code
+    code = getattr(detail, 'code', None)
+    if type(code) is int and 0 < code <= 99999:
+        return f'ORA-{code:05d}'
+    return '-'
 
 
 def client_ip_from_scope(scope):

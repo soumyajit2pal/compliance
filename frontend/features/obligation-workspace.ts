@@ -3,7 +3,6 @@ import { state } from '../core/state.ts';
 import { apiPageQuery } from '../core/pagination.ts';
 import { obligationViews, workspacePath, type ObligationView } from '../core/obligation-workspace.ts';
 import { esc } from '../ui/components.ts';
-import { heading } from '../ui/layout.ts';
 import { icon } from '../ui/icons.ts';
 import { obligationExportButton } from '../ui/obligation-export.ts';
 
@@ -12,6 +11,10 @@ const viewDetails = {
   applicability: {icon: 'target', description: 'Departments & scope'},
   accountability: {icon: 'users', description: 'People & responsibilities'},
 };
+
+export function workspaceHeading(actions = '') {
+  return `<header class="obligation-workspace-heading"><div class="obligation-workspace-heading-copy"><span class="obligation-workspace-eyebrow">YOUR REGULATORY WORKSPACE</span><h1>Obligations</h1><p>Requirements, department applicability and named responsibilities.</p></div>${actions?`<div class="obligation-workspace-actions">${actions}</div>`:''}</header>`;
+}
 
 export function workspaceTabs(view: ObligationView, query: URLSearchParams) {
   // These applied URLs belong to the current signed-in user and reset with state.view.
@@ -27,6 +30,6 @@ export async function obligationWorkspacePage(view: 'applicability' | 'accountab
   request.set('group_by', 'obligation');
   const data = await api('/' + view + '?' + request);
   const props = {view, data, query: query.toString(), returnPath: workspacePath(view, query), masters: state.masters};
-  return heading('Obligations', 'Requirements, department applicability and named responsibilities.',obligationExportButton()) + workspaceTabs(view, query) +
+  return workspaceHeading(obligationExportButton()) + workspaceTabs(view, query) +
     `<div data-obligation-workspace="${esc(JSON.stringify(props))}"></div>`;
 }

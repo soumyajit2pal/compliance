@@ -16,7 +16,7 @@ from .runtime import runtime_settings
 from .pagination import page_query, paginate
 from .config import ROOT
 from .storage import prepare_storage, stored_path, write_private
-from .logging_config import configure_logging, request_id as logging_request_id, client_ip as logging_client_ip, client_ip_from_scope
+from .logging_config import configure_logging, request_id as logging_request_id, client_ip as logging_client_ip, client_ip_from_scope, database_error_code
 from . import models as m,schemas as s,repository as repo,migration_service as migration
 from . import authentication as auth
 from .login_encryption import load_material, public_login_key, consume_challenge, encrypted_login_credentials
@@ -147,8 +147,12 @@ def create_app(settings=None,engine=None):
 
     @app.exception_handler(DatabaseError)
     async def db_error(request,exc):
-        reference=request.state.request_id;logger.error('Database request rejected type=%s',type(exc).__name__,exc_info=True)
-        return JSONResponse({'detail':'The change could not be saved. It may conflict with a protected record or a concurrent update. Refresh and try again. Reference '+reference},status_code=409 if isinstance(exc,IntegrityError) else 503)
+        reference=request.state.request_id
+        logger.error('Database request rejected type=%s code=%s',type(exc).__name__,database_error_code(exc),exc_info=True)
+        conflict=isinstance(exc,IntegrityError)
+        detail=('The change could not be saved. It may conflict with a protected record or a concurrent update. Refresh and try again. Reference '
+                if conflict else 'The database request could not be completed. Try again or contact support. Reference ')
+        return JSONResponse({'detail':detail+reference},status_code=409 if conflict else 503)
 
     @app.get('/api/health')
     def health():return {'status':'ok','environment':cfg.environment,'release':'Weeks 1–4'}

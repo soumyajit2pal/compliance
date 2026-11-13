@@ -18,12 +18,16 @@ PUBLIC_DEMO_PASSWORDS = tuple(dict.fromkeys((DEMO_PASSWORD, 'Password@1234')))
 
 def available_demo_users(db):
     reserved = [row[0] for row in ROLE_SEED_USERS]
-    rows = db.execute(sa.select(m.user, m.organisational_unit.c.name.label('department'))
+    # This anonymous Standard-account lookup does not need LDAP identity data.
+    # Selecting the whole evolving user model unnecessarily couples it to new
+    # profile columns (and used to break this page before migration 0023).
+    rows = db.execute(sa.select(m.user.c.id, m.user.c.username, m.user.c.full_name,
+            m.user.c.password_hash, m.user.c.must_change_password_flag,
+            m.organisational_unit.c.name.label('department'))
         .outerjoin(m.organisational_unit, m.user.c.org_unit_id == m.organisational_unit.c.id)
         .where(m.user.c.username.in_(reserved), m.user.c.login_type == 'STANDARD',
             m.user.c.active_flag == 1)).mappings().all()
-    eligible = {row['id']: row for row 
-    in rows}
+    eligible = {row['id']: row for row in rows}
     if not eligible:
         return []
     grants = db.execute(sa.select(m.user_role.c.user_id, m.role.c.name, m.role.c.code,

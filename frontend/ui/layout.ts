@@ -117,7 +117,7 @@ export function shell(contents, key) {
     .toUpperCase();
   const unread = state.notifications?.filter((n) => !n.read_at).length || 0;
   document.body.classList.add('portal-mode');
-  root.innerHTML = `<div class="app-shell"><aside id="portal-sidebar" class="sidebar" aria-label="Main navigation">
+  root.innerHTML = `<div class="app-shell${key === 'home' ? ' home-mode' : ''}"><aside id="portal-sidebar" class="sidebar" aria-label="Main navigation">
     <a class="brand" href="#home"><span class="brand-mark">${icon('shield')}</span><span class="brand-name">Compliance<span>by Design</span></span></a>
     <button class="icon-button portal-nav-close" type="button" data-action="menu" aria-label="Close navigation">${icon('x')}</button>
     <div class="portal-bank"><img src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}" alt="Bank of Maharashtra"><span>Your compliance workspace</span></div>
