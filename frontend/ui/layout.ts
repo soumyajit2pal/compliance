@@ -4,10 +4,14 @@ import { root } from '../core/dom.ts';
 import { esc, title, ref } from './components.ts';
 import { icon } from './icons.ts';
 import { note } from './widgets.ts';
+import {navigationModel,navigationLabel} from '../core/navigation.ts';
+import {employeeWarning} from './employee-profile.ts';
 
 const names = {
+  controls: 'Checks and procedures', 'control-mappings': 'Obligation links', evidence: 'Evidence vault',
+  actions: 'Compliance work tracker', team: 'Team overview', library: 'Compliance library',
   home: 'Home',
-  tasks: 'My work',
+  tasks: 'My tasks',
   approvals: 'My decisions',
   repository: 'Regulatory library',
   clauses: 'Clauses / Para',
@@ -26,6 +30,8 @@ const names = {
   help: 'Help & workflow guide',
 };
 const icons = {
+  controls: 'shield', 'control-mappings': 'link', evidence: 'folder',
+  actions: 'clock', team: 'chart', library: 'book',
   home: 'home',
   tasks: 'checkSquare',
   approvals: 'shield',
@@ -47,55 +53,16 @@ const icons = {
 export function canNavigate(key) {
   return state.identity?.menu.some((item) => item.id === key);
 }
-function navItem(key, selected, extra = '') {
-  if (!canNavigate(key)) return '';
-  const href = key + extra;
-  const current =
-    (key === selected &&
-      !(key === 'masters' && extra === '?tab=organisation') &&
-      !(
-        key === 'masters' &&
-        !extra &&
-        new URLSearchParams(location.hash.split('?')[1]).get('tab') === 'organisation'
-      )) ||
-    (key === 'masters' &&
-      extra &&
-      selected === 'masters' &&
-      new URLSearchParams(location.hash.split('?')[1]).get('tab') === 'organisation');
-  const label = extra ? 'Organisation hierarchy' : names[key] || title(key);
-  const count =
-    key === 'tasks'
-      ? state.work?.length
-      : key === 'approvals'
-        ? state.work?.filter((t) => t.kind === 'DECISION').length
-        : key === 'users' ? state.adminAccess?.action_required || 0 : undefined;
-  return `<a class="nav-item ${current ? 'active' : ''}" href="#${href}" ${current ? 'aria-current="page"' : ''}>${icon(extra ? 'org' : icons[key])}<span>${esc(label)}</span>${count !== undefined ? `<span class="nav-count">${count}</span>` : ''}</a>`;
-}
 function navigation(key) {
-  if(['applicability','accountability'].includes(key))key='obligations';
-  if (!state.ready)
-    return `<div class="nav-scroll"><p class="small muted">Finish sign-in to open your workspace.</p></div>`;
-  const primary = ['home', 'tasks', 'approvals'].map((i) => navItem(i, key)).join('');
-  const groups = [
-    { name: 'Regulations', hint: 'Notifications, source records and obligations', icon: 'book', items: ['repository', 'notification-families', 'clauses', 'clause-relationships', 'obligations'] },
-    { name: 'Reports and history', hint: 'Alerts and release records', icon: 'chart', items: ['notifications'] },
-    {
-      name: 'Administration',
-      hint: 'People, departments and settings',
-      icon: 'settings',
-      items: ['users', 'masters', 'ldap', 'migration', 'applications'],
-    },
-  ];
-  const groupMarkup = groups
-    .map(({ name, hint, icon: groupIcon, items }) => {
-      const body = items
-        .map((i) => navItem(i, key) + (i === 'masters' ? navItem(i, key, '?tab=organisation') : ''))
-        .join('');
-      if (!body) return '';
-      return `<details class="portal-nav-group" ${items.includes(key) ? 'open' : ''}><summary>${icon(groupIcon)}<span>${esc(name)}<small>${esc(hint)}</small></span>${icon('down')}</summary><div class="portal-nav-children">${body}</div></details>`;
-    })
-    .join('');
-  return `<nav class="nav-scroll" aria-label="Portal navigation"><div class="portal-primary-nav">${primary}</div>${groupMarkup}</nav>`;
+  if (!state.ready)return `<div class="nav-scroll"><p class="small muted">Finish sign-in to open your workspace.</p></div>`;
+  const model=navigationModel(state.identity,key,new URLSearchParams(location.hash.split('?')[1]||''));
+  const navItem=(i)=>{
+    const count=i.id==='tasks'?state.work?.length:i.id==='users'?state.adminAccess?.action_required||0:undefined;
+    return `<a class="nav-item ${i.id===model.selected?'active':''}" href="#${esc(i.href)}" ${i.id===model.selected?'aria-current="page"':''}>${icon(i.icon)}<span>${esc(i.label)}</span>${count!==undefined?`<span class="nav-count">${count}</span>`:''}</a>`;
+  };
+  const primary=model.primary.map(navItem).join('');
+  const groups=model.groups.map(g=>`<details class="portal-nav-group" data-nav-group="${g.id}" ${g.id!=='administration'||g.items.some(i=>i.id===model.selected)?'open':''}><summary>${icon(g.icon)}<span>${esc(g.label)}</span>${icon('down')}</summary><div class="portal-nav-children">${g.items.map(navItem).join('')}</div></details>`).join('');
+  return `<nav class="nav-scroll" aria-label="Portal navigation" data-nav-owner="${esc(state.identity.actual_user?.id||state.identity.user.id)}:${esc(state.identity.acting_for?.id||'own')}"><div class="portal-primary-nav">${primary}</div>${groups}</nav>`;
 }
 function scopeBanner() {
   const scoped = state.identity.grants.filter((g) => !g.global_scope_flag);
@@ -108,7 +75,7 @@ export function shell(contents, key) {
   const label =
     key === 'repository' && location.hash.includes('/new')
       ? 'New instrument'
-      : names[key] || 'Workspace';
+      : navigationLabel(key,new URLSearchParams(location.hash.split('?')[1]||'')) || names[key] || 'Workspace';
   const initials = user.full_name
     .split(' ')
     .map((x) => x[0])
@@ -127,7 +94,7 @@ export function shell(contents, key) {
   </aside><button class="portal-nav-scrim" type="button" data-action="menu" aria-label="Close navigation"></button>
   <div class="main-shell"><header class="topbar"><div class="portal-location"><button class="icon-button mobile-menu" type="button" data-action="menu" aria-label="Open navigation" aria-controls="portal-sidebar" aria-expanded="false">${icon('menu')}</button><div class="breadcrumb"><a href="#home">My workspace</a><span>/</span><strong>${esc(label)}</strong></div></div>
   <div class="topbar-right">${state.ready ? `<button class="global-search" type="button" data-action="workspace-search" aria-label="Search the workspace">${icon('search')}<span>${canNavigate('repository') ? 'Find a notification or task' : 'Find a person or setting'}</span><span class="kbd">⌘ K</span></button><a class="portal-help-top" href="#help">${icon('book')}Help</a><a class="icon-button portal-notifications" href="#notifications" aria-label="Notifications">${icon('bell')}${unread ? '<i class="notification-dot"></i>' : ''}</a>` : ''}<button class="portal-person" type="button" data-action="profile"><span class="avatar">${esc(initials)}</span><span>${esc(user.full_name)}<small>${esc(state.identity.roles.map(title).join(' · ') || 'Awaiting access')}</small></span></button><button type="button" class="icon-button" data-action="logout" aria-label="Sign out" title="Sign out">${icon('logout')}</button></div></header>
-  <main class="content" id="main-content">${state.ready ? scopeBanner() + adminAccessNotice() : ''}${contents}</main><footer class="page-footer"><span class="footer-brand">${icon('shield')}COMPLIANCE BY DESIGN</span><span>Oracle connected · ${environment} · Approved history retained</span></footer></div></div>`;
+  <main class="content" id="main-content">${employeeWarning(state.identity.employee_profile)}${state.identity.user.emp_dept_warning?`<aside role="status" aria-label="Department verification source">${note(esc(state.identity.user.emp_dept_warning),'warn')}</aside>`:''}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main><footer class="page-footer"><span class="footer-brand">${icon('shield')}COMPLIANCE BY DESIGN</span><span>Oracle connected · ${environment} · Approved history retained</span></footer></div></div>`;
 }
 function adminAccessNotice() {
   const summary = state.identity?.roles.includes('ADMIN') ? state.adminAccess : null;
@@ -142,3 +109,6 @@ export function heading(name, description, actions = '') {
 export function pageHelp(name, text) {
   return `<details class="portal-page-help"><summary>${icon('info')}<span>${esc(name)}</span><small>How to use this page</small>${icon('down')}</summary><div><p>${text}</p><p><a class="text-link" href="#help">Read the guide ${icon('arrow')}</a></p></div></details>`;
 }
+
+function actingBanner(){const d=state.identity.acting_for;if(!d)return '';return `<aside class="scope-banner leave-acting-banner" role="status" aria-label="Active leave cover">${icon('users')}<span><strong>${esc(d.actual_user_name)}</strong> acting on behalf of <strong>${esc(d.principal_name)}</strong> · ${esc(title(d.role_code))} · ${esc(ref('organisational_unit',d.scope_unit_id))} · until ${esc(d.ends_on)}. Decisions record both names.</span>${buttonStop()}</aside>`;}
+function buttonStop(){return '<button type="button" class="btn small" data-action="leave-stop">Stop leave cover</button>';}

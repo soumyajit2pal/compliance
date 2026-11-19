@@ -1,3 +1,4 @@
+import {taskQueue} from '../core/task-queues.ts';
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
 import {
@@ -23,7 +24,8 @@ export async function tasksPage(page, query = new URLSearchParams()) {
   const end = week.toLocaleDateString('en-CA');
   const sourceRows = await api('/instruments');
   const sources = new Map<string, any>(sourceRows.map((r) => [r.id, r]));
-  const all = (state.work || []).filter((t) => page !== 'approvals' || t.kind === 'DECISION');
+  const queue=query.get('queue')||'';
+  const all = taskQueue((state.work || []).filter((t) => page !== 'approvals' || t.kind === 'DECISION'),queue,sourceRows,state.masters.regulator||[]);
   let rows = all.filter(
     (t) =>
       !q ||
@@ -36,9 +38,10 @@ export async function tasksPage(page, query = new URLSearchParams()) {
       (t) => t.due_at && t.due_at.slice(0, 10) >= localDate() && t.due_at.slice(0, 10) <= end,
     );
   if (tab === 'overdue') rows = rows.filter((t) => t.due_at && t.due_at.slice(0, 10) < localDate());
+  if (tab === 'returned') rows=rows.filter(t=>t.return_reason);
   if (tab === 'draft') rows = rows.filter((t) => t.kind === 'DRAFT');
   rows.sort((a, b) => (a.due_at || '9999').localeCompare(b.due_at || '9999'));
-  const taskPath = (task) => task.workflow_kind === 'OWNERSHIP_CHANGE'
+  const taskPath = (task) => ['ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(task.workflow_kind)?task.action_path:task.workflow_kind === 'OWNERSHIP_CHANGE'
     ? 'obligations/'+task.obligation_id+'?tab=owners&ownership_change='+task.ownership_change_id
     : task.workflow_kind === 'OBLIGATION'
     ? 'obligations/'+task.obligation_id+'?tab=workflow'
@@ -62,10 +65,11 @@ export async function tasksPage(page, query = new URLSearchParams()) {
       'A role grants eligibility. A named, in-scope assignment is still needed before work appears here.',
     ) +
     heading(
-      page === 'approvals' ? 'My decisions' : 'My work',
-      page === 'approvals'
+      queue==='rbi'?'RBI notification workflow':page === 'approvals' ? 'My decisions' : 'My tasks',
+      queue==='rbi'?'Your assigned work linked to visible RBI sources. Open each record for its governed workflow.':page === 'approvals'
         ? 'Open your assigned stage, then record your review or approval on the record’s Workflow tab.'
         : 'Personal assignments that your role and organisation scope permit you to perform.',
+      `<div class="actions">${link('tasks','All my tasks','btn '+(page==='tasks'?'primary':''))}${link('approvals','My decisions','btn '+(page==='approvals'?'primary':''))}${state.identity.menu.some(i=>i.id==='actions')?link('actions','Compliance work tracker','btn'):''}</div>`,
     ) +
     note(
       'Department visibility does not assign its work to you. Open a register for the team population; this list contains your named actionable work.',
@@ -75,7 +79,7 @@ export async function tasksPage(page, query = new URLSearchParams()) {
         ['all', page === 'approvals' ? 'My decision tasks' : 'All assigned work', all.length],
         ['due', 'Due in next 7 days'],
         ['overdue', 'Overdue'],
-        ...(page === 'tasks' ? [['draft', 'Drafts to complete']] : []),
+        ...(page === 'tasks' ? [['returned','Returned actions'],['draft', 'Drafts to complete']] : []),
       ],
       tab,
       page,
@@ -85,7 +89,7 @@ export async function tasksPage(page, query = new URLSearchParams()) {
       'view-filter',
       'Search your ' + (page === 'approvals' ? 'decisions' : 'tasks') + '…',
       query.get('q') || '',
-      `<input type="hidden" name="tab" value="${esc(tab)}">`,
+      `<input type="hidden" name="tab" value="${esc(tab)}">${queue?`<input type="hidden" name="queue" value="${esc(queue)}">`:''}`,
     ) +
     tablePanel(
       table(
@@ -99,10 +103,10 @@ export async function tasksPage(page, query = new URLSearchParams()) {
         ],
         rows.map((t) => [
           recordCell(
-            ['OBLIGATION','OWNERSHIP_CHANGE'].includes(t.workflow_kind)?t.code:sources.get(t.instrument_id)?.code || t.kind,
-            ['OBLIGATION','OWNERSHIP_CHANGE'].includes(t.workflow_kind)?t.title:sources.get(t.instrument_id)?.title || t.title,
+            ['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(t.workflow_kind)?t.code:sources.get(t.instrument_id)?.code || t.kind,
+            ['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(t.workflow_kind)?t.title:sources.get(t.instrument_id)?.title || t.title,
             taskPath(t),
-          ),
+          )+(t.return_reason?`<small class="portal-overdue">Returned: ${esc(t.return_reason)}</small>`:''),
           badge(t.kind === 'DRAFT' ? 'DRAFT' : t.stage || 'DECISION'),
           person(state.identity.user.full_name),
           esc(ref('organisational_unit', t.department_id||sources.get(t.instrument_id)?.regulatory_owner_unit_id)),
@@ -140,7 +144,7 @@ export async function notificationsPage(_id, query = new URLSearchParams()) {
       pagedCollection(rows
         .map(
           (r) =>
-            `<div class="notification-item ${r.read_at ? '' : 'unread'}"><div class="notification-icon">${icon('bell')}</div><div class="grow"><h3>${esc(({LDAP_DEPARTMENT_APPROVAL_REQUIRED: 'LDAP department approval required', LDAP_DEPARTMENT_APPROVED: 'LDAP department approved — sign in again', LDAP_DEPARTMENT_REJECTED: 'LDAP department request rejected', LDAP_PROFILE_CONFIRMATION_PENDING: 'LDAP profile confirmation pending', ACCESS_APPROVAL_REQUIRED: 'Access approval or role assignment required', ACCESS_ROLES_ASSIGNED: 'User roles assigned', LDAP_PROFILE_CONFIRMED: 'LDAP profile confirmed', USER_ACCESS_UPDATED: 'User access updated'})[r.notification_type] || title(r.notification_type))}</h3><p>${esc(r.source_title || 'Historical workflow update')}</p>${r.message ? `<p>${esc(r.message)}</p><span class="tag neutral">Current status: ${esc(r.access_status_label)}</span>` : ''}<small>${date(r.triggered_at)}${r.version_number ? ' · Version ' + esc(versionLabel(r.version_number)) : ''}</small>${r.action_path ? link(r.action_path, r.action_label + ' →', 'text-link') : r.instrument_id ? link('repository/' + r.instrument_id + (r.entity_type === 'metadata_correction' ? '?tab=workflow&correction=' + r.entity_id : '?version=' + r.entity_id + '&tab=workflow'), r.entity_type === 'metadata_correction' ? 'Open correction request →' : 'Open source version →', 'text-link') : ''}</div>${!r.read_at ? button('read-notification', 'Mark read', `data-id="${r.id}"`, 'small') : ''}</div>`,
+            `<div class="notification-item ${r.read_at ? '' : 'unread'}"><div class="notification-icon">${icon('bell')}</div><div class="grow"><h3>${esc(({EMPLOYEE_DEPARTMENT_APPROVAL_REQUIRED: 'Employee department review required', EMPLOYEE_DEPARTMENT_APPROVED: 'Employee department approved — sign in again', EMPLOYEE_DEPARTMENT_REJECTED: 'Employee department request rejected', LDAP_DEPARTMENT_APPROVAL_REQUIRED: 'LDAP department approval required', LDAP_DEPARTMENT_APPROVED: 'LDAP department approved — sign in again', LDAP_DEPARTMENT_REJECTED: 'LDAP department request rejected', LDAP_PROFILE_CONFIRMATION_PENDING: 'LDAP profile confirmation pending', ACCESS_APPROVAL_REQUIRED: 'Access approval or role assignment required', ACCESS_ROLES_ASSIGNED: 'User roles assigned', LDAP_PROFILE_CONFIRMED: 'LDAP profile confirmed', USER_ACCESS_UPDATED: 'User access updated'})[r.notification_type] || title(r.notification_type))}</h3><p>${esc(r.source_title || 'Historical workflow update')}</p>${r.message ? `<p>${esc(r.message)}</p><span class="tag neutral">Current status: ${esc(r.access_status_label)}</span>` : ''}<small>${date(r.triggered_at)}${r.version_number ? ' · Version ' + esc(versionLabel(r.version_number)) : ''}</small>${r.action_path ? link(r.action_path, r.action_label + ' →', 'text-link') : r.instrument_id ? link('repository/' + r.instrument_id + (r.entity_type === 'metadata_correction' ? '?tab=workflow&correction=' + r.entity_id : '?version=' + r.entity_id + '&tab=workflow'), r.entity_type === 'metadata_correction' ? 'Open correction request →' : 'Open source version →', 'text-link') : ''}</div>${!r.read_at ? button('read-notification', 'Mark read', `data-id="${r.id}"`, 'small') : ''}</div>`,
         ),{pageKey:'notifications',label:'notifications',empty:
         `<div class="empty">${icon('check')}<h3>You’re all caught up</h3><p>There are no ${tab === 'unread' ? 'unread ' : ''}notifications.</p></div>`}),
     )

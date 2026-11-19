@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {captureNavigation,restoreNavigation,type NavigationSnapshot} from '../core/navigation-state.ts';
 import { bindReactRoot, bindDialogCollections, initialMarkup } from '../core/dom.ts';
 import { escapeMarkup, HtmlFragment, mountImperativeCollections } from './html-fragment';
 import { initializeWizardSteps } from '../ui/wizard.ts';
@@ -8,6 +9,7 @@ import { restoreLibraryLocation, retainLibraryLocation } from '../core/library-n
 import { restoreObligationLocation, retainObligationLocation } from '../core/obligation-navigation.ts';
 
 export function App() {
+  const navigation = useRef<NavigationSnapshot | null>(null);
   const [view, setView] = useState({
     markup: initialMarkup,
     revision: 0,
@@ -15,6 +17,7 @@ export function App() {
 
   useEffect(() => {
     const renderMarkup = (markup: string) => {
+      navigation.current = captureNavigation();
       setView((current) => ({ markup, revision: current.revision + 1 }));
     };
     bindReactRoot(renderMarkup);
@@ -27,6 +30,7 @@ export function App() {
   }, []);
 
   useLayoutEffect(() => {
+    restoreNavigation(navigation.current);
     initializeWizardSteps(document);
     if(document.querySelector('#obligation-editor'))document.dispatchEvent(new Event('portal:obligation-setup-mounted'));
   }, [view.revision]);
@@ -73,7 +77,7 @@ export function App() {
   return (
     <><div id="root">
       {/* Legacy root.innerHTML replaced the whole page on every render. Keep that reset behavior
-          so native disclosures and uncontrolled fields do not leak state between routes. */}
+          for record disclosures and uncontrolled fields. Navigation alone restores its own UI state. */}
       <HtmlFragment key={view.revision} markup={view.markup} />
     </div><InstrumentQuickView viewRevision={view.revision}/><ObligationQuickView viewRevision={view.revision}/></>
   );

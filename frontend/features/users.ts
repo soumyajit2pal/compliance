@@ -30,23 +30,23 @@ export async function usersPage(_id, query = new URLSearchParams()) {
   const tab = ['STANDARD', 'LDAP', 'ACTION_REQUIRED', 'LDAP_DEPARTMENTS'].includes(query.get('tab')) ? query.get('tab') : 'STANDARD';
   const request = state.routeNumber;
   const [data, departmentRequests] = await Promise.all([api('/admin/users'),
-    tab !== 'STANDARD' ? api('/admin/ldap-department-requests') : Promise.resolve([])]);
+    api('/admin/ldap-department-requests')]);
   if (request !== state.routeNumber || !state.identity) return '';
   state.view.users = data;
   state.adminAccess = data.summary;
   state.view.departmentRequests = departmentRequests;
   const userTabs = [['STANDARD', 'Standard users', data.summary.standard], ['LDAP', 'LDAP users', data.summary.ldap],
-    ['ACTION_REQUIRED', 'Action required', data.summary.action_required], ['LDAP_DEPARTMENTS', 'LDAP department changes', data.summary.department_pending]];
+    ['ACTION_REQUIRED', 'Action required', data.summary.action_required], ['LDAP_DEPARTMENTS', 'Department changes', data.summary.department_pending]];
   if (tab === 'LDAP_DEPARTMENTS') {
     const requests = departmentRequests;
     if (request !== state.routeNumber || !state.identity) return '';
     state.view.departmentRequests = requests;
-    return heading('LDAP department changes', 'Verify directory department changes separately from Home organisation and role access.',
+    return heading('Department changes', 'Review employee API and authenticated LDAP department changes separately from approved role scope.',
       button('refresh-users', 'Refresh requests')) + tabs(userTabs, tab, 'users', new URLSearchParams()) +
-      `<div class="mb16">${note('Approval records the observed LDAP department code, division and info. Home organisation and roles remain unchanged. The user must sign in again after approval.')}</div>` +
-      tablePanel(table(['User', 'Previously approved', 'Returned by LDAP', 'Home organisation', 'Status', 'Review'],
-        requests.map((r) => [person(r.full_name, r.username), departmentText(r.previous_code,r.previous_division,r.previous_info),
-          departmentText(r.proposed_code,r.proposed_division,r.proposed_info), esc(r.home_organisation || 'Not selected'), badge(r.status),
+      `<div class="mb16">${note('API-first employee changes are submitted automatically. Review the observed source, home organisation and existing scope. Approval does not grant roles; a fresh sign-in is required.')}</div>` +
+      tablePanel(table(['User', 'Previously approved', 'Observed department / source', 'Home organisation', 'Status', 'Review'],
+        requests.map((r) => [person(r.full_name, r.username), requestDepartmentText(r,'previous'),
+          requestDepartmentText(r,'proposed'), esc(r.home_organisation || 'Not selected'), badge(r.status),
           r.user_id === state.identity.user.id ? 'Another administrator must review' : button('department-review', 'Review request', `data-id="${r.id}"`, 'small')]),
         { empty: 'No LDAP department requests are pending.' }), 'Pending LDAP department requests');
   }
@@ -67,6 +67,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
       : !matchesDepartmentFilter(u, departmentFilter)) return false;
     const roleNames = data.assignments.filter((a) => a.user_id === u.id).map((a) => ref('role', a.role_id));
     return [u.full_name, u.username, u.email, u.department_code,
+      u.emp_dept_approved_code,u.emp_dept_observed_code,u.emp_dept_approved_name,u.emp_dept_observed_name,u.emp_dept_source,
       u.ldap_last_seen_department_code, u.ldap_division, u.ldap_last_seen_division, u.ldap_info, u.ldap_last_seen_info, u.access_status_label,
       u.login_type === 'LDAP' ? ldapDepartmentState(u).label : '', ref('organisational_unit', u.org_unit_id), ...roleNames]
       .join(' ').toLowerCase().includes(q);
@@ -75,6 +76,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
     ['', 'All access statuses'], ['ACTION_REQUIRED', 'Administrator action required'],
     ['PENDING_APPROVAL', 'Pending access approval'], ['ROLES_REQUIRED', 'Roles need attention'],
     ['ROLE_ASSIGNMENT_REQUIRED', 'Role assignment required'], ['ROLE_REVIEW_REQUIRED', 'Role review required'],
+    ['DEPARTMENT_REQUIRED','Employee department verification required'],['DEPARTMENT_CHANGED','Employee department changed'],['DEPARTMENT_UNAVAILABLE','Employee department unavailable'],['DEPARTMENT_RECHECK','Fresh employee sign-in required'],
     ['LDAP_DEPARTMENT_REQUIRED', 'LDAP department verification required'], ['LDAP_DEPARTMENT_CHANGED', 'LDAP department changed'],
     ['LDAP_DEPARTMENT_UNAVAILABLE', 'LDAP department unavailable'], ['LDAP_DEPARTMENT_RECHECK', 'Fresh LDAP sign-in required'],
     ...(tab === 'ACTION_REQUIRED' ? [] : [['PROFILE_PENDING', 'Profile confirmation pending'],
@@ -105,7 +107,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
           : u.access_status === 'ROLE_REVIEW_REQUIRED' ? 'Review roles' : 'Edit access';
         return [person(u.full_name, u.username + ' · ' + (u.login_type === 'LDAP' ? 'LDAP' : 'Standard')),
           accessBadge(u) + `<small class="access-account-state">${u.active_flag ? 'Account enabled' : 'Account disabled'}</small>`,
-          u.login_type === 'LDAP' ? departmentStatusBadge(u) + '<br>' + departmentText(u.department_code,u.ldap_division,u.ldap_info) +
+          (u.login_type === 'LDAP' || u.emp_dept_managed_flag) ? departmentStatusBadge(u) + '<br>' + (u.emp_dept_managed_flag ? `<strong>${esc(u.emp_dept_approved_code||'Not approved')}</strong><small>${esc(u.emp_dept_source||'Not checked')}</small>` : departmentText(u.department_code,u.ldap_division,u.ldap_info)) +
             `<small class="access-account-state">Current LDAP code: ${esc(u.ldap_last_seen_department_code || 'Not returned')}</small>` +
             button('department-history', 'Department history', `data-id="${u.id}"`, 'small') : '—',
           u.org_unit_id ? esc(ref('organisational_unit', u.org_unit_id)) : '<span class="small muted">Not selected</span>',
@@ -125,8 +127,8 @@ async function openUser(id) {
   modal(
     id ? user.login_type === 'LDAP' ? 'Manage LDAP profile & roles' : 'Edit user access' : 'Create user account',
     /* HTML */ `${id ? `<div class="mb16">${note('<strong>' + esc(user.access_status_label) + '</strong><br>' + esc(user.access_message), user.admin_action_required ? 'warn' : 'info')}</div>` : ''}
-      ${id && user.login_type === 'LDAP' ? departmentStatusNotice(user) + userDepartmentDetails(user) +
-        '<p>LDAP department approval is separate from the Home organisation and role assignments below.</p>' : ''}<div class="grid">
+      ${id && (user.login_type === 'LDAP'||user.emp_dept_managed_flag) ? departmentStatusNotice(user) + userDepartmentDetails(user) +
+        '<p>Department verification is separate from the Home organisation and role assignments below.</p>' : ''}<div class="grid">
         ${field(
           'Username',
           input('username', user.username || '', 'text', `required ${id ? 'readonly' : ''}`),
@@ -181,6 +183,10 @@ async function openUser(id) {
 function roleLine(r: Record<string, any> = {}) {
   return `<div class="role-line role-assignment"><div class="role-field">${field('Role', select('role_id', state.masters.role, r.role_id, 'name', 'required'))}</div><label class="check-label"><input type="checkbox" name="global_scope_flag" ${r.global_scope_flag ? 'checked' : ''}> Global scope</label>${button('remove-role', 'Remove', '', 'small')}<div class="scope-field" ${r.global_scope_flag ? 'hidden' : ''}>${field('Organisation scope', select('scope_org_unit_id', state.masters.organisational_unit, r.scope_org_unit_id, 'name', r.global_scope_flag ? 'disabled' : 'required'), 'This unit and its authorised descendants.')}</div></div>`;
 }
+function requestDepartmentText(r,side){
+ if(r.identity_source&&r.identity_source!=='LEGACY_LDAP')return `<strong>${esc(r[side+'_code']||'Not approved')}</strong><small class="access-account-state">${esc(r[side+'_department_name']||'NA')} · ${esc(r[side+'_namespace']||'Not approved')}</small><small>${esc(r.identity_source==='EMPLOYEE_API'?'Employee API':'Authenticated LDAP fallback')}${r.automatic_flag?' · Automatic review':''}</small>`;
+ return departmentText(r[side+'_code'],r[side+'_division'],r[side+'_info']);
+}
 function departmentText(code, division = null, info = null) {
   return `<strong>${esc(code || 'Not approved')}</strong><small class="access-account-state">Division: ${esc(division || 'Not recorded')}</small><small class="access-account-state">Info: ${esc(info || 'Not recorded')}</small>`;
 }
@@ -188,10 +194,10 @@ async function departmentHistory(id) {
   const requests = await api('/admin/ldap-department-requests?user_id=' + encodeURIComponent(id));
   state.view.departmentRequests = requests;
   const user = state.view.users.users.find((u) => u.id === id);
-  modal('LDAP department history', userDepartmentDetails(user) +
+  modal('Department history', userDepartmentDetails(user) +
     `<p><strong>Home organisation:</strong> ${esc(ref('organisational_unit', user.org_unit_id) || 'Not selected')}</p>` +
     table(['Previously approved', 'Requested department', 'Status', 'Decision / action'], requests.map((r) => [
-      departmentText(r.previous_code,r.previous_division,r.previous_info), departmentText(r.proposed_code,r.proposed_division,r.proposed_info), badge(r.status),
+      requestDepartmentText(r,'previous'), requestDepartmentText(r,'proposed'), badge(r.status),
       r.status === 'PENDING' && r.user_id !== state.identity.user.id ? button('department-review', 'Review request', `data-id="${r.id}"`, 'small')
         : esc(r.decision_reason || 'Awaiting directory refresh or administrator review')]),{empty:'No department requests have been submitted.'}));
 }
@@ -203,17 +209,17 @@ function reviewDepartment(id) {
   }
   state.view.departmentRequest = id;
   const user = state.view.users.users.find((u) => u.id === request.user_id);
-  modal('Review LDAP department request',
+  modal('Review department request',
     `<p><strong>${esc(user.full_name)}</strong> · ${esc(user.username)}</p>` +
-    departmentDetails({approved:{code:request.previous_code,division:request.previous_division,info:request.previous_info},
-      current:{code:request.proposed_code,division:request.proposed_division,info:request.proposed_info}}) +
+    departmentDetails({managed:request.identity_source&&request.identity_source!=='LEGACY_LDAP',source:request.identity_source,approved:{code:request.previous_code,name:request.previous_department_name,namespace:request.previous_namespace,division:request.previous_division,info:request.previous_info},
+      current:{code:request.proposed_code,name:request.proposed_department_name,namespace:request.proposed_namespace,division:request.proposed_division,info:request.proposed_info}}) +
     `<p><strong>Home organisation:</strong> ${esc(ref('organisational_unit', user.org_unit_id) || 'Not selected')}</p>
     <p><strong>Observed at:</strong> ${esc(request.observed_at)} UTC</p>
     <p><strong>User explanation:</strong> ${esc(request.request_reason || 'No explanation supplied')}</p>
-    <p>Review the Home organisation and existing roles in Edit access separately. This decision changes only the approved LDAP department.</p>` +
+    <p>Review the Home organisation and existing roles in Edit access separately. This decision changes only the approved department baseline.</p>` +
     field('Decision', fixedSelect('decision', ['APPROVE','REJECT'], 'APPROVE', 'required')) +
     field('Decision reason', '<textarea name="reason" rows="3" minlength="3" maxlength="1000" required></textarea>'),
-    'ldap-department-decision', 'Record decision', 'A different administrator must decide. Approval requires fresh LDAP sign-in.');
+    'ldap-department-decision', 'Record decision', 'A different administrator must decide. Approval requires a fresh sign-in.');
 }
 export function userHandlers({ render, loadIdentity, loginView }) {
   return {

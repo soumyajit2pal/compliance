@@ -126,3 +126,5 @@ export const area = (name, value = '', extra = '') =>
 // Preserve source whitespace exactly, without template indentation around it.
 export const preservedText = (css, value) => `<div class="${css}">` + esc(value) + '</div>';
 export { message } from './feedback.ts';
+
+export function auditActor(event){return esc(event.actor_name||ref('user',event.actor_user_id))+(event.on_behalf_of_user_id?`<small>on behalf of ${esc(event.on_behalf_of_name||ref('user',event.on_behalf_of_user_id))}</small>`:'');}

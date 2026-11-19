@@ -28,8 +28,13 @@ class RuntimeSettings:
     log_backup_count: int = 5
     deep_logging: bool = False
     slow_request_ms: int = 2000
+    reminders_enabled: bool = False
+    reminder_interval_seconds: int = 300
+    employee_api_allowed_hosts: tuple[str, ...] = ('app.mahabank.co.in',)
 
     def __post_init__(self):
+        if not 60 <= self.reminder_interval_seconds <= 86400:
+            raise RuntimeError('COMPLIANCE_REMINDER_INTERVAL_SECONDS must be between 60 and 86400.')
         if self.ldap_mock_enabled:
             if self.environment != 'uat':
                 raise RuntimeError('LDAP mock authentication cannot be enabled in Prod.')
@@ -114,4 +119,7 @@ def runtime_settings():
         values.get('LDAP_MOCK_USERNAME_PREFIX', 'bmock').strip().lower(),key_path,
         log_dir, log_name, positive_integer('LOG_MAX_BYTES',10485760,1073741824),
         positive_integer('LOG_BACKUP_COUNT',5,100),deep in {'true','1','yes','on'},
-        positive_integer('SLOW_REQUEST_MS',2000,3600000))
+        positive_integer('SLOW_REQUEST_MS',2000,3600000),
+        values.get('COMPLIANCE_REMINDERS_ENABLED','true' if s.app_env=='uat' else 'false').lower()=='true',
+        positive_integer('COMPLIANCE_REMINDER_INTERVAL_SECONDS',300,86400),
+        tuple(x.strip().lower() for x in values.get('EMPLOYEE_API_ALLOWED_HOSTS','app.mahabank.co.in').split(',') if x.strip()))

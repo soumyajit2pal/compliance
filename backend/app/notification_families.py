@@ -208,6 +208,7 @@ def decide(db,actor,kind,identifier,payload):
         if row['created_by']!=actor.id:raise HTTPException(403,'Only the proposal maker can withdraw it.')
         target='WITHDRAWN'
     else:
+        actor.require({role},unit)
         repo.eligible(db,actor.id,role,unit,(row['created_by'],row['reviewed_by']) if role=='APPROVER' else (row['created_by'],))
         if task['assignee_user_id']!=actor.id:raise HTTPException(403,'Only the named independent recipient can decide.')
         target='REVIEWED' if payload.decision=='REVIEW' and role=='REVIEWER' else 'APPROVED' if payload.decision=='APPROVE' and role=='APPROVER' else 'REJECTED' if payload.decision=='REJECT' else 'WITHDRAWN' if payload.decision=='RETURN' else None
@@ -278,6 +279,12 @@ def linked_obligations(db,actor,instrument,visible_ids,when):
             .join(m.control,m.control.c.id==m.obligation_control_map.c.control_id)
             .where(m.obligation_control_map.c.obligation_id==row['id'],m.obligation_control_map.c.approval_status=='APPROVED',m.obligation_control_map.c.effective_from<=when,
                 sa.or_(m.obligation_control_map.c.effective_to.is_(None),m.obligation_control_map.c.effective_to>when))).mappings() if scope_visible(actor,instrument,r['control_unit_id'])]
+        def visible_revision(table,row):
+            cutoff=datetime.combine(when+timedelta(days=1),time())
+            if row['approved_at'] and row['approved_at']>=cutoff:return False
+            successor=repo.one(db,table,row['superseded_by_id']) if row.get('superseded_by_id') else None
+            return not successor or successor['effective_from']>when or successor['approved_at'] and successor['approved_at']>=cutoff
+        mappings=[r for r in mappings if visible_revision(m.obligation_control_map,r) and visible_revision(m.control,repo.one(db,m.control,r['control_id']))]
         applicability=[dict(r) for r in db.execute(sa.select(m.obligation_applicability).where(m.obligation_applicability.c.obligation_id==row['id'],
             m.obligation_applicability.c.approval_status=='APPROVED',m.obligation_applicability.c.effective_from<=when,
             sa.or_(m.obligation_applicability.c.effective_to.is_(None),m.obligation_applicability.c.effective_to>when))).mappings() if not r['org_unit_id'] or scope_visible(actor,instrument,r['org_unit_id'])]

@@ -45,9 +45,9 @@ export function workProfilePage(user, department, units, roles = []) {
         </form>
       </section>
       ${department ? `<aside class="profile-directory-card" aria-labelledby="profile-directory-title">
-        <header><span class="profile-directory-icon">${icon('org')}</span><div><h2 id="profile-directory-title">Your directory details</h2><p>Provided by LDAP</p></div></header>
+        <header><span class="profile-directory-icon">${icon('org')}</span><div><h2 id="profile-directory-title">Your directory details</h2><p>${department.managed?(department.source==='EMPLOYEE_API'?'Provided by the employee API':'Authenticated LDAP fallback'):'Provided by LDAP'}</p></div></header>
         <dl class="profile-directory-values">
-          ${[['Department code',current.code],['Division',current.division],['Info',current.info]].map(([label,value]) =>
+          ${(department.managed?[['Department code',current.code],['Department name',current.name],['Code source',current.namespace]]:[['Department code',current.code],['Division',current.division],['Info',current.info]]).map(([label,value]) =>
             `<div><dt>${esc(label)}</dt><dd${label === 'Department code' || label === 'Info' ? ' class="profile-directory-code"' : ''}>${esc(value || 'Not returned')}</dd></div>`).join('')}
         </dl>
         <div class="profile-directory-status ${verified ? 'verified' : ''}">${icon(verified ? 'shield' : 'clock')}<div><strong>${verified ? 'Directory details verified' : 'Awaiting verification'}</strong><p>${verified ? 'These details match your approved directory record.' : 'An administrator will review these details before access is enabled.'}</p></div></div>

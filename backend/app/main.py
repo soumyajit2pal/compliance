@@ -1,4 +1,5 @@
-"""Weeks 1–4 Oracle portal. Start after Alembic; no startup DDL or seed side effects."""
+"""Weeks 1–5 Oracle portal. Start after Alembic; no startup DDL."""
+import asyncio
 import csv,io,json,hashlib,re,logging
 import ipaddress
 import time
@@ -46,7 +47,8 @@ def get_db(request:Request):
 def current(request:Request,db=Depends(get_db)):
     actor=auth.resolve(db,request,request.app.state.settings)[0]
     if not actor.roles:raise HTTPException(403,'Your profile is awaiting administrator-approved access.')
-    return actor
+    from .delegations import resolve_context
+    return resolve_context(db,actor,request)
 
 def limited(request:Request,db=Depends(get_db)):
     return auth.resolve(db,request,request.app.state.settings,limited=True)
@@ -55,7 +57,8 @@ def menu(actor):
     common=[('home','Compliance at a Glance'),('tasks','My tasks'),('approvals','My approvals'),('help','Help')]
     if actor.roles & READ_ROLES:common[1:1]=[('repository','Regulatory library'),('notification-families','Notification families'),('clauses','Clauses / Para'),('clause-relationships','Clause / Para relationships'),('obligations','Obligations'),('applicability','Applicability'),('accountability','Accountability')]
     if any(g['role_code'] in {'AUTHOR','REVIEWER'} and g['global_scope_flag'] for g in actor.grants):common.append(('migration','Import existing regulatory records'))
-    if 'ADMIN' in actor.roles:common.extend([('masters','Reference masters'),('users','Users and access'),('ldap','LDAP settings')])
+    if 'ADMIN' in actor.roles:common.extend([('masters','Reference masters'),('users','Users and access'),('ldap','LDAP settings'),('employee-api','Employee profile API')])
+    if actor.roles & READ_ROLES:common.extend([('controls','Controls — checks and procedures'),('control-mappings','Control mappings'),('actions','Assigned actions'),('evidence','Evidence vault'),('delegations','Delegation'),('team','Team overview'),('library','Compliance library')])
     common.extend([('baseline','Release baseline'),('applications','Retained applications')])
     return [{'id':key,'label':label} for key,label in common]
 
@@ -71,14 +74,30 @@ def create_app(settings=None,engine=None):
     @asynccontextmanager
     async def lifespan(app):
         configure_logging(cfg)
+        reminder_task=None;employee_task=None
         try:
             prepare_storage(cfg.storage)
             if app.state.engine is None:app.state.engine=create_application_engine(cfg.database_url)
+            # Supplied engines belong to rollback-bound tests, never a scheduler.
+            if engine is None and cfg.reminders_enabled:
+                from .delivery_reminders import worker
+                reminder_task=asyncio.create_task(worker(app.state.engine,cfg.reminder_interval_seconds))
+            if engine is None:
+                from .employee_profiles import worker as employee_worker
+                employee_task=asyncio.create_task(employee_worker(app.state.engine,cfg))
             logger.info('Application started environment=%s',cfg.environment)
             yield
         except Exception:
             logger.exception('Application lifecycle failed');raise
         finally:
+            if employee_task:
+                employee_task.cancel()
+                try:await employee_task
+                except asyncio.CancelledError:pass
+            if reminder_task:
+                reminder_task.cancel()
+                try:await reminder_task
+                except asyncio.CancelledError:pass
             if engine is None and app.state.engine is not None:app.state.engine.dispose()
             logger.info('Application stopped environment=%s',cfg.environment)
     app=FastAPI(title='Compliance by Design',lifespan=lifespan,docs_url=None,redoc_url=None,
@@ -100,9 +119,9 @@ def create_app(settings=None,engine=None):
             if origin not in cfg.origins or request.headers.get('Sec-Fetch-Site')=='cross-site':
                 return JSONResponse({'detail':'This request must come from the portal.'},status_code=403)
             maximum=(101*1024*1024 if request.url.path=='/api/migration' else
-                     21*1024*1024 if request.url.path=='/api/obligation-imports' else
+                     21*1024*1024 if request.url.path=='/api/obligation-imports' or request.url.path.startswith('/api/actions/') and request.url.path.endswith('/evidence') else
                      25*1024*1024 if request.url.path=='/api/documents' else
-                     2*1024*1024 if request.url.path in {'/api/admin/ldap','/api/admin/ldap/test'} else 1024*1024)
+                     2*1024*1024 if request.url.path in {'/api/admin/ldap','/api/admin/ldap/test','/api/admin/employee-api','/api/admin/employee-api/test'} else 1024*1024)
             length=request.headers.get('Content-Length')
             try:valid=length is not None and 0<=int(length)<=maximum
             except ValueError:valid=False
@@ -155,7 +174,7 @@ def create_app(settings=None,engine=None):
         return JSONResponse({'detail':detail+reference},status_code=409 if conflict else 503)
 
     @app.get('/api/health')
-    def health():return {'status':'ok','environment':cfg.environment,'release':'Weeks 1–4'}
+    def health():return {'status':'ok','environment':cfg.environment,'release':'Weeks 1–5'}
 
     def require_demo_login():
         if cfg.environment != 'uat' or not cfg.demo_login_enabled:
@@ -175,16 +194,21 @@ def create_app(settings=None,engine=None):
         return auth.login(db,request,response,payload,cfg)
 
     @app.get('/api/auth/me')
-    def me(identity=Depends(limited)):
-        actor,session=identity
+    def me(request:Request,db=Depends(get_db),identity=Depends(limited)):
+        actual,session=identity
+        from .delegations import resolve_context
+        actor=resolve_context(db,actual,request)
         result={'user':safe_user(actor.user),'roles':sorted(actor.roles),'grants':actor.grants,
             'csrf_token':session['csrf_token'],'menu':[] if departments.blocked(actor.user) else menu(actor),'environment':cfg.environment}
+        from .employee_profiles import public_profile
+        result['employee_profile']=public_profile(db,actual.id,cfg)
+        if actor.delegation:result.update(actual_user=safe_user(actual.user),acting_for={**actor.delegation,'actual_user_name':actual.user['full_name'],'principal_name':actor.user['full_name']})
         return result
 
     @app.get('/api/auth/department')
     def department_status(db=Depends(get_db),identity=Depends(limited)):
         actor,_=identity
-        if actor.user['login_type']!='LDAP':raise HTTPException(403,'This account does not use LDAP.')
+        if actor.user['login_type']!='LDAP' and not actor.user.get('emp_dept_managed_flag'):raise HTTPException(403,'This account has no employee department check.')
         return departments.public_status(db,actor.user)
 
     @app.post('/api/auth/department/request')
@@ -224,7 +248,7 @@ def create_app(settings=None,engine=None):
         db.execute(m.user.update().where(m.user.c.id==actor.id).values(email=payload.email,org_unit_id=unit['id'],needs_email_confirmation_flag=0,needs_department_selection_flag=0))
         audit(db,actor,'user',actor.id,'LDAP_ACCESS_REQUESTED',new={'email':payload.email,'department':unit['code'],'roles':[]})
         access=current_access(db,actor.id)
-        if actor.user['ldap_department_status']=='UNVERIFIED':
+        if not actor.user.get('emp_dept_managed_flag') and actor.user['ldap_department_status']=='UNVERIFIED':
             departments.request_update(db,actor,identity[1],'Initial LDAP department verification after profile confirmation.')
         notify_administrators(db,actor.id,'ACCESS_APPROVAL_REQUIRED' if access['admin_action_required'] else 'LDAP_PROFILE_CONFIRMED')
         return {'ok':True,'message':'Profile confirmed. '+access['access_message']}
@@ -232,7 +256,7 @@ def create_app(settings=None,engine=None):
     @app.get('/api/masters')
     def masters(db=Depends(get_db),actor=Depends(current)):
         result={}
-        for name in ['organisational_unit','regulator','regulatory_domain','instrument_type','confidentiality_class','frequency','evidence_type','obligation_category','role','process','taxonomy_scheme','legal_entity','product','channel','customer_segment','geography']:
+        for name in ['organisational_unit','regulator','regulatory_domain','instrument_type','confidentiality_class','frequency','evidence_type','obligation_category','role','process','taxonomy_scheme','legal_entity','product','channel','customer_segment','geography','system']:
             table=getattr(m,name);result[name]=[dict(r) for r in db.execute(sa.select(table)).mappings()]
         users=db.execute(sa.select(m.user.c.id,m.user.c.username,m.user.c.full_name,m.user.c.org_unit_id).where(m.user.c.active_flag==1)).mappings().all()
         result['user']=[dict(u) for u in users]
@@ -387,6 +411,9 @@ def create_app(settings=None,engine=None):
         for instrument in linked:
             try:repo.read_instrument(db,actor,instrument);permitted=True;break
             except HTTPException:continue
+        if not permitted and not linked:
+            from .delivery_api import document_visible
+            permitted=document_visible(db,actor,identifier)
         if not permitted and not (document['uploaded_by']==actor.id and actor.covers(document['owner_unit_id'],{'AUTHOR'})):
             raise HTTPException(404,'Document not found in your authorised area.')
         if document['storage_uri']!='portal://'+identifier or not re.fullmatch('[a-f0-9-]{32,36}',identifier):raise HTTPException(404,'This source is held in a separate approved repository.')
@@ -541,6 +568,14 @@ def create_app(settings=None,engine=None):
         result.extend(families.proposal_tasks(db,actor))
         from . import obligations
         result.extend(obligations.tasks(db,actor))
+        from . import delivery
+        if actor.roles & READ_ROLES:
+            result.extend(delivery.tasks(db,actor))
+            from . import controls
+            result.extend(controls.tasks(db,actor))
+            if not actor.delegation:
+                from . import delegations
+                result.extend(delegations.tasks(db,actor))
         return result
 
     @app.get('/api/notifications')
@@ -548,6 +583,9 @@ def create_app(settings=None,engine=None):
         result=[]
         for row in db.execute(sa.select(m.notification).where(m.notification.c.recipient_user_id==actor.id).order_by(m.notification.c.triggered_at.desc())).mappings():
             item=dict(row)
+            if actor.delegation:
+                from .delegations import audit_visible
+                if not audit_visible(db,actor,item):continue
             if item['entity_type']=='version':
                 try:version,instrument=repo.read_version(db,actor,item['entity_id'])
                 except HTTPException:pass
@@ -571,6 +609,20 @@ def create_app(settings=None,engine=None):
                 try:record=obligations.read(db,actor,item['entity_id'])
                 except HTTPException:continue
                 item.update(source_title=record['code']+' · '+record['title'],action_path='obligations/'+record['id'],action_label='Open obligation')
+            elif item['entity_type']=='leave_delegation':
+                from . import delegations
+                try:record=delegations.read(db,actor,item['entity_id'])
+                except HTTPException:continue
+                item.update(source_title='Leave cover · '+str(record['starts_on'])+' – '+str(record['ends_on']),action_path='delegations/'+record['id'],action_label='Open delegation')
+            elif item['entity_type'] in {'controls','control-mappings'}:
+                from . import controls
+                try:record=controls.read(db,actor,item['entity_type'],item['entity_id'])
+                except HTTPException:continue
+                item.update(source_title=record.get('title') or 'Control mapping review',action_path=item['entity_type']+'/'+record['id'],action_label='Open control decision')
+            elif item['entity_type'] in {'action','action_extension'}:
+                from . import delivery
+                try:item.update(delivery.notification_context(db,actor,item))
+                except HTTPException:continue
             elif item['entity_type']=='user':
                 if 'ADMIN' not in actor.roles and item['entity_id']!=actor.id:continue
                 target=repo.one(db,m.user,item['entity_id']);access=current_access(db,target['id'])
@@ -582,6 +634,10 @@ def create_app(settings=None,engine=None):
         return result
     @app.post('/api/notifications/{identifier}/read')
     def read_notification(identifier:str,db=Depends(get_db),actor=Depends(current)):
+        if actor.delegation:
+            from .delegations import audit_visible
+            item=repo.one(db,m.notification,identifier)
+            if item['recipient_user_id']!=actor.id or not audit_visible(db,actor,item):raise HTTPException(404,'Notification not found in this leave-cover scope.')
         db.execute(m.notification.update().where(m.notification.c.id==identifier,m.notification.c.recipient_user_id==actor.id).values(read_at=now()));return {'ok':True}
 
     @app.post('/api/migration')
@@ -671,6 +727,14 @@ def create_app(settings=None,engine=None):
     def baseline(actor=Depends(current)):
         return json.loads((ROOT/'docs/release-baseline.json').read_text())
 
+    from .employee_api import install as install_employee_api
+    install_employee_api(app,get_db,current,cfg)
+    from .delivery_api import install as install_delivery
+    install_delivery(app,get_db,current)
+    from .control_api import install as install_controls
+    install_controls(app,get_db,current)
+    from .delegation_api import install as install_delegations
+    install_delegations(app,get_db,current)
     from .obligation_api import install as install_obligations
     install_obligations(app,get_db,current)
     from .regulation_registers import install as install_regulation_registers

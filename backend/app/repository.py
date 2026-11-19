@@ -366,6 +366,7 @@ def decide(db,actor,version_id,payload):
         target='DRAFT'
     else:
         role='REVIEWER' if workflow['current_stage']=='COMPLIANCE_REVIEW' else 'APPROVER'
+        actor.require({role},unit)
         eligible(db,actor.id,role,unit,(version['created_by'],version['reviewed_by']) if role=='APPROVER' else (version['created_by'],))
         if task['assignee_user_id']!=actor.id: raise HTTPException(403,'Only the named task recipient can decide or delegate.')
         if decision=='DELEGATE':
@@ -567,6 +568,7 @@ def decide_metadata_correction(db,actor,correction_id,payload):
     else:
         role='REVIEWER' if workflow['current_stage']=='COMPLIANCE_REVIEW' else 'APPROVER'
         excluded=(correction['created_by'],) if role=='REVIEWER' else (correction['created_by'],correction['reviewed_by'])
+        actor.require({role},unit)
         eligible(db,actor.id,role,unit,excluded)
         if task['assignee_user_id']!=actor.id: raise HTTPException(403,'Only the named task recipient can decide or delegate.')
         if decision=='DELEGATE':

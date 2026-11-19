@@ -10,7 +10,7 @@ from .events import now,new_id,audit
 from .directory import authenticate_directory
 from .ldap_profile import login_user_details
 from .user_access import notify_administrators
-from . import ldap_department
+from . import ldap_department, employee_profiles
 
 COOKIE='cbd_session'
 def digest(value): return hashlib.sha256(value.encode()).hexdigest()
@@ -24,7 +24,7 @@ def establish(db,user,settings,response):
     raw=secrets.token_urlsafe(48);csrf=secrets.token_urlsafe(32);at=now()
     db.execute(m.app_session.insert().values(id=new_id(),user_id=user['id'],token_hash=digest(raw),
         csrf_token=csrf,expires_at=at+timedelta(minutes=settings.max_minutes),last_seen_at=at,
-        ldap_observation_id=user.get('ldap_observation_id')))
+        ldap_observation_id=user.get('emp_dept_observation_id') if user.get('emp_dept_managed_flag') else user.get('ldap_observation_id')))
     set_cookie(response,raw,settings)
     audit(db,actor_for(db,user['id']),'user',user['id'],'LOGIN_SUCCESS',new={'login_type':user['login_type']})
     return {'ok':True}
@@ -42,7 +42,7 @@ def resolve(db,request,settings,limited=False):
         raise HTTPException(403,'Complete the first-sign-in steps before opening the workspace.')
     if not limited and ldap_department.blocked(actor.user):
         raise HTTPException(403,{'code':'LDAP_DEPARTMENT_REVIEW_REQUIRED',
-            'message':'Your LDAP department is not verified. Open the department review screen or sign in again.'})
+            'message':'Your employee department requires review. Open the department review screen or sign in again.' if actor.user.get('emp_dept_managed_flag') else 'Your LDAP department is not verified. Open the department review screen or sign in again.'})
     db.execute(m.app_session.update().where(m.app_session.c.id==session['id']).values(last_seen_at=at))
     return actor,dict(session)
 
@@ -73,6 +73,9 @@ def login(db,request,response,payload,settings):
     if not success:
         audit(db,None,'authentication',ident[:36],'LOGIN_FAILED',reason='Authentication rejected')
         db.commit();raise HTTPException(401,'The username or password could not be verified.')
+    # Enrichment follows credential verification, before acquiring the user lock.
+    # It neither replaces authentication nor changes approved LDAP/access fields.
+    employee_lookup=employee_profiles.prepare_login(db,settings,username,profile)
     if not user:
         identifier=new_id()
         db.execute(m.user.insert().values(id=identifier,username=username,full_name=(profile.get('full_name') or username)[:250],
@@ -81,11 +84,18 @@ def login(db,request,response,payload,settings):
         user=db.execute(sa.select(m.user).where(m.user.c.id==identifier)).mappings().one()
         audit(db,None,'user',identifier,'LDAP_ACCOUNT_REQUESTED',new={'username':username,'roles':[]})
         notify_administrators(db,identifier,'LDAP_PROFILE_CONFIRMATION_PENDING')
+    user=ldap_department.user_locked(db,user['id'])
+    if not user['active_flag']:raise HTTPException(401,'The username or password could not be verified.')
+    employee_profiles.complete_login(db,settings,user,employee_lookup)
+    user=ldap_department.user_locked(db,user['id'])
+    if employee_lookup or user.get('emp_dept_managed_flag'):
+        from .employee_departments import observe_fallback
+        user=observe_fallback(db,user,employee_profiles.load_config(db,settings),profile,
+            employee_lookup['outcome']['started'] if employee_lookup else now())
     if profile is not None:
-        user=ldap_department.user_locked(db,user['id'])
-        if not user['active_flag']:raise HTTPException(401,'The username or password could not be verified.')
-        user=ldap_department.observe(db,user,profile)
+        user=ldap_department.observe(db,user,profile,passive=bool(user.get('emp_dept_managed_flag')))
     result=establish(db,user,settings,response)
+    if employee_lookup:result['employee_profile']=employee_profiles.public_profile(db,user['id'],settings)
     if profile is not None:
         result['ldap_user']=login_user_details(profile,username)
         result['ldap_department']=ldap_department.public_status(db,user)

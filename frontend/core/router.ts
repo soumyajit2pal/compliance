@@ -20,8 +20,22 @@ import { esc, empty, link, title, message } from '../ui/components.ts';
 import { SessionExpired, api } from './api.ts';
 import { beginActivity } from '../ui/loading.ts';
 import { obligationView, workspaceAlias } from './obligation-workspace.ts';
+import { actionsPage,teamPage,libraryPage } from '../features/delivery.ts';
 
+import {ccoViewAllowed,navigationLabel} from './navigation.ts';
+import {controlsPage,controlMappingsPage,evidencePage} from '../features/controls.ts';
+
+import {delegationsPage} from '../features/delegations.ts';
+import {employeeSettingsPage} from '../features/employee-settings.ts';
 const pages = {
+  'employee-api':employeeSettingsPage,
+  delegations:delegationsPage,
+  controls:controlsPage,
+  'control-mappings':controlMappingsPage,
+  evidence:evidencePage,
+  actions: actionsPage,
+  team: teamPage,
+  library: libraryPage,
   home: homePage,
   repository: repositoryPage,
   clauses: clausesPage,
@@ -60,7 +74,7 @@ export async function render() {
   }
   const view=obligationView(query);
   if (
-    !pages[page] ||
+    !pages[page] || (page==='team'&&!ccoViewAllowed(state.identity.roles,query)) ||
     (!state.identity.menu.some((item) => item.id === page) && page !== 'notifications') ||
     (page==='obligations'&&!id&&view!=='register'&&!state.identity.menu.some(item=>item.id===view))
   ) {
@@ -69,7 +83,7 @@ export async function render() {
       page,
     );
   }
-  const label = state.identity.menu.find(item => item.id === page)?.label || title(page);
+  const label = navigationLabel(page,query)||state.identity.menu.find(item => item.id === page)?.label || title(page);
   const finish = beginActivity('Loading ' + label.toLowerCase() + '…', { priority: 2, scope: document.getElementById('root') });
   try {
     const [work, notifications, access] = await Promise.all([api('/tasks'), api('/notifications'),
@@ -82,14 +96,14 @@ export async function render() {
     if (request !== state.routeNumber || !state.identity) return;
     shell(contents, page);
     document.title =
-      (page === 'repository' && id && id !== 'new'
+      (page === 'actions' && !id ? 'Compliance work tracker' : page === 'repository' && id && id !== 'new'
         ? state.record.instrument.code
         : page === 'obligations' && !id ? 'Obligations · '+(view==='register'?(query.get('tab')==='reports'?'Exceptions':'Register'):title(view))
-        : page === 'clauses'
+        : page === 'team' ? label : page === 'clauses'
           ? query.get('view') === 'register' ? 'Clause register' : 'Clause workspace'
         : page === 'migration'
           ? 'Import existing regulatory records'
-          : ['clause-relationships','applicability','accountability'].includes(page)?label:title(page)) + ' · Compliance by Design';
+          : navigationLabel(page,query)||title(page)) + ' · Compliance by Design';
   } catch (error) {
     if (error instanceof SessionExpired) return;
     if (request === state.routeNumber && state.identity) {

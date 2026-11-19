@@ -1,3 +1,6 @@
+import {activateNavigation,closeNavigation,toggleNavigation} from './navigation-state.ts';
+import {downloadProtected} from './api.ts';
+import {selectedDelegationId} from './delegation-context.ts';
 import { state } from './state.ts';
 import { withoutPaging } from './pagination.ts';
 import { dialog } from './dom.ts';
@@ -34,14 +37,11 @@ export function installEvents({ actions, forms }) {
       if (!details.contains(event.target as Node)) closeFilters(details);
     });
   });
-  actions.menu = () => {
-    const sidebar = document.querySelector('#portal-sidebar');
-    sidebar?.classList.toggle('open');
-    document
-      .querySelector('.topbar .mobile-menu')
-      ?.setAttribute('aria-expanded', String(sidebar?.classList.contains('open')));
-  };
+  actions.menu = toggleNavigation;
   document.addEventListener('click', async (event) => {
+    activateNavigation(event, () => { void render(); });
+    const anchor=(event.target as Element)?.closest<HTMLAnchorElement>('a[href]');
+    if(selectedDelegationId()&&anchor){const url=new URL(anchor.href,location.href);if(url.origin===location.origin&&url.pathname.startsWith('/api/')){event.preventDefault();try{await downloadProtected(anchor.href);}catch(error){message(error.message,true);}return;}}
     document.querySelectorAll<HTMLDetailsElement>('.filter-more[open]').forEach((details) => {
       if (!details.contains(event.target as Node)) closeFilters(details);
     });
@@ -173,12 +173,11 @@ export function installEvents({ actions, forms }) {
         event.preventDefault();
         closeFilters(filters, true);
       }
-      document.querySelector('#portal-sidebar')?.classList.remove('open');
-      document.querySelector('.topbar .mobile-menu')?.setAttribute('aria-expanded', 'false');
+      closeNavigation();
     }
   });
   window.addEventListener('hashchange', () => {
-    document.querySelector('#portal-sidebar')?.classList.remove('open');
+    closeNavigation();
     const [path, queryString = ''] = location.hash.slice(1).split('?');
     const [page, id] = path.split('/');
     const recordSectionNavigation =

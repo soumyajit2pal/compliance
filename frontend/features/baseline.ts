@@ -34,7 +34,7 @@ export async function baselinePage(_id, query = new URLSearchParams()) {
     ) +
     tabs(
       [
-        ['outcomes', 'Week 1–4 outcomes'],
+        ['outcomes', 'Week 1–5 outcomes'],
         ['scope', 'Scope & responsibilities'],
         ['dependencies', 'Open dependencies', data.dependencies.length],
         ['metrics', 'Metric catalogue', data.metrics.length],

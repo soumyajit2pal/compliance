@@ -1,6 +1,7 @@
 import { state } from './state.ts';
 import { encryptedSignIn } from './login-encryption.ts';
 import { requestLabel, withActivity } from '../ui/loading.ts';
+import {delegationHeaders,selectDelegation} from './delegation-context.ts';
 
 export class SessionExpired extends Error {}
 
@@ -8,15 +9,28 @@ export class SessionExpired extends Error {}
 export function throwApiError(status: number, data: any, path: string): never {
   const detail = typeof data?.detail === 'string' ? data.detail : data?.detail?.message
     ? [data.detail.message, data.detail.guidance, data.detail.code ? '(' + data.detail.code + ')' : ''].filter(Boolean).join(' ')
-    : JSON.stringify(data?.detail || data || 'The service returned an unexpected response.');
+    : Array.isArray(data?.detail)?data.detail.map(e=>e.msg||'Complete the required fields.').join(' '):JSON.stringify(data?.detail || data || 'The service returned an unexpected response.');
   if (status === 401 && path !== '/auth/login') {
+    selectDelegation('');
     const hadIdentity = Boolean(state.identity);
     state.identity = null; state.ready = false; state.masters = null; state.record = null;
     state.batch = null; state.view = {}; state.work = []; state.notifications = [];
     if (hadIdentity) window.dispatchEvent(new Event('portal:session-expired'));
     throw new SessionExpired(detail);
   }
-  throw Object.assign(new Error(detail), {status});
+  throw Object.assign(new Error(detail), {status,delegationUnavailable:data?.detail?.code==='DELEGATION_UNAVAILABLE'});
+}
+
+export function apiHeaders(path:string):Record<string,string>{return {...delegationHeaders(path),...(state.identity?.csrf_token?{'X-CSRF-Token':state.identity.csrf_token}:{})};}
+
+export async function downloadProtected(href:string){
+ const url=new URL(href,location.href);
+ if(url.origin!==location.origin||!url.pathname.startsWith('/api/'))throw new Error('This file is outside the authenticated application.');
+ const path=url.pathname.slice(4)+url.search,response=await fetch(url.href,{headers:apiHeaders(path),cache:'no-store'});
+ if(!response.ok)throwApiError(response.status,await response.json(),path);
+ const disposition=response.headers.get('Content-Disposition')||'',encoded=/filename\*=UTF-8''([^;]+)/i.exec(disposition),plain=/filename="?([^";]+)/i.exec(disposition);
+ const name=encoded?decodeURIComponent(encoded[1]):plain?.[1]||'retained-record';
+ const blob=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=blob;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(blob),1000);
 }
 
 export async function signIn(username: string, password: string) {
@@ -26,7 +40,7 @@ export async function signIn(username: string, password: string) {
 /** Same-origin cookie authentication; CSRF is required for every write. */
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
   return withActivity(requestLabel(path, method), async () => {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = apiHeaders(path);
     if (state.identity?.csrf_token) headers['X-CSRF-Token'] = state.identity.csrf_token;
     let requestBody: BodyInit | undefined;
     if (body instanceof FormData) {

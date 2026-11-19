@@ -5,7 +5,8 @@ from . import models as m
 from .events import notify, new_id
 
 ACTION_STATES = {'PENDING_APPROVAL', 'ROLE_ASSIGNMENT_REQUIRED', 'ROLE_REVIEW_REQUIRED',
-    'LDAP_DEPARTMENT_REQUIRED','LDAP_DEPARTMENT_CHANGED','LDAP_DEPARTMENT_UNAVAILABLE'}
+    'LDAP_DEPARTMENT_REQUIRED','LDAP_DEPARTMENT_CHANGED','LDAP_DEPARTMENT_UNAVAILABLE',
+    'DEPARTMENT_REQUIRED','DEPARTMENT_CHANGED','DEPARTMENT_UNAVAILABLE'}
 
 
 def access_state(user, assignments):
@@ -13,13 +14,20 @@ def access_state(user, assignments):
     count = sum(bool(a.get('effective_flag')) for a in assignments)
     if not user['active_flag']:
         status, label, message = 'INACTIVE', 'Inactive account', 'This account is disabled. Review the account before restoring access.'
+    elif user.get('emp_dept_managed_flag') and user.get('emp_dept_status')!='VERIFIED':
+        states={'UNVERIFIED':('DEPARTMENT_REQUIRED','Department verification required','An observed department is automatically queued for independent administrator review.'),
+            'MISMATCH':('DEPARTMENT_CHANGED','Department changed','Business access is restricted. Review the source-aware department request and existing role scope.'),
+            'UNAVAILABLE':('DEPARTMENT_UNAVAILABLE','Department unavailable','Approved details are retained. Check the employee API and LDAP fallback mapping.'),
+            'RECHECK_REQUIRED':('DEPARTMENT_RECHECK','Fresh sign-in required','The department is approved. A fresh sign-in must verify it before access opens.')}
+        status,label,message=states.get(user.get('emp_dept_status'),states['UNVERIFIED'])
     elif user['login_type']=='LDAP' and (user.get('needs_email_confirmation_flag') or user.get('needs_department_selection_flag')) and (
+        user.get('emp_dept_managed_flag') or
         user.get('ldap_department_status')=='VERIFIED' or (user.get('ldap_department_status')=='UNVERIFIED'
         and not user.get('department_code') and user.get('ldap_last_seen_department_code'))):
         status,label='PROFILE_PENDING','Profile confirmation pending'
         message=('Roles are assigned. The user must confirm their work email and Home organisation; LDAP department verification is separate.' if count else
                  'The user must confirm their work email and Home organisation before administrator department and access approval.')
-    elif user['login_type']=='LDAP' and user.get('ldap_department_status')!='VERIFIED':
+    elif user['login_type']=='LDAP' and not user.get('emp_dept_managed_flag') and user.get('ldap_department_status')!='VERIFIED':
         states={
             'UNVERIFIED':('LDAP_DEPARTMENT_REQUIRED','LDAP department verification required','Review the LDAP department baseline separately from Home organisation and roles.'),
             'MISMATCH':('LDAP_DEPARTMENT_CHANGED','LDAP department changed','Access is blocked. Review the old/current LDAP department and pending update request.'),
@@ -79,6 +87,7 @@ def account_catalogue(db):
                'role_review_required': 0, 'profile_pending': 0, 'access_ready': 0,
                'password_change_required': 0, 'inactive': 0,
                'ldap_department_required':0,'ldap_department_changed':0,'ldap_department_unavailable':0,'ldap_department_recheck':0,
+               'department_required':0,'department_changed':0,'department_unavailable':0,'department_recheck':0,
                'department_pending':db.execute(sa.select(sa.func.count()).select_from(m.ldap_department_request).where(m.ldap_department_request.c.status=='PENDING')).scalar_one()}
     for user in users:
         summary[user['login_type'].lower()] += 1

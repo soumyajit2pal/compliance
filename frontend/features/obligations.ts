@@ -78,7 +78,7 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
     ];
   });
   return `<div class="obligation-register">`+workspaceHeading(
-    (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+obligationExportButton())+
+    (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+obligationExportButton(), report ? 'Exception reports' : 'Obligations', report ? 'Review findings and gaps that need attention in your authorised obligations.' : 'Requirements, department applicability and named responsibilities.')+
     workspaceTabs('register',query)+
     `<form id="view-filter" class="obligation-register-filters" aria-label="Register filters">
       <div class="obligation-register-filter-heading"><div><h2>Find an obligation</h2><p>Search requirements and narrow your view.</p></div><div class="obligation-register-filter-heading-actions"><label class="obligation-register-mode"><span>Register view</span><select name="tab" aria-label="Register view"><option value="register" ${report?'':'selected'}>All obligations</option><option value="reports" ${report?'selected':''}>Exceptions</option></select></label>${link('obligations','Clear','obligation-register-clear')}</div></div>
@@ -107,7 +107,8 @@ async function detailPage(identifier,query){
   if(request!==state.routeNumber||!state.identity||location.hash.slice(1).split('?')[0]!=='obligations/'+identifier)return '';
   state.view.obligation=d;
   const policy=detailPolicy(d,state.identity.user.id,covered,localDate());
-  return renderObligationDetail(d,policy,query,obligationReturnPath(query.get('return_to'))||'obligations'+(state.view.obligationRegisterQuery?'?'+state.view.obligationRegisterQuery:''));
+  return renderObligationDetail(d,policy,query,obligationReturnPath(query.get('return_to'))||'obligations'+(state.view.obligationRegisterQuery?'?'+state.view.obligationRegisterQuery:''))+
+    (state.identity.menu.some(i=>i.id==='actions')?`<section class="panel delivery-linked-work"><div class="panel-body"><h2>Work linked to this requirement</h2><p>Keep the approved obligation active while each period’s work and proof receive independent review.</p><div class="actions">${link('actions?obligation='+identifier,'View linked actions','btn')}${d.obligation.record_status==='ACTIVE'&&has('AUTHOR','BUSINESS_OWNER')?link('actions/new?obligation='+identifier,'Assign work','btn primary'):''}</div></div></section>`:'');
 }
 
 function rowControls(kind,value:any={}){

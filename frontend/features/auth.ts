@@ -1,3 +1,4 @@
+import {selectDelegation} from '../core/delegation-context.ts';
 import { assetUrl } from '../core/assets.ts';
 import { state } from '../core/state.ts';
 import { root } from '../core/dom.ts';
@@ -65,10 +66,10 @@ export function loginView() {
           </div>
         </section>
         <aside class="auth-story" aria-label="About Compliance by Design">
-          <div class="auth-story-topline"><span>Compliance, connected.</span><span class="auth-story-symbol" aria-hidden="true">${icon('sparkle')}</span></div>
+          <div class="auth-story-topline"><span>Your compliance workspace</span><span class="auth-story-symbol" aria-hidden="true">${icon('sparkle')}</span></div>
           <div class="auth-copy">
-            <h2>Every requirement.<br>A clear way <em>forward.</em></h2>
-            <p class="auth-description">Bring regulatory sources, considered decisions and clear responsibilities into one connected view.</p>
+            <h2>Manage regulatory<br>requirements with <em>clarity.</em></h2>
+            <p class="auth-description">Review requirements, assign responsibilities, track actions and retain evidence in one workspace.</p>
           </div>
           <div class="auth-pathway" role="img" aria-label="A continuous line connects regulatory sources, interpretation and accountable action.">
             <svg viewBox="0 0 500 240" fill="none" aria-hidden="true">
@@ -99,7 +100,7 @@ export function loginView() {
           <ol class="auth-principles" aria-label="A connected approach">
             <li><span>01</span> Source</li><li><span>02</span> Interpretation</li><li><span>03</span> Action</li>
           </ol>
-          <footer class="auth-story-footer"><span>Clarity at the source.<br>Accountability at every step.</span>${icon('arrow')}</footer>
+          <footer class="auth-story-footer"><span>Keep responsibilities clear<br>and decisions traceable.</span>${icon('arrow')}</footer>
         </aside>
       </main>
       <footer class="auth-page-footer"><span>Compliance by Design</span><span>Clarity <i></i> Accountability <i></i> Traceability</span></footer>
@@ -183,20 +184,21 @@ export function clearDemoSelection(event) {
 }
 export async function loadIdentity() {
   state.ready = false;
-  state.identity = await api('/auth/me');
+  try{state.identity=await api('/auth/me');}catch(error){if(!error.delegationUnavailable)throw error;selectDelegation('');state.identity=await api('/auth/me');message(error.message,true);}
+  if(state.identity.acting_for){state.masters=await api('/masters');state.ready=true;return true;}
   let department = null;
-  if (state.identity.user.login_type === 'LDAP') {
+  if (state.identity.user.login_type === 'LDAP' || state.identity.user.emp_dept_managed_flag) {
     department = await api('/auth/department');
     const initialProfile = department.status === 'UNVERIFIED' && !department.approved.code &&
       (state.identity.user.needs_email_confirmation_flag || state.identity.user.needs_department_selection_flag);
-    if (department.blocked && !initialProfile) {
+    if (department.blocked && !initialProfile && !state.identity.user.must_change_password_flag) {
       state.masters = null; state.record = null; state.batch = null;
       state.work = []; state.notifications = [];
-      const title = department.status === 'MISMATCH' ? 'Your LDAP department details have changed'
+      const title = department.managed ? department.status === 'MISMATCH' ? 'Your department has changed' : department.status === 'RECHECK_REQUIRED' ? 'Sign in again to verify your department' : 'Department verification' : department.status === 'MISMATCH' ? 'Your LDAP department details have changed'
         : department.status === 'UNAVAILABLE' ? 'Your LDAP department details could not be verified'
         : department.status === 'RECHECK_REQUIRED' ? 'Sign in again to verify your department'
         : 'Verify your LDAP department';
-      shell(heading(title, 'Review your directory department details before opening the workspace.') + departmentGate(department), '');
+      shell(heading(title, department.managed ? 'Your employee department is checked before opening the workspace.' : 'Review your directory department details before opening the workspace.') + departmentGate(department), '');
       return false;
     }
   }
@@ -280,6 +282,7 @@ export function authHandlers({ render, loadIdentity, loginView }) {
         trigger.innerHTML = icon(reveal ? 'eyeOff' : 'eye');
       },
       logout: async () => {
+        selectDelegation('');
         await api('/auth/logout', 'POST', {});
         state.identity = null;
         state.masters = null;

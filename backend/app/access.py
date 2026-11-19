@@ -16,13 +16,21 @@ class Actor:
     units: dict
     notification_instruments: set = field(default_factory=set)
     ownership_obligations: set = field(default_factory=set)
+    actual_actor: object = None
+    principal_actor: object = None
+    delegation: dict | None = None
     @property
     def id(self): return self.user['id']
+    @property
+    def actual_id(self): return self.actual_actor.id if self.actual_actor else self.id
+    @property
+    def parties(self): return {self.id,self.actual_id}
     @property
     def roles(self): return {g['role_code'] for g in self.grants}
     def covers(self, unit_id, roles):
         from .ldap_department import blocked
         if blocked(self.user):return False
+        if self.actual_actor and (not self.actual_actor.covers(unit_id,roles) or not self.principal_actor.covers(unit_id,roles)):return False
         def effective(unit):
             today=date.today()
             return unit and unit['active_flag'] and (not unit.get('effective_from') or unit['effective_from']<=today) and (not unit.get('effective_to') or unit['effective_to']>today)
@@ -45,7 +53,7 @@ class Actor:
             raise HTTPException(403,'Your role and department scope do not permit this action.')
 
 
-def actor_for(db, user_id):
+def actor_for(db, user_id, delegation_context=None):
     user = db.execute(sa.select(m.user).where(m.user.c.id==user_id,m.user.c.active_flag==1)).mappings().first()
     if not user: raise HTTPException(401,'Please sign in again.')
     today=date.today()
@@ -54,6 +62,10 @@ def actor_for(db, user_id):
           sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>today))).mappings().all()
     units={r['id']:dict(r) for r in db.execute(sa.select(m.organisational_unit)).mappings()}
     actor=Actor(dict(user),[dict(g) for g in grants],units)
+    if delegation_context:
+        actual,principal,delegation=delegation_context
+        actor.actual_actor=actual;actor.principal_actor=principal;actor.delegation=delegation
+        actor.grants=[{'role_code':delegation['role_code'],'global_scope_flag':0,'scope_org_unit_id':delegation['scope_unit_id']}]
     roles={'REGULATORY':'AUTHOR','BUSINESS':'BUSINESS_OWNER','CONTROL':'CONTROL_OWNER','EVIDENCE':'EVIDENCE_OWNER','DATA':'BUSINESS_OWNER'}
     for proposal in db.execute(sa.select(m.obligation_owner_change,m.compliance_obligation.c.regulatory_owner_unit_id)
         .join(m.compliance_obligation,m.compliance_obligation.c.id==m.obligation_owner_change.c.obligation_id)
@@ -101,5 +113,6 @@ def actor_for(db, user_id):
 def can_read_instrument(actor, row, rank=1):
     if not actor.covers(row['regulatory_owner_unit_id'],READ_ROLES) and row.get('id') not in actor.notification_instruments:return False
     if rank>=2:
-        return actor.covers(row['regulatory_owner_unit_id'],REGULATORY_ROLES) or row['interpretation_owner_user_id']==actor.id
+        personal=row['interpretation_owner_user_id']==actor.id and (not actor.delegation or actor.delegation['role_code']=='AUTHOR')
+        return actor.covers(row['regulatory_owner_unit_id'],REGULATORY_ROLES) or personal
     return True

@@ -301,11 +301,13 @@ def check_task(db,actor,row,task,stage):
     require_citations(db,actor,row['id'])
     if stage=='BUSINESS_VALIDATION':
         owner=owner_for_task(db,task)
+        actor.require({ROLE[owner['owner_role']]},owner['org_unit_id'])
         eligible(db,actor.id,ROLE[owner['owner_role']],owner['org_unit_id'])
     else:
         owners=rows(db,m.obligation_owner,row['id'])
         operational=validation_owners(owners,row['created_by'])
         excluded=(row['created_by'],*operational,*([row['reviewed_by']] if stage=='FINAL_APPROVAL' else []))
+        actor.require({'REVIEWER' if stage=='COMPLIANCE_REVIEW' else 'APPROVER'},row['regulatory_owner_unit_id'])
         eligible(db,actor.id,'REVIEWER' if stage=='COMPLIANCE_REVIEW' else 'APPROVER',row['regulatory_owner_unit_id'],excluded)
 
 

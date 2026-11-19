@@ -1,3 +1,5 @@
+import {auditActor} from '../ui/components.ts';
+import {state} from '../core/state.ts';
 /** Obligation reading experience, shared with existing summary, table and pagination components. */
 import { esc,title,ref,badge,button,link,date,localDate,statusTag } from '../ui/components.ts';
 import { panel,table,tabs,pagedCollection } from '../ui/widgets.ts';
@@ -163,7 +165,7 @@ function history(d){
   const items=events.map(a=>{
     const task=d.tasks.find(t=>t.id===parsed(a.new_value).task_id),version=revisionOf(d,a.entity_id);
 
-    return `<article class="obligation-activity"><div class="obligation-activity-title"><strong>${esc(eventLabel(a.action))}</strong>${version?`<span class="obligation-revision">Revision ${esc(version)}</span>`:''}</div><p>${esc(ref('user',a.actor_user_id))}${task?.owner_role?' · '+esc(ownerRoles[task.owner_role]||title(task.owner_role)):''} · <time datetime="${esc(timestamp(a.event_at)?.toISOString()||'')}">${esc(when(a.event_at))}</time></p>${a.reason?`<blockquote>${esc(a.reason)}</blockquote>`:''}</article>`;
+    return `<article class="obligation-activity"><div class="obligation-activity-title"><strong>${esc(eventLabel(a.action))}</strong>${version?`<span class="obligation-revision">Revision ${esc(version)}</span>`:''}</div><p>${auditActor(a)}${task?.owner_role?' · '+esc(ownerRoles[task.owner_role]||title(task.owner_role)):''} · <time datetime="${esc(timestamp(a.event_at)?.toISOString()||'')}">${esc(when(a.event_at))}</time></p>${a.reason?`<blockquote>${esc(a.reason)}</blockquote>`:''}</article>`;
   });
   const timeline=items.length?pagedCollection(items,{pageKey:'obligation-decisions',label:'events',className:'obligation-activity-list'}):compactEmpty('No decisions or changes recorded yet.');
   const taskRows=d.tasks.map(t=>[esc('Revision '+(revisionOf(d,t.entity_id)||'not recorded')),esc(stageLabel(t.stage))+(t.owner_role?'<small>'+esc(ownerRoles[t.owner_role])+'</small>':''),esc(ref('user',t.assignee_user_id)),esc(when(t.due_at)),t.decision?esc(decisionLabel(t.decision)):t.workflow_status==='OPEN'&&t.stage===t.current_stage?statusTag('Awaiting response','amber'):'Closed without a decision',esc(t.comments)||'No comment recorded']);
@@ -171,12 +173,12 @@ function history(d){
     fold('Review assignments · '+d.tasks.length,taskRows.length?table(['Revision','Stage / role','Named person','Due','Decision','Comments'],taskRows,{pageKey:'obligation-review-assignments'}):compactEmpty('No review assignments yet.'))+
     fold('Status changes · '+d.history.length,d.history.length?pagedCollection(d.history.map(h=>`<article class="obligation-activity"><div class="obligation-transition">${h.previous_status?statusTag(stageLabel(h.previous_status)):'Record created'}${icon('arrow')}${statusTag(stageLabel(h.new_status))}</div><p>${esc(ref('user',h.changed_by))} · ${esc(when(h.changed_at))} · Revision ${esc(revisionOf(d,h.entity_id)||'not recorded')}</p>${h.reason?'<blockquote>'+esc(h.reason)+'</blockquote>':''}</article>`),{pageKey:'obligation-status-changes',label:'changes',className:'obligation-activity-list'}):compactEmpty('No status changes recorded.'))+
     fold('Revisions · '+d.versions.length,table(['Revision','Status','Effective from','Author'],d.versions.map(v=>[link('obligations/'+v.id,'Revision '+v.version_number)+(v.id===d.obligation.id?'<small>Viewing this revision</small>':''),statusTag(statusLabel(v,v.approval_status,localDate()).label,statusLabel(v,v.approval_status,localDate()).tone),date(v.effective_from),esc(ref('user',v.created_by))]),{pageKey:'obligation-revisions'}))+
-    fold('Detailed audit',table(['When','Action','Changed by','Recorded values'],events.map(a=>[esc(when(a.event_at)),esc(eventLabel(a.action)),esc(ref('user',a.actor_user_id)),auditChanges(a)]),{pageKey:'obligation-audit',empty:'No field audit entries recorded.'})+
+    fold('Detailed audit',table(['When','Action','Changed by','Recorded values'],events.map(a=>[esc(when(a.event_at)),esc(eventLabel(a.action)),auditActor(a),auditChanges(a)]),{pageKey:'obligation-audit',empty:'No field audit entries recorded.'})+
       table(['When','Status before','Status after','Changed by','Reason'],d.history.map(h=>[esc(when(h.changed_at)),h.previous_status?statusTag(stageLabel(h.previous_status)):'Record created',statusTag(stageLabel(h.new_status)),esc(ref('user',h.changed_by)),esc(h.reason)]),{pageKey:'obligation-status-history',caption:'Retained status changes'}));
 }
 export function renderObligationDetail(d,p,query,returnPath='obligations'){
   const o=d.obligation,today=localDate(),status=statusLabel(o,p.stage,today),guidance=nextStep(d,p,today),tab=detailTab(query.get('tab'));
-  const recordActions=obligationExportButton(o.id)+(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?button('obl-decision','Withdraw to Draft','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
+  const recordActions=obligationExportButton(o.id)+(state.identity?.menu.some(i=>i.id==='control-mappings')?link('control-mappings?obligation='+o.id,'Checks and coverage','btn'):'')+(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?button('obl-decision','Withdraw to Draft','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
   const contents=tab==='overview'?renderObligationOverview(d):tab==='owners'?owners(d,p):tab==='applicability'?applicability(d,p):tab==='sources'?sources(d,p):history(d);
   const checks=readiness(d,p),foldChecks=o.approval_status!=='APPROVED'&&checks;
   const checklist=foldChecks?`<details class="obligation-setup-checks"><summary>Setup and activation checks · ${activationChecklistItems(d,p,today).length} outstanding</summary>${checks}</details>`:checks;

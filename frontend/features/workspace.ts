@@ -4,6 +4,8 @@ import { esc, title, field, input, select, ref } from '../ui/components.ts';
 import { modal, close } from '../ui/dialog.ts';
 import { detailFields, note, table } from '../ui/widgets.ts';
 import { canNavigate } from '../ui/layout.ts';
+import {employeeDetails} from '../ui/employee-profile.ts';
+import {api} from '../core/api.ts';
 export function workspaceHandlers() {
   return {
     actions: {
@@ -11,7 +13,7 @@ export function workspaceHandlers() {
       'workspace-search': () => {
         const areas = [
           ['repository', 'Regulatory library'],
-          ['tasks', 'My work'],
+          ['tasks', 'My tasks'],
           ['users', 'Users & access'],
           ['masters', 'Master data'],
           ['help', 'Help & workflow guide'],
@@ -33,8 +35,11 @@ export function workspaceHandlers() {
           'Search only the records your role permits you to see.',
         );
       },
-      profile: () =>
-        modal(
+      profile: async () => {
+        // Ordinary identity refresh exposes background recovery without another login.
+        state.identity.employee_profile=(await api('/auth/me')).employee_profile;
+        if(!state.identity.employee_profile?.warning)document.querySelector('[aria-label="Employee profile refresh"]')?.remove();
+        return modal(
           'My role & access',
           detailFields([
             ['Name', esc(state.identity.user.full_name)],
@@ -53,11 +58,12 @@ export function workspaceHandlers() {
               ]),
               { summary: false },
             )}</div>` +
-            `<div class="mt24">${note('Home department, role scope and named assignment work together. Admin alone cannot review or approve regulatory content.')}</div><div class="mt24"><a class="btn" href="#help?tab=roles" data-action="close">Read responsibilities</a></div>`,
+            `<div class="mt24">${employeeDetails(state.identity.employee_profile)}</div><div class="mt24">${note('Home department, role scope and named assignment work together. Admin alone cannot review or approve regulatory content.')}</div><div class="mt24"><a class="btn" href="#help?tab=roles" data-action="close">Read responsibilities</a></div>`,
           '',
           '',
           'Roles come from your approved account assignments.',
-        ),
+        );
+      },
     },
     forms: {
       'workspace-search': async (form) => {

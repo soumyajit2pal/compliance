@@ -99,12 +99,14 @@ def check_task(db,actor,row,proposal,task,assignments):
     if stage=='BUSINESS_VALIDATION':
         item=next((i for i in assignments if i.get('task_id')==task['id']),None)
         if not item:raise HTTPException(409,'The ownership acceptance task is unavailable.')
+        actor.require({obl.ROLE[item['owner_role']]},item['org_unit_id'])
         obl.eligible(db,actor.id,obl.ROLE[item['owner_role']],item['org_unit_id'],(proposal['created_by'],proposal['compliance_reviewer_user_id']))
     else:
         role='REVIEWER' if stage=='COMPLIANCE_REVIEW' else 'APPROVER'
         excluded={proposal['created_by'],*[i['user_id'] for i in assignments if i['owner_role']!='REGULATORY' or i['user_id']!=proposal['created_by']]}
         if role=='APPROVER':excluded.update([row['created_by'],proposal['compliance_reviewer_user_id'],*[i['user_id'] for i in assignments],
             *[o['user_id'] for o in obl.rows(db,m.obligation_owner,row['id']) if o['user_id']]])
+        actor.require({role},row['regulatory_owner_unit_id'])
         obl.eligible(db,actor.id,role,row['regulatory_owner_unit_id'],excluded)
 
 

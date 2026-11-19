@@ -1,3 +1,4 @@
+import {apiHeaders} from '../core/api.ts';
 import { state } from '../core/state.ts';
 import { canExportObligations as allowed } from '../ui/obligation-export.ts';
 import { throwApiError } from '../core/api.ts';
@@ -39,7 +40,7 @@ export function obligationExportHandlers() {
       dialog.addEventListener('close',cancel);window.addEventListener('hashchange',cancel);
       try {
         const path='/obligations/export?'+query;
-        const response=await fetch('/api'+path,{signal:controller.signal,cache:'no-store'});
+        const response=await fetch('/api'+path,{signal:controller.signal,cache:'no-store',headers:apiHeaders(path)});
         if (!response.ok) {
           let data;try {data=await response.json();} catch {data={detail:'The export service returned an unexpected response.'};}
           throwApiError(response.status,data,path);

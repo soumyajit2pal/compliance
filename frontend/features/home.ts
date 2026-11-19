@@ -7,6 +7,7 @@ import { stat, person } from '../ui/widgets.ts';
 import { canNavigate } from '../ui/layout.ts';
 
 function taskLink(t) {
+  if(['ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(t.workflow_kind))return t.action_path;
   if(t.workflow_kind==='OWNERSHIP_CHANGE')return 'obligations/'+t.obligation_id+'?tab=owners&ownership_change='+t.ownership_change_id;
   if(t.workflow_kind==='OBLIGATION')return 'obligations/'+t.obligation_id+'?tab=owners';
   if(t.workflow_kind==='FAMILY')return 'notification-families/'+t.instrument_id+'?proposal='+t.proposal_id;
@@ -14,6 +15,9 @@ function taskLink(t) {
   return 'repository/' + t.instrument_id + '?version=' + t.version_id + '&tab=workflow';
 }
 function taskPresentation(t) {
+  if(t.workflow_kind==='LEAVE_DELEGATION')return {label:'Leave cover',description:'Check the existing roles, scope and dates before deciding.',action:'Review leave cover',icon:'users'};
+  if(t.workflow_kind==='CONTROL')return {label:'Control governance',description:'Review the check or mapping and record your named decision.',action:t.kind==='DRAFT'?'Continue preparation':'Review proposal',icon:'shield'};
+  if(['ACTION','ACTION_EXTENSION'].includes(t.workflow_kind))return {label:t.workflow_kind==='ACTION_EXTENSION'?'Internal target request':'Assigned action',description:'Record the outcome and proof, then follow independent review.',action:t.kind==='DECISION'?'Review assigned work':'Continue work',icon:'checkSquare'};
   if(t.workflow_kind==='OWNERSHIP_CHANGE')return {label:'Ownership change',description:'Review the proposed ownership change and your assigned decision.',action:'Review ownership',icon:'users'};
   if(t.workflow_kind==='OBLIGATION')return {label:'Obligation ownership',description:'Review the obligation and your named responsibility.',action:'Open assignment',icon:'checkSquare'};
   if(t.workflow_kind==='FAMILY')return {label:'Notification family',description:'Review the proposal and follow your assigned decision stage.',action:'Review proposal',icon:'org'};
@@ -22,7 +26,7 @@ function taskPresentation(t) {
   return {label:t.stage?title(t.stage):'Review & approval',description:'Read the source and record the decision for your assigned stage.',action:'Open decision',icon:'shield'};
 }
 function workTitle(task,sources) {
-  return (['OBLIGATION','OWNERSHIP_CHANGE'].includes(task.workflow_kind)?task.title:sources.find(r=>r.id===task.instrument_id)?.title||task.title)||'Assigned work';
+  return (['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(task.workflow_kind)?task.title:sources.find(r=>r.id===task.instrument_id)?.title||task.title)||'Assigned work';
 }
 function dueLabel(task) {
   const overdue=task.due_at&&task.due_at.slice(0,10)<localDate();
@@ -173,7 +177,7 @@ export async function homePage() {
     <header class="home-intro"><div><span class="home-eyebrow">${admin?'ADMINISTRATION':oversight?'YOUR AUTHORISED OVERVIEW':'YOUR WORKSPACE'}</span>
       <h1>${admin?'Your administration workspace':`Welcome back, <span>${esc(state.identity.user.full_name)}</span>`}</h1>
       <p>${admin?'People, departments and access, brought into focus.':'Your assigned work, decisions and next steps. One clear view.'}</p></div>
-      <time class="home-today" datetime="${localDate()}">${icon('calendar')}${date(localDate())}</time>
+      <div class="actions">${canNavigate('team')?link('team','Team overview','btn'):''}<time class="home-today" datetime="${localDate()}">${icon('calendar')}${date(localDate())}</time></div>
     </header>
     <div class="home-summary">
       <section class="home-priority" aria-labelledby="home-priority-title"><div class="home-priority-top"><span class="home-eyebrow">${admin?'PEOPLE & ACCESS':next?'UP NEXT':oversight?'YOUR LIBRARY':'A CLEAR START'}</span>${!admin&&next?dueLabel(next):`<span class="home-priority-mark" aria-hidden="true">${icon(admin?'users':'book')}</span>`}</div>

@@ -467,6 +467,16 @@ regulatory_deadline = table("regulatory_deadline", fk("instrument_id", "regulato
     fk("source_version_id", "instrument_version"), date("due_date"), date("effective_from"),
     text("basis"), *approval())
 
+# Week 5 delivery metadata; nullable additions preserve retained legacy actions.
+for column in [date("period_from", True), date("period_to", True), string("action_type", 40, default="'IMPLEMENTATION'"),
+    string("priority", 20, default="'MEDIUM'"), fk("reviewer_user_id", "user", True),
+    fk("escalation_user_id", "user", True), fk("evidence_type_id", "evidence_type", True),
+    text("evidence_requirement", True), text("result_notes", True), col("edit_revision", sa.Integer(), default="1"),
+    flag("retained_validation_required_flag")]:
+    action.append_column(column)
+action.append_constraint(check('dlv_retained_flag','retained_validation_required_flag IN (0,1)'))
+action.append_constraint(check("action_period", "period_to IS NULL OR period_from IS NULL OR period_to >= period_from"))
+action.append_constraint(check("action_reviewer", "reviewer_user_id IS NULL OR reviewer_user_id <> owner_user_id"))
 # FK indexes support parent checks/updates without Oracle child-table scans.
 for t in metadata.tables.values():
     for c in t.c:
@@ -540,3 +550,110 @@ sa.Index('ix_cbd_cls_find_page', sa.func.upper(regulatory_clause.c.source_page_r
 sa.Index('ix_cbd_cls_find_legacy', sa.func.upper(business_code_alias.c.legacy_code))
 sa.Index('ix_cbd_ins_find_code', sa.func.upper(regulatory_instrument.c.code))
 sa.Index('ix_cbd_ins_find_reference', sa.func.upper(regulatory_instrument.c.official_reference_number))
+
+# Week 5 tables append after all frozen earlier enum identities.
+for name in ['reviewer_user_id','escalation_user_id','evidence_type_id']:
+    next(iter(action.c[name].foreign_keys)).constraint.name='fk_dlv_'+name[:17]
+action_submission = table("action_submission", fk("action_id", "action"), col("submission_number", sa.Integer()),
+    text("result_notes"), text("evidence_snapshot"), fk("submitted_by", "user"), time("submitted_at"),
+    unique("action_id", "submission_number"))
+action_evidence_decision = table("action_evidence_decision", fk("submission_id", "action_submission"),
+    fk("evidence_link_id", "evidence_link"), *enum("decision", "ACCEPT", "REJECT"), text("reason"),
+    fk("reviewed_by", "user"), time("reviewed_at"), unique("submission_id", "evidence_link_id"))
+action_validation = table("action_validation", fk("action_id", "action"), string("reference", 250),
+    text("procedure_text"), *enum("result", "PASS", "FAIL"), fk("document_id", "document"),
+    fk("recorded_by", "user"), time("recorded_at"), fk("reviewed_by", "user", True), time("reviewed_at", True),
+    *enum("decision", "PENDING", "ACCEPT", "REJECT", default="PENDING"), text("decision_reason", True),
+    check("action_valid_independent", "reviewed_by IS NULL OR reviewed_by <> recorded_by"))
+sa.Index("uq_cbd_action_period",*[sa.case((sa.and_(action.c.period_from.is_not(None),action.c.record_status!='CANCELLED'),column),else_=None)
+    for column in [action.c.obligation_id,action.c.owner_unit_id,action.c.action_type,action.c.period_from,action.c.period_to]],unique=True)
+
+
+for t in [action_submission,action_evidence_decision,action_validation]:
+    for c in t.c:
+        if c.foreign_keys:
+            digest=__import__('hashlib').sha1((t.name+c.name).encode()).hexdigest()[:8]
+            sa.Index('ix_'+t.name[4:18]+'_'+digest,c)
+
+# Governed control revisions retain exact approved definitions and mapping scope.
+for target, additions in [
+    (control,[fk('governance_unit_id','organisational_unit',True)]),
+    (obligation_control_map,[fk('scope_unit_id','organisational_unit',True),text('gap_description',True),string('mapping_status',20,default="'ACTIVE'")]),
+]:
+    for column in [*additions,col('version_number',sa.Integer(),default='1'),col('edit_revision',sa.Integer(),default='1'),
+        fk('supersedes_id',target.name[4:],True),fk('superseded_by_id',target.name[4:],True),
+        fk('reviewer_user_id','user',True),fk('approver_user_id','user',True),text('change_reason',True)]:
+        target.append_column(column)
+    target.append_constraint(check(target.name[4:16]+'_version','version_number >= 1 AND edit_revision >= 1'))
+    for constraint in list(target.constraints):
+        if isinstance(constraint,sa.UniqueConstraint):target.constraints.remove(constraint)
+control.append_constraint(unique('code','version_number'))
+obligation_control_map.append_constraint(unique('obligation_id','control_id','scope_unit_id','version_number'))
+obligation_control_map.append_constraint(check('cm_mapping_status',"mapping_status IN ('ACTIVE','RETIRED')"))
+action_control_link=table('action_control_link',fk('action_id','action'),fk('mapping_id','obligation_control_map'),
+    fk('linked_by','user'),time('linked_at'),unique('action_id','mapping_id'))
+action_control_result=table('action_control_result',fk('link_id','action_control_link'),fk('execution_id','control_execution'),
+    col('attempt_number',sa.Integer()),fk('submission_id','action_submission',True),
+    string('proposed_result',40),string('decision',20,default="'PENDING'"),text('decision_reason',True),
+    check('cm_result_proposal',"proposed_result IN ('EFFECTIVE','EXCEPTION','FAILED')"),
+    check('cm_result_decision',"decision IN ('PENDING','ACCEPT','REJECT')"),
+    unique('link_id','attempt_number'),unique('execution_id'))
+action.append_column(text('control_scope_reason',True))
+for target in [control,obligation_control_map,action_control_link,action_control_result]:
+    for column in target.c:
+        if column.foreign_keys and not any(list(i.columns)[0] is column for i in target.indexes) and not any(isinstance(k,sa.UniqueConstraint) and list(k.columns)==[column] for k in target.constraints):
+            digest=__import__('hashlib').sha1((target.name+column.name).encode()).hexdigest()[:8]
+            sa.Index('ix_'+target.name[4:18]+'_'+digest,column)
+
+# Leave cover supplements named tasks; it never creates a role or access grant.
+leave_delegation=table('leave_delegation',fk('principal_user_id','user'),fk('delegate_user_id','user'),
+    string('role_code',40),fk('scope_unit_id','organisational_unit'),date('starts_on'),date('ends_on'),text('reason'),
+    fk('reviewer_user_id','user'),fk('approver_user_id','user'),*approval(),
+    fk('revoked_by','user',True),time('revoked_at',True),text('revocation_reason',True),
+    col('edit_revision',sa.Integer(),default='1'),
+    check('leave_duration','ends_on >= starts_on AND ends_on - starts_on < 90'),
+    check('leave_participants','principal_user_id <> delegate_user_id AND reviewer_user_id <> principal_user_id AND reviewer_user_id <> delegate_user_id AND approver_user_id <> principal_user_id AND approver_user_id <> delegate_user_id AND reviewer_user_id <> approver_user_id'),
+    check('leave_revocation',"(revoked_by IS NULL AND revoked_at IS NULL AND revocation_reason IS NULL) OR (revoked_by IS NOT NULL AND revoked_at IS NOT NULL AND revocation_reason IS NOT NULL)"),
+    check('leave_principal_maker','created_by = principal_user_id'),
+    check('leave_role',"role_code IN ('AUTHOR','REVIEWER','APPROVER','BUSINESS_OWNER','CONTROL_OWNER','EVIDENCE_OWNER','CCO','ZONE_VIEWER')"))
+for column in [fk('on_behalf_of_user_id','user',True),fk('delegation_id','leave_delegation',True)]:audit_log.append_column(column)
+audit_log.append_column(string('actor_name',250,True))
+audit_log.append_column(string('on_behalf_of_name',250,True))
+for target in [leave_delegation,audit_log]:
+    for column in target.c:
+        if column.foreign_keys and not any(list(i.columns)[0] is column for i in target.indexes):
+            digest=__import__('hashlib').sha1((target.name+column.name).encode()).hexdigest()[:8]
+            sa.Index('ix_'+target.name[4:18]+'_'+digest,column)
+
+# Employee-master metadata is deliberately separate from approved LDAP/access fields.
+# Append here to preserve the frozen enum constraint identities above.
+from sqlalchemy.dialects.oracle import TIMESTAMP as OracleTimestamp
+employee_profile=table('employee_profile',fk('user_id','user'),string('pf_no',40),
+    string('account_name',100),string('employee_name',250,True),string('designation',250,True),
+    string('branch_code',40,True),string('branch_name',250,True),string('current_branch_code',40,True),
+    string('zone_code',40,True),string('zone_name',250,True),string('department_code',100,True),
+    string('department_name',250,True),string('employee_status',40,True),
+    string('sync_status',20),string('last_error_code',40,True),text('missing_fields',True),
+    time('last_attempt_at'),time('last_success_at',True),
+    col('attempt_started_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle')),
+    col('retry_count',sa.Integer(),default='0'),time('next_retry_at',True),
+    string('lease_token',36,True),time('lease_until',True),
+    check('employee_sync_status',"sync_status IN ('SUCCESS','PARTIAL','FAILED')"),
+    check('employee_retry_count','retry_count >= 0'),unique('user_id'))
+sa.Index('ix_cbd_employee_retry',employee_profile.c.next_retry_at,employee_profile.c.lease_until)
+
+
+# Source-aware employee department verification supplements retained LDAP evidence.
+for column in [flag('emp_dept_managed_flag'),string('emp_dept_approved_code',100,True),
+    string('emp_dept_approved_name',250,True),string('emp_dept_approved_namespace',10,True),
+    string('emp_dept_observed_code',100,True),string('emp_dept_observed_name',250,True),
+    string('emp_dept_namespace',10,True),string('emp_dept_source',30,True),string('emp_dept_status',30,True),
+    string('emp_dept_observation_id',36,True),col('emp_dept_checked_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle'),True),
+    string('emp_dept_warning',500,True)]:user.append_column(column)
+user.append_constraint(check('emp_dept_managed','emp_dept_managed_flag IN (0,1)'))
+user.append_constraint(check('emp_dept_status',"emp_dept_status IS NULL OR emp_dept_status IN ('UNVERIFIED','VERIFIED','MISMATCH','UNAVAILABLE','RECHECK_REQUIRED')"))
+for column in [string('identity_source',30,default="'LEGACY_LDAP'"),string('previous_namespace',10,True),
+    string('proposed_namespace',10,True),string('previous_department_name',250,True),string('proposed_department_name',250,True),
+    flag('automatic_flag')]:ldap_department_request.append_column(column)
+ldap_department_request.append_constraint(check('dept_request_source',"identity_source IN ('LEGACY_LDAP','EMPLOYEE_API','LDAP_FALLBACK')"))
+ldap_department_request.append_constraint(check('dept_request_auto','automatic_flag IN (0,1)'))

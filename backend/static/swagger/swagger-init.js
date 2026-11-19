@@ -48,6 +48,18 @@
 	// core/ldap-readiness.ts
 	/** Presentation only. The API remains the authority for access and decisions. */
 	function ldapDepartmentState(user) {
+		if (user.emp_dept_managed_flag) {
+			const matches = !!user.emp_dept_approved_code && user.emp_dept_approved_code === user.emp_dept_observed_code && user.emp_dept_approved_namespace === user.emp_dept_namespace;
+			const status = user.emp_dept_status;
+			return {
+				key: status === "VERIFIED" && matches ? "approved" : status === "MISMATCH" ? "changed" : status === "RECHECK_REQUIRED" ? "recheck" : status === "UNAVAILABLE" ? "unavailable" : "not-approved",
+				label: status === "VERIFIED" && matches ? "Employee department approved" : status === "MISMATCH" ? "Department changed — admin review pending" : status === "RECHECK_REQUIRED" ? "Department approved — sign-in required" : "Employee department verification required",
+				tone: status === "VERIFIED" && matches ? "green" : "amber",
+				approved: ["VERIFIED", "RECHECK_REQUIRED"].includes(status) && matches,
+				blocked: status !== "VERIFIED" || !matches,
+				detail: status === "VERIFIED" && matches ? "The employee department matches the approved baseline." : status === "RECHECK_REQUIRED" ? "Sign in again to verify the approved department." : "Observed changes are automatically sent to an independent administrator. Home organisation and role scope remain separately approved."
+			};
+		}
 		const status = user.ldap_department_status;
 		const approved = user.department_code;
 		const current = user.ldap_last_seen_department_code;

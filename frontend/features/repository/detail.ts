@@ -6,6 +6,7 @@ import { instrumentWorkspacePath } from '../../core/source-navigation.ts';
 import { covered } from '../../core/access.ts';
 import {
   esc,
+  auditActor,
   title,
   badge,
   date,
@@ -63,7 +64,7 @@ function correctionSummary(row) {
     `<div><strong>${esc(correctionLabel(key))}</strong><span>${esc(correctionValue(key, before[key]))} <span aria-label="changes to">→</span> ${esc(correctionValue(key, proposed[key]))}</span></div>`).join('')}</div>`;
 }
 function activity(events, pageKey = 'record-activity') {
-  return pagedCollection(events.map((r) => `<div class="runtime-audit-event">${icon('activity')}<div><strong>${esc(title(r.action || r.new_status || r.stage))}</strong><p>${esc(r.reason || r.comments || '')}</p><small>${date(r.event_at || r.changed_at)}${r.actor_user_id ? ' · ' + esc(ref('user', r.actor_user_id)) : ''}</small>${r.old_value || r.new_value ? `<details><summary>Retained change details</summary><pre>${esc(r.old_value || '')}\n${esc(r.new_value || '')}</pre></details>` : ''}</div></div>`), {pageKey, className:'runtime-audit-list', label:'events', summary:false, empty:'<p class="small muted">No activity recorded in this view.</p>'});
+  return pagedCollection(events.map((r) => `<div class="runtime-audit-event">${icon('activity')}<div><strong>${esc(title(r.action || r.new_status || r.stage))}</strong><p>${esc(r.reason || r.comments || '')}</p><small>${date(r.event_at || r.changed_at)}${r.actor_user_id ? ' · ' + auditActor(r) : ''}</small>${r.old_value || r.new_value ? `<details><summary>Retained change details</summary><pre>${esc(r.old_value || '')}\n${esc(r.new_value || '')}</pre></details>` : ''}</div></div>`), {pageKey, className:'runtime-audit-list', label:'events', summary:false, empty:'<p class="small muted">No activity recorded in this view.</p>'});
 }
 function regulatoryPositionDescription(status) {
   return {

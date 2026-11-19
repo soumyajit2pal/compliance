@@ -9,6 +9,12 @@ export function workspacePath(view: ObligationView, query = new URLSearchParams(
   if (view === 'register') next.delete('view'); else next.set('view', view);
   return 'obligations' + (next.size ? '?' + next : '');
 }
+/** The Register tab opens the register; direct exception-report return links remain intact. */
+export function workspaceTabPath(view: ObligationView, query = new URLSearchParams()) {
+  const next = new URLSearchParams(query);
+  if (view === 'register' && next.get('tab') === 'reports') next.delete('tab');
+  return workspacePath(view, next);
+}
 export function workspaceAlias(page: string, query: URLSearchParams) {
   return page === 'applicability' || page === 'accountability' ? workspacePath(page, query) : '';
 }

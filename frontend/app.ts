@@ -16,12 +16,21 @@ import { notificationFamilyHandlers } from './features/notification-families.ts'
 import { installSearchableSelects } from './ui/searchable-select.ts';
 import { regulationRegisterHandlers } from './features/regulation-registers.ts';
 import { obligationHandlers,installObligationEditorEvents } from './features/obligations.ts';
+import { deliveryHandlers } from './features/delivery.ts';
+
+import {controlHandlers} from './features/controls.ts';
+import {employeeSettingsHandlers} from './features/employee-settings.ts';
 
 installSearchableSelects();
 installObligationEditorEvents();
 
 const context = { render, loadIdentity, loginView };
+import {delegationHandlers} from './features/delegations.ts';
 const features = [
+  employeeSettingsHandlers,
+  delegationHandlers,
+  controlHandlers,
+  deliveryHandlers,
   authHandlers,
   repositoryHandlers,
   migrationHandlers,

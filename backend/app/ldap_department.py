@@ -23,12 +23,17 @@ def identity(user, *, current=False):
 
 
 def blocked(user):
+    if user.get('emp_dept_managed_flag'):
+        from .employee_departments import blocked as employee_blocked
+        return employee_blocked(user)
     return user['login_type']=='LDAP' and (user.get('ldap_department_status')!='VERIFIED'
         or not user.get('department_code')
         or identity(user)!=identity(user,current=True))
 
 
 def can_onboard(user):
+    if user.get('emp_dept_managed_flag'):
+        return user['login_type']=='LDAP' and (not blocked(user) or not user.get('emp_dept_approved_code'))
     return user['login_type']=='LDAP' and (not blocked(user) or
         (not user.get('department_code') and user.get('ldap_department_status')=='UNVERIFIED'))
 
@@ -74,7 +79,7 @@ def retire_pending(db,user,status):
               new={'user_id':user['id'],'status':status})
 
 
-def observe(db,user,profile):
+def observe(db,user,profile,passive=False):
     """Called with the user row locked, after successful LDAP authentication."""
     current,valid=observation(profile);at=now()
     approved=identity(user)
@@ -87,10 +92,10 @@ def observe(db,user,profile):
     values.update({
         'ldap_department_checked_at':at,'ldap_department_status':status,
         'ldap_observation_id':new_id() if changed else user['ldap_observation_id']})
-    if status=='VERIFIED':
+    if not passive and status=='VERIFIED':
         retire_pending(db,user,'OBSOLETE')
-    elif changed:retire_pending(db,user,'SUPERSEDED')
-    if status!='VERIFIED' or user.get('ldap_department_status')!='VERIFIED':
+    elif not passive and changed:retire_pending(db,user,'SUPERSEDED')
+    if not passive and (status!='VERIFIED' or user.get('ldap_department_status')!='VERIFIED'):
         db.execute(m.app_session.update().where(m.app_session.c.user_id==user['id']).values(revoked_flag=1))
     if changed or user.get('ldap_department_status')!=status:
         audit(db,None,'user',user['id'],'LDAP_DEPARTMENT_OBSERVED',
@@ -101,6 +106,9 @@ def observe(db,user,profile):
 
 
 def public_status(db,user):
+    if user.get('emp_dept_managed_flag'):
+        from .employee_departments import public_status as employee_status
+        return employee_status(db,user)
     history=[dict(row) for row in db.execute(sa.select(m.ldap_department_request).where(
         m.ldap_department_request.c.user_id==user['id']).order_by(m.ldap_department_request.c.requested_at.desc())).mappings()]
     status=user.get('ldap_department_status','UNVERIFIED')
@@ -122,6 +130,9 @@ def public_status(db,user):
 
 def request_update(db,actor,session,reason=''):
     user=user_locked(db,actor.id)
+    if user.get('emp_dept_managed_flag'):
+        from .employee_departments import request_update as employee_request
+        return employee_request(db,user,session,reason)
     if user['login_type']!='LDAP':raise HTTPException(403,'Only LDAP users can request a directory department update.')
     if session.get('ldap_observation_id')!=user.get('ldap_observation_id'):
         raise HTTPException(409,'LDAP details changed after this sign-in. Sign out and sign in again before requesting an update.')
@@ -158,6 +169,9 @@ def decide(db,actor,identifier,decision,reason):
     user=user_locked(db,request['user_id'])
     request=db.execute(sa.select(m.ldap_department_request).where(m.ldap_department_request.c.id==identifier).with_for_update()).mappings().one()
     if request['status']!='PENDING':raise HTTPException(409,'This department request has already been decided or superseded.')
+    if request.get('identity_source','LEGACY_LDAP')!='LEGACY_LDAP':
+        from .employee_departments import decide as employee_decide
+        return employee_decide(db,actor,user,request,decision,reason)
     if not user['active_flag'] or user['login_type']!='LDAP':raise HTTPException(409,'Only an enabled LDAP account can receive this approval.')
     if (request['observation_id']!=user['ldap_observation_id']
             or any(request['previous_'+key]!=user.get(approved) or request['proposed_'+key]!=user.get(observed)
