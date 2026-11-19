@@ -185,7 +185,8 @@ def normalise(db,raw,seen=None,*,source_attachment=None):
         if fingerprint in seen:errors.append('Duplicate source record in staged population')
         seen.add(fingerprint)
     return {'entity_type':kind,'normalised':normal,'errors':sorted(set(errors)),'fingerprint':fingerprint,
-        'load_available':kind in {'instrument','clause'},'deferred_note':'Obligation loading and workflow are Week 4' if kind=='obligation' else None}
+        'load_available':kind in {'instrument','clause'},
+        'deferred_note':'Use Obligations → Import obligations for the governed obligation workbook. This source import loads regulatory instruments and clauses only.' if kind=='obligation' else None}
 
 
 def stage(db,actor,filename,data,source_system,storage,source_files=()):

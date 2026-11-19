@@ -53,7 +53,8 @@
     "test:obligation-owner-popup": "node tests/obligation-owner-popup.browser.cjs",
     "test:login-design": "node tests/login-editorial.browser.cjs",
     "test:home": "node tests/home-redesign.browser.cjs",
-    "test:obligation-register": "node tests/obligation-register-redesign.browser.cjs"
+    "test:obligation-register": "node tests/obligation-register-redesign.browser.cjs",
+    "test:application-design": "node tests/application-design.browser.cjs"
   },
   "dependencies": {
     "react": "^19.3.0",

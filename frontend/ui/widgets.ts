@@ -15,7 +15,10 @@ export function table(
   rows,
   { summary = true, caption = '', empty = 'No records match this view.', pageKey = '', pagination = undefined as PageInfo | undefined, paginate = true } = {},
 ) {
-  const content = `<div class="table-wrap"><table class="data-table">${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead><tr>${headers.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody ${paginate ? 'data-page-items' : ''}>${rows.length ? rows.map((cells) => `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}"><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`}</tbody></table></div>`;
+  // Labelled cells allow ordinary registers to become readable cards on phones.
+  // Complex matrices and complete hierarchies retain their scrollable table layout.
+  const cards = paginate && headers.length <= 7;
+  const content = `<div class="table-wrap"><table class="data-table${cards ? ' record-table' : ''}"${cards ? ' role="table"' : ''}>${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead${cards ? ' role="rowgroup"' : ''}><tr${cards ? ' role="row"' : ''}>${headers.map((h) => `<th scope="col"${cards ? ' role="columnheader"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody ${paginate ? 'data-page-items' : ''}${cards ? ' role="rowgroup"' : ''}>${rows.length ? rows.map((cells) => `<tr${cards ? ' role="row"' : ''}>${cells.map((c,i) => `<td${cards ? ` role="cell" data-label="${esc(headers[i] || 'Actions')}"` : ''}>${c}</td>`).join('')}</tr>`).join('') : `<tr data-empty-row${cards ? ' role="row"' : ''}><td colspan="${headers.length}"${cards ? ' role="cell"' : ''}><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`}</tbody></table></div>`;
   return paginate ? pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), pagination, summary})
     : content + (summary ? `<div class="table-summary">${rows.length} records · Complete hierarchy</div>` : '');
 }

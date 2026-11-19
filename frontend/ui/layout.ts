@@ -117,7 +117,7 @@ export function shell(contents, key) {
     .toUpperCase();
   const unread = state.notifications?.filter((n) => !n.read_at).length || 0;
   document.body.classList.add('portal-mode');
-  root.innerHTML = `<div class="app-shell${key === 'home' ? ' home-mode' : ''}"><aside id="portal-sidebar" class="sidebar" aria-label="Main navigation">
+  root.innerHTML = `<div class="app-shell${key === 'home' ? ' home-mode' : ''}" data-workspace="${esc(key)}"><aside id="portal-sidebar" class="sidebar" aria-label="Main navigation">
     <a class="brand" href="#home"><span class="brand-mark">${icon('shield')}</span><span class="brand-name">Compliance<span>by Design</span></span></a>
     <button class="icon-button portal-nav-close" type="button" data-action="menu" aria-label="Close navigation">${icon('x')}</button>
     <div class="portal-bank"><img src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}" alt="Bank of Maharashtra"><span>Your compliance workspace</span></div>
@@ -137,7 +137,7 @@ function adminAccessNotice() {
   return `<aside class="admin-access-notice" aria-label="User access attention" role="status">${icon('users')}<div class="grow"><strong>User access needs attention</strong><p>${messages}</p></div><div class="actions">${summary.action_required ? '<a class="btn small" href="#users?tab=ACTION_REQUIRED">Review access requests</a>' : ''}${summary.profile_pending ? '<a class="text-link" href="#users?tab=LDAP&status=PROFILE_PENDING">View pending profiles</a>' : ''}</div></aside>`;
 }
 export function heading(name, description, actions = '') {
-  return `<div class="page-header"><div><h1>${esc(name)}</h1><p>${esc(description)}</p></div>${actions ? `<div class="page-actions">${actions}</div>` : ''}</div>`;
+  return `<div class="page-header workspace-page-header"><div class="page-header-copy"><span class="page-header-eyebrow">YOUR COMPLIANCE WORKSPACE</span><h1>${esc(name)}</h1>${description ? `<p>${esc(description)}</p>` : ''}</div>${actions ? `<div class="page-actions">${actions}</div>` : ''}</div>`;
 }
 export function pageHelp(name, text) {
   return `<details class="portal-page-help"><summary>${icon('info')}<span>${esc(name)}</span><small>How to use this page</small>${icon('down')}</summary><div><p>${text}</p><p><a class="text-link" href="#help">Read the guide ${icon('arrow')}</a></p></div></details>`;

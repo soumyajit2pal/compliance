@@ -95,7 +95,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
       `<input type="hidden" name="tab" value="${esc(tab)}"><div class="field access-status-filter"><label for="access-status">Access status</label><select id="access-status" name="status">${filterOptions.map(([key, label]) => `<option value="${key}" ${status === key ? 'selected' : ''}>${label}</option>`).join('')}</select></div>` +
       (tab === 'LDAP' ? `<div class="field ldap-approval-filter"><label for="ldap-approval">Department approval</label><select id="ldap-approval" name="department">${[['','All department statuses'],['not-approved','Department details not approved'],['pending','Approval request pending'],['changed','Department details changed'],['approved','Approved and verified'],['recheck','Approved — sign-in required'],['unavailable','LDAP details unavailable']].map(([value,label]) => `<option value="${value}" ${departmentFilter === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div>` : '')) +
     (tab === 'LDAP' ? ldapAccounts(rows, data, departmentRequests, state.identity.user.id, ref) :
-    '<p class="small muted users-table-hint">Scroll the table to see roles, next steps and account actions.</p>' +
+    '<p class="small muted users-table-hint">Review account status, assigned roles and the next step for each person.</p>' +
     tablePanel(table(['User', 'Access status', 'LDAP department details', 'Home organisation', 'Effective roles & scope', 'Next step', 'Manage'],
       rows.map((u) => {
         const assignments = data.assignments.filter((a) => a.user_id === u.id);
