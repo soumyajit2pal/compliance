@@ -2,10 +2,13 @@ import { esc, title, badge, link } from './components.ts';
 import { icon } from './icons.ts';
 import { collectionKey, withoutPaging, type PageInfo } from '../core/pagination.ts';
 import { pagedTable } from './pagination.ts';
+import { dashboardInfo } from './dashboard-info.ts';
 export { pagedCollection } from './pagination.ts';
 
-export function panel(name, body, { sub = '', action = '', foot = '', cls = '' } = {}) {
-  return `<section class="panel ${cls}"><div class="panel-head"><div><h2>${esc(name)}</h2>${sub ? `<p>${esc(sub)}</p>` : ''}</div>${action}</div><div class="panel-body">${body}</div>${foot ? `<div class="panel-foot">${foot}</div>` : ''}</section>`;
+export function panel(name, body, { sub = '', action = '', foot = '', cls = '', explanation = '' } = {}) {
+  const heading = `<h2>${esc(name)}</h2>`;
+  const title = explanation ? `<div class="dashboard-panel-title">${heading}${dashboardInfo(name, explanation)}</div>` : heading;
+  return `<section class="panel ${cls}"><div class="panel-head"><div>${title}${sub ? `<p>${esc(sub)}</p>` : ''}</div>${action}</div><div class="panel-body">${body}</div>${foot ? `<div class="panel-foot">${foot}</div>` : ''}</section>`;
 }
 export function note(text, kind = 'info') {
   return `<div class="note ${kind}">${icon(kind === 'danger' || kind === 'warn' ? 'alert' : 'info')}<div>${text}</div></div>`;
@@ -13,13 +16,13 @@ export function note(text, kind = 'info') {
 export function table(
   headers,
   rows,
-  { summary = true, caption = '', empty = 'No records match this view.', pageKey = '', pagination = undefined as PageInfo | undefined, paginate = true } = {},
+  { summary = true, caption = '', empty = 'No records match this view.', pageKey = '', label = '', pagination = undefined as PageInfo | undefined, paginate = true, cardLayout = paginate } = {},
 ) {
   // Labelled cells allow ordinary registers to become readable cards on phones.
   // Complex matrices and complete hierarchies retain their scrollable table layout.
-  const cards = paginate && headers.length <= 7;
+  const cards = cardLayout && headers.length <= 7;
   const content = `<div class="table-wrap"><table class="data-table${cards ? ' record-table' : ''}"${cards ? ' role="table"' : ''}>${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead${cards ? ' role="rowgroup"' : ''}><tr${cards ? ' role="row"' : ''}>${headers.map((h) => `<th scope="col"${cards ? ' role="columnheader"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody ${paginate ? 'data-page-items' : ''}${cards ? ' role="rowgroup"' : ''}>${rows.length ? rows.map((cells) => `<tr${cards ? ' role="row"' : ''}>${cells.map((c,i) => `<td${cards ? ` role="cell" data-label="${esc(headers[i] || 'Actions')}"` : ''}>${c}</td>`).join('')}</tr>`).join('') : `<tr data-empty-row${cards ? ' role="row"' : ''}><td colspan="${headers.length}"${cards ? ' role="cell"' : ''}><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`}</tbody></table></div>`;
-  return paginate ? pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), pagination, summary})
+  return paginate ? pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), label, pagination, summary})
     : content + (summary ? `<div class="table-summary">${rows.length} records · Complete hierarchy</div>` : '');
 }
 export function tablePanel(content, name = '', actions = '', cls = '') {
@@ -54,8 +57,9 @@ export function person(name, sub = '') {
 export function searchForm(id, placeholder, value = '', extra = '') {
   return `<form id="${esc(id)}" class="filters"><div class="search-field">${icon('search')}<input type="search" name="q" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}" value="${esc(value)}"></div>${extra}<button class="btn small" type="submit">Search</button></form>`;
 }
-export function stat(label, value, sub, path, ic = 'file', color = 'sage') {
-  return `<a class="portal-stat ${color}" href="#${esc(path)}"><span class="portal-stat-icon">${icon(ic)}</span><span class="portal-stat-label">${esc(label)}</span><strong>${value}</strong><small>${esc(sub)}</small><span class="portal-stat-arrow">${icon('arrow')}</span></a>`;
+export function stat(label, value, sub, path, ic = 'file', color = 'sage', explanation = '') {
+  const tile = `<a class="portal-stat ${color}" href="#${esc(path)}"><span class="portal-stat-icon">${icon(ic)}</span><span class="portal-stat-label">${esc(label)}</span><strong>${value}</strong><small>${esc(sub)}</small><span class="portal-stat-arrow">${icon('arrow')}</span></a>`;
+  return explanation ? `<div class="dashboard-stat-frame">${tile}${dashboardInfo(label, explanation)}</div>` : tile;
 }
 export function stepFlow(status) {
   const stages = ['Draft', 'Compliance review', 'Final approval', 'Approved'];

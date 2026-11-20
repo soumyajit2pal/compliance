@@ -3,6 +3,7 @@ import { api } from '../core/api.ts';
 import { has } from '../core/access.ts';
 import { esc, title, date, localDate, link } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
+import { dashboardInfo } from '../ui/dashboard-info.ts';
 import { stat, person } from '../ui/widgets.ts';
 import { canNavigate } from '../ui/layout.ts';
 
@@ -16,7 +17,7 @@ function taskLink(t) {
 }
 function taskPresentation(t) {
   if(t.workflow_kind==='LEAVE_DELEGATION')return {label:'Leave cover',description:'Check the existing roles, scope and dates before deciding.',action:'Review leave cover',icon:'users'};
-  if(t.workflow_kind==='CONTROL')return {label:'Control governance',description:'Review the check or mapping and record your named decision.',action:t.kind==='DRAFT'?'Continue preparation':'Review proposal',icon:'shield'};
+  if(t.workflow_kind==='CONTROL')return {label:'Check and obligation link review',description:'Review the check or obligation link and record your named decision.',action:t.kind==='DRAFT'?'Continue preparation':'Review proposal',icon:'shield'};
   if(['ACTION','ACTION_EXTENSION'].includes(t.workflow_kind))return {label:t.workflow_kind==='ACTION_EXTENSION'?'Internal target request':'Assigned action',description:'Record the outcome and proof, then follow independent review.',action:t.kind==='DECISION'?'Review assigned work':'Continue work',icon:'checkSquare'};
   if(t.workflow_kind==='OWNERSHIP_CHANGE')return {label:'Ownership change',description:'Review the proposed ownership change and your assigned decision.',action:'Review ownership',icon:'users'};
   if(t.workflow_kind==='OBLIGATION')return {label:'Obligation ownership',description:'Review the obligation and your named responsibility.',action:'Open assignment',icon:'checkSquare'};
@@ -49,7 +50,7 @@ export async function homePage() {
     sources = [];
   if (admin) users = (await api('/admin/users')).users;
   else sources = await api('/instruments');
-  const stats = admin
+  const stats: [string, number, string, string, string, string, string][] = admin
     ? [
         [
           'Active users',
@@ -58,6 +59,7 @@ export async function homePage() {
           'users',
           'users',
           'sage',
+          'Counts enabled user accounts. Access also depends on approved roles and any required profile steps.',
         ],
         [
           'Access action required',
@@ -66,6 +68,7 @@ export async function homePage() {
           'users?tab=ACTION_REQUIRED',
           'users',
           'plum',
+          'Counts accounts that an administrator needs to review for access approval or a role assignment.',
         ],
         [
           'Application roles',
@@ -74,6 +77,7 @@ export async function homePage() {
           'help?tab=roles',
           'shield',
           'sand',
+          'Counts active application roles in Master data. One person can have several roles.',
         ],
       ]
     : oversight
@@ -85,6 +89,7 @@ export async function homePage() {
             'repository',
             'book',
             'sage',
+            'Counts regulatory instruments visible to you, including drafts and retained instruments.',
           ],
           [
             'Current sources',
@@ -93,6 +98,7 @@ export async function homePage() {
             'repository?regulatory_status=CURRENT',
             'checkSquare',
             'plum',
+            'Counts visible instruments whose regulatory status is current.',
           ],
           [
             'My decisions',
@@ -101,6 +107,7 @@ export async function homePage() {
             'approvals',
             'shield',
             'sand',
+            'Counts review, approval and other decision tasks currently assigned to you.',
           ],
         ]
       : [
@@ -111,6 +118,7 @@ export async function homePage() {
             'tasks',
             'checkSquare',
             'sage',
+            'Counts the assignments in My tasks that are currently actionable by you.',
           ],
           [
             'Decisions waiting',
@@ -119,6 +127,7 @@ export async function homePage() {
             'approvals',
             'shield',
             'plum',
+            'Counts the review, approval and other decision tasks within your current assignments.',
           ],
           [
             'Due in the next 7 days',
@@ -127,25 +136,27 @@ export async function homePage() {
             'tasks?tab=due',
             'calendar',
             'sand',
+            'Counts your assignments with a due date from today through seven days from today, inclusive.',
           ],
         ];
   const quick = admin
     ? [
-        ['Manage people', 'Create accounts and review access', 'users', 'users'],
+        ['Manage people', 'Create accounts and review access', 'users', 'users', 'Manage accounts, approved roles and department scope in Users & access.'],
         [
           'Maintain departments',
           'Keep the organisation hierarchy clear',
           'masters?tab=organisation',
           'org',
+          'Review departments, their parent units and the available changes in the organisation hierarchy.',
         ],
-        ['Review settings', 'Maintain approved reference data', 'masters', 'settings'],
+        ['Review settings', 'Maintain approved reference data', 'masters', 'settings', 'Maintain the reference lists used on forms in Master data.'],
       ]
     : [
         ...(has('AUTHOR')
-          ? [['Register a notification', 'Add a new regulatory source', 'repository/new', 'plus']]
-          : [['Find a notification', 'Search the regulatory library', 'repository', 'book']]),
-        ['Open my work', 'Follow your assigned next steps', 'tasks', 'checkSquare'],
-        ['Check my decisions', 'Review requests assigned to you', 'approvals', 'shield'],
+          ? [['Register a notification', 'Add a new regulatory source', 'repository/new', 'plus', 'Start a draft regulatory instrument and register its first source edition.']]
+          : [['Find a notification', 'Search the regulatory library', 'repository', 'book', 'Search visible instruments and browse their source editions.']]),
+        ['Open my work', 'Follow your assigned next steps', 'tasks', 'checkSquare', 'Opens My tasks with the work and decisions assigned to you.'],
+        ['Check my decisions', 'Review requests assigned to you', 'approvals', 'shield', 'Opens your assigned reviews, approvals and other decisions that need a response.'],
       ];
   const next = tasks[0];
   const nextInfo = next ? taskPresentation(next) : null;
@@ -184,7 +195,7 @@ export async function homePage() {
         <div class="home-priority-copy">${next&&!admin?`<span class="home-priority-stage">${esc(nextInfo.label)}</span>`:''}<h2 id="home-priority-title" title="${esc(primaryTitle)}">${esc(primaryTitle)}</h2><p>${esc(primaryCopy)}</p></div>
         <a class="home-primary" href="#${esc(primaryPath)}">${esc(primaryAction)}${icon('arrow')}</a>
       </section>
-      <section class="home-metrics" aria-label="${admin?'Administration totals':oversight?'Your authorised overview':'Your work at a glance'}">${stats.map(s=>stat(...(s as [string,string|number,string,string,string?,string?]))).join('')}</section>
+      <section class="home-metrics" aria-label="${admin?'Administration totals':oversight?'Your authorised overview':'Your work at a glance'}">${stats.map(s=>stat(...s)).join('')}</section>
     </div>
     <div class="home-board">
       <section class="home-panel home-queue" aria-labelledby="home-queue-title"><div class="home-panel-heading"><div><span class="home-eyebrow">${admin?'WORKSPACE DIRECTORY':'YOUR ASSIGNED WORK'}</span><h2 id="home-queue-title">${admin?'People & access':'Your next steps'}<span class="home-count">${admin?users.length:tasks.length}</span></h2><p>${admin?'A quick view of accounts in your workspace.':tasks.length>4?'Showing your next 4 assignments, ordered by due date.':'Open an assignment to pick up where you left off.'}</p></div>${link(admin?'users':'tasks',admin?'Manage users':'View all work','home-text-link')}</div>
@@ -193,7 +204,7 @@ export async function homePage() {
         <div class="home-queue-foot">${icon('info')}<span>${admin?'Account status and effective role assignments are separate access checks.':'Your personal assignments are shown here. Department-wide records are available in the registers.'}</span></div>
       </section>
       <section class="home-panel home-actions" aria-labelledby="home-actions-title"><div class="home-panel-heading"><div><span class="home-eyebrow">COMMON TASKS</span><h2 id="home-actions-title">Quick actions</h2><p>A shorter route to what you need.</p></div>${icon('sparkle')}</div>
-        <div class="home-action-list">${shortcuts.map(([name,sub,path,ic])=>`<a class="home-action" href="#${esc(path)}"><span class="home-action-symbol">${icon(ic)}</span><div><strong>${esc(name)}</strong><small>${esc(sub)}</small></div>${icon('arrow')}</a>`).join('')}</div>
+        <div class="home-action-list">${shortcuts.map(([name,sub,path,ic,explanation])=>`<div class="home-action-frame"><a class="home-action" href="#${esc(path)}"><span class="home-action-symbol">${icon(ic)}</span><div><strong>${esc(name)}</strong><small>${esc(sub)}</small></div>${icon('arrow')}</a>${dashboardInfo(name,explanation)}</div>`).join('')}</div>
         <a class="home-help-link" href="#help">${icon('book')}<span>Need a hand?<small>Open the step-by-step guide.</small></span>${icon('arrow')}</a>
       </section>
     </div>

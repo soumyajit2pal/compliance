@@ -201,13 +201,16 @@
 .portal-mode .runtime-help .guide-downloads { padding: 18px 20px; margin-bottom: 22px; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
 .portal-mode .access-overview { border-color: var(--line); background: #fff; border-radius: 12px; }
 .portal-mode .user-access-page .data-table { width: 100%; min-width: 960px; table-layout: fixed; }
-.portal-mode .user-access-page .data-table th:nth-child(1) { width: 20%; }
-.portal-mode .user-access-page .data-table th:nth-child(2) { width: 13%; }
-.portal-mode .user-access-page .data-table th:nth-child(3) { width: 12%; }
-.portal-mode .user-access-page .data-table th:nth-child(4) { width: 12%; }
-.portal-mode .user-access-page .data-table th:nth-child(5) { width: 15%; }
-.portal-mode .user-access-page .data-table th:nth-child(6) { width: 16%; }
-.portal-mode .user-access-page .data-table th:nth-child(7) { width: 12%; }
+.access-account-table th:nth-child(1) { width: 17%; }
+.access-account-table th:nth-child(2) { width: 15%; }
+.access-account-table th:nth-child(3) { width: 16%; }
+.access-account-table th:nth-child(4) { width: 12%; }
+.access-account-table th:nth-child(5) { width: 14%; }
+.access-account-table th:nth-child(6) { width: 16%; }
+.access-account-table th:nth-child(7) { width: 10%; }
+.access-account-table td :is(.tag, .btn) { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.access-account-table td .tag { margin-inline: 0; }
+.access-profile-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .portal-mode .user-access-page .data-table td { padding: 16px 13px; overflow-wrap: anywhere; }
 .portal-mode .user-access-page .data-table th { padding-inline: 13px; white-space: normal; overflow-wrap: normal; }
 .portal-mode .user-access-page .data-table td:last-child { font-size: 11px; }
@@ -267,6 +270,7 @@
   .app-shell:not([data-workspace=obligations]) .content .record-table tbody tr { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); min-width: 0; gap: 16px 12px; padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
   .app-shell:not([data-workspace=obligations]) .content .record-table td { display: block; min-width: 0; width: auto; padding: 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
   .app-shell:not([data-workspace=obligations]) .content .record-table td:first-child, .app-shell:not([data-workspace=obligations]) .content .record-table td:last-child { grid-column: 1 / -1; }
+  .access-account-table .record-table td:nth-child(6) { grid-column: 1 / -1; }
   .app-shell:not([data-workspace=obligations]) .content .record-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 600; }
   .app-shell:not([data-workspace=obligations]) .content .record-table .record-title { min-width: 0; font-size: 13px; }
   .app-shell:not([data-workspace=obligations]) .content .record-table tr[data-empty-row] { display: block; padding: 0; border: 0; }

@@ -11,9 +11,9 @@ function restoreFocus() {
   if (target?.isConnected) target.focus();
 }
 dialog.addEventListener('close', restoreFocus);
-export function modal(name, contents, form = '', save = 'Save', sub = '') {
+export function modal(name, contents, form = '', save = 'Save', sub = '', trigger?: HTMLElement) {
   clearMessage();
-  lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (!dialog.open) lastFocus = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
   dialog.className = 'modal wide runtime-dialog';
   const footer = `<div class="modal-footer"><span class="keyboard-hint">Esc to close</span><div class="row">${button('close', 'Cancel')}<button class="btn primary" type="submit">${esc(save)}</button></div></div>`;
   const body = form

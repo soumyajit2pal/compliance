@@ -46,75 +46,25 @@
 		}
 	}
 	// core/ldap-readiness.ts
-	/** Presentation only. The API remains the authority for access and decisions. */
+	/** Presentation only; server-side employee approval and role scope remain authoritative. */
 	function ldapDepartmentState(user) {
-		if (user.emp_dept_managed_flag) {
-			const matches = !!user.emp_dept_approved_code && user.emp_dept_approved_code === user.emp_dept_observed_code && user.emp_dept_approved_namespace === user.emp_dept_namespace;
-			const status = user.emp_dept_status;
-			return {
-				key: status === "VERIFIED" && matches ? "approved" : status === "MISMATCH" ? "changed" : status === "RECHECK_REQUIRED" ? "recheck" : status === "UNAVAILABLE" ? "unavailable" : "not-approved",
-				label: status === "VERIFIED" && matches ? "Employee department approved" : status === "MISMATCH" ? "Department changed — admin review pending" : status === "RECHECK_REQUIRED" ? "Department approved — sign-in required" : "Employee department verification required",
-				tone: status === "VERIFIED" && matches ? "green" : "amber",
-				approved: ["VERIFIED", "RECHECK_REQUIRED"].includes(status) && matches,
-				blocked: status !== "VERIFIED" || !matches,
-				detail: status === "VERIFIED" && matches ? "The employee department matches the approved baseline." : status === "RECHECK_REQUIRED" ? "Sign in again to verify the approved department." : "Observed changes are automatically sent to an independent administrator. Home organisation and role scope remain separately approved."
-			};
-		}
-		const status = user.ldap_department_status;
-		const approved = user.department_code;
-		const current = user.ldap_last_seen_department_code;
-		const valid = (value, maximum = 100) => typeof value === "string" && value.trim().length > 0 && [...value].length <= maximum && !/[\x00-\x1f\x7f]/.test(value);
-		const fields = [[
-			"ldap_division",
-			"ldap_last_seen_division",
-			250
-		], [
-			"ldap_info",
-			"ldap_last_seen_info",
-			2e3
-		]];
-		const optionalValid = fields.every(([a, b, max]) => [user[a], user[b]].every((value) => value == null || valid(value, max)));
-		const differs = approved !== current || fields.some(([a, b]) => (user[a] ?? null) !== (user[b] ?? null));
-		const matches = Boolean(valid(approved) && valid(current) && optionalValid && !differs);
-		if (status === "UNAVAILABLE") return {
-			key: "unavailable",
-			label: "LDAP department details unavailable",
-			tone: "amber",
-			approved: false,
-			blocked: true,
-			detail: "LDAP must return a valid department code and single valid division/info values when present."
-		};
-		if (status === "MISMATCH" || ["VERIFIED", "RECHECK_REQUIRED"].includes(status) && valid(approved) && valid(current) && differs) return {
-			key: "changed",
-			label: "Department details changed — approval required",
-			tone: "amber",
-			approved: false,
-			blocked: true,
-			detail: "The current LDAP department code, division or info differs from the approved details. Application access is blocked."
-		};
-		if (status === "RECHECK_REQUIRED" && matches) return {
-			key: "recheck",
-			label: "Department approved — sign-in required",
+		if (!(user.employee_profile_required ?? user.login_type === "LDAP")) return {
+			key: "approved",
+			label: "Employee profile not required",
 			tone: "neutral",
 			approved: true,
-			blocked: true,
-			detail: "The update is approved. The user must sign in with LDAP again to verify the current details."
-		};
-		if (status === "VERIFIED" && matches) return {
-			key: "approved",
-			label: "Department details approved",
-			tone: "green",
-			approved: true,
 			blocked: false,
-			detail: "The current LDAP department code, division and info match the approved details."
+			detail: "Existing Standard account access rules apply."
 		};
+		const state = user.employee_profile_status;
+		const verified = state === "VERIFIED" && !!user.employee_approved_version_id && user.employee_latest_version_id === user.employee_approved_version_id;
 		return {
-			key: "not-approved",
-			label: "Department details not approved",
-			tone: "amber",
-			approved: false,
-			blocked: true,
-			detail: "Application access is blocked until the LDAP department code, division and info are independently approved."
+			key: verified ? "approved" : state === "RECHECK_REQUIRED" ? "recheck" : state === "UNAVAILABLE" ? "unavailable" : user.employee_approved_version_id ? "changed" : "not-approved",
+			label: verified ? "Employee profile approved" : state === "RECHECK_REQUIRED" ? "Profile approved — sign-in required" : state === "UNAVAILABLE" ? "LDAP department unavailable" : state === "REJECTED" ? "Employee profile change rejected" : "Employee profile approval required",
+			tone: verified ? "green" : "amber",
+			approved: verified || state === "RECHECK_REQUIRED",
+			blocked: !verified,
+			detail: user.employee_warning || (verified ? "Separate LDAP and API baselines are approved." : state === "RECHECK_REQUIRED" ? "Sign out and sign in again." : "Review the LDAP department and API employee details together. Home organisation, roles and scope remain separately administered.")
 		};
 	}
 	// core/swagger-request.ts
@@ -239,7 +189,7 @@
 			const department = ldapDepartmentState(user);
 			if (department.blocked) {
 				requirements.push(department.label + ".");
-				if (user.department_code || user.ldap_last_seen_department_code) requirements.push("Approved / current LDAP code: " + (user.department_code || "Not approved") + " / " + (user.ldap_last_seen_department_code || "Unavailable") + "; division: " + (user.ldap_division || "Not recorded") + " / " + (user.ldap_last_seen_division || "Not returned") + "; info: " + (user.ldap_info || "Not recorded") + " / " + (user.ldap_last_seen_info || "Not returned") + ".");
+				if (user.employee_profile_required) requirements.push("Employee profile: " + (user.employee_profile_status || "Not approved") + ". Separate LDAP and API baselines require independent review.");
 			}
 		}
 		if (!identity.roles.length) requirements.push("Administrator-approved roles and scope are required.");

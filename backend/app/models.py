@@ -100,12 +100,6 @@ user = table("user", string("username", 100), string("full_name", 250), string("
     string("login_type", 20, default="'STANDARD'"), string("password_hash", 300, True),
     fk("org_unit_id", "organisational_unit", True), flag("active_flag", "1"), flag("must_change_password_flag", "1"),
     flag("needs_email_confirmation_flag"), flag("needs_department_selection_flag"),
-    string("department_code", 100, True), string("ldap_last_seen_department_code", 100, True),
-    string("ldap_division", 250, True), string("ldap_last_seen_division", 250, True),
-    string("ldap_info", 2000, True), string("ldap_last_seen_info", 2000, True),
-    time("ldap_department_checked_at", True), string("ldap_observation_id", 36, True),
-    string("ldap_department_status", 30, default="'UNVERIFIED'"),
-    check("user_ldap_department", "ldap_department_status IN ('UNVERIFIED','VERIFIED','MISMATCH','UNAVAILABLE','RECHECK_REQUIRED')"),
     unique("username"), check("user_login", "login_type IN ('STANDARD','LDAP')"))
 role = master("role")
 user_role = table("user_role", fk("user_id", "user"), fk("role_id", "role"),
@@ -193,7 +187,7 @@ clause_relationship = table("clause_relationship", fk("source_clause_id", "regul
     unique("source_clause_id", "target_clause_id", "relationship_type", "effective_from"))
 compliance_obligation = table("compliance_obligation", string("code", 200),
     fk("primary_clause_id", "regulatory_clause"), string("title", 500), text("statement"), text("internal_interpretation"),
-    fk("category_id", "obligation_category"), *enum("obligation_nature", "ONGOING", "PERIODIC", "EVENT_DRIVEN", "ONE_TIME"),
+    fk("category_id", "obligation_category"), sa.Column("obligation_nature", sa.String(40), sa.ForeignKey("cbd_obligation_nature.code"), nullable=False),
     fk("frequency_id", "frequency"), fk("primary_domain_id", "regulatory_domain"),
     *enum("criticality", "CRITICAL", "HIGH", "MEDIUM", "LOW"), text("breach_consequence"), text("evidence_standard"),
     flag("testing_required_flag"), flag("certification_required_flag"), flag("reporting_required_flag"), flag("retention_required_flag"),
@@ -247,8 +241,8 @@ obligation_policy_map = table("obligation_policy_map", fk("obligation_id", "comp
 
 # Control design, execution and reusable evidence (§7).
 control = table("control", string("code", 80), string("title", 500), text("description"), text("objective"),
-    *enum("control_type", "PREVENTIVE", "DETECTIVE", "CORRECTIVE"),
-    *enum("execution_mode", "MANUAL", "AUTOMATED", "HYBRID"), fk("frequency_id", "frequency"),
+    sa.Column("control_type", sa.String(40), sa.ForeignKey("cbd_control_type.code"), nullable=False),
+    sa.Column("execution_mode", sa.String(40), sa.ForeignKey("cbd_execution_mode.code"), nullable=False), fk("frequency_id", "frequency"),
     fk("owner_unit_id", "organisational_unit"), fk("owner_user_id", "user", True),
     fk("evidence_type_id", "evidence_type"), fk("system_id", "system", True), flag("key_control_flag"),
     *enum("control_status", "DESIGNED", "IMPLEMENTED", "INEFFECTIVE", "RETIRED", default="DESIGNED"),
@@ -439,7 +433,7 @@ id_counter = table("id_counter", string("entity_type", 60), string("prefix", 40)
 # Runtime security state. Created only by revision 0009, never by API startup.
 app_session = table("app_session", fk("user_id", "user"), string("token_hash", 64),
     string("csrf_token", 100), time("expires_at"), time("last_seen_at"), flag("revoked_flag"),
-    string("ldap_observation_id", 36, True),
+    fk("employee_version_id", "employee_profile_version", True, use_alter=True),
     unique("token_hash"))
 login_attempt = table("login_attempt", string("identity_hash", 64), string("address_hash", 64),
     flag("succeeded_flag"), time("attempted_at"))
@@ -499,18 +493,10 @@ used_login_challenge = table('used_login_challenge', time('expires_at'))
 sa.Index('ix_used_login_challenge_expires', used_login_challenge.c.expires_at)
 
 # Retained LDAP identity approvals; independent of home organisation and roles.
-ldap_department_request = table('ldap_department_request', fk('user_id','user'),
-    string('previous_code',100,True), string('proposed_code',100), time('observed_at'),
-    string('previous_division',250,True), string('proposed_division',250,True),
-    string('previous_info',2000,True), string('proposed_info',2000,True),
-    string('observation_id',36), fk('requested_by','user'), time('requested_at'),
-    string('request_reason',1000,True), string('status',20,default="'PENDING'"),
-    fk('decided_by','user',True), time('decided_at',True), string('decision_reason',1000,True),
-    check('ldap_dept_request_state', "status IN ('PENDING','APPROVED','REJECTED','SUPERSEDED','OBSOLETE')"),
-    check('ldap_dept_request_owner', 'requested_by = user_id'),
-    check('ldap_dept_independent', "status NOT IN ('APPROVED','REJECTED') OR (decided_by IS NOT NULL AND decided_at IS NOT NULL AND decision_reason IS NOT NULL AND decided_by <> user_id)"))
-sa.Index('uq_cbd_ldap_dept_pending',sa.case((ldap_department_request.c.status=='PENDING',
-    ldap_department_request.c.user_id),else_=None),unique=True)
+# Archived evidence survives cleanup; it is not an active approval workflow.
+employee_legacy_record=table('employee_legacy_record',fk('user_id','user'),
+    string('record_type',30),string('original_id',36),text('payload'),
+    unique('record_type','original_id'))
 
 # Append new tables so earlier frozen check-constraint identities remain stable.
 obligation_validation_task = table("obligation_validation_task", fk("owner_id", "obligation_owner"),
@@ -619,41 +605,59 @@ leave_delegation=table('leave_delegation',fk('principal_user_id','user'),fk('del
 for column in [fk('on_behalf_of_user_id','user',True),fk('delegation_id','leave_delegation',True)]:audit_log.append_column(column)
 audit_log.append_column(string('actor_name',250,True))
 audit_log.append_column(string('on_behalf_of_name',250,True))
+for column in (
+    string('client_ip', 45, True), string('request_id', 36, True),
+    string('request_method', 12, True), string('request_route', 250, True),
+    string('actor_username', 100, True), string('actor_roles', 300, True),
+    string('user_agent', 512, True), col('http_status', sa.Integer(), True),
+    col('duration_ms', sa.Numeric(12, 2), True),
+):
+    audit_log.append_column(column)
+sa.Index('ix_cbd_audit_timeline', audit_log.c.event_at, audit_log.c.id)
+sa.Index('ix_cbd_audit_subject', audit_log.c.entity_type, audit_log.c.entity_id)
+sa.Index('ix_cbd_audit_request', audit_log.c.request_id, audit_log.c.entity_type)
 for target in [leave_delegation,audit_log]:
     for column in target.c:
         if column.foreign_keys and not any(list(i.columns)[0] is column for i in target.indexes):
             digest=__import__('hashlib').sha1((target.name+column.name).encode()).hexdigest()[:8]
             sa.Index('ix_'+target.name[4:18]+'_'+digest,column)
 
-# Employee-master metadata is deliberately separate from approved LDAP/access fields.
-# Append here to preserve the frozen enum constraint identities above.
+# One employee profile controller; approved and observed values live in immutable versions.
 from sqlalchemy.dialects.oracle import TIMESTAMP as OracleTimestamp
-employee_profile=table('employee_profile',fk('user_id','user'),string('pf_no',40),
-    string('account_name',100),string('employee_name',250,True),string('designation',250,True),
-    string('branch_code',40,True),string('branch_name',250,True),string('current_branch_code',40,True),
-    string('zone_code',40,True),string('zone_name',250,True),string('department_code',100,True),
-    string('department_name',250,True),string('employee_status',40,True),
+employee_profile=table('employee_profile',fk('user_id','user'),string('pf_no',40,True),
+    string('account_name',100),string('status',30,default="'UNVERIFIED'"),
+    fk('approved_version_id','employee_profile_version',True,use_alter=True),
+    fk('latest_version_id','employee_profile_version',True,use_alter=True),
+    string('warning',500,True),time('ldap_checked_at',True),
     string('sync_status',20),string('last_error_code',40,True),text('missing_fields',True),
     time('last_attempt_at'),time('last_success_at',True),
     col('attempt_started_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle')),
     col('retry_count',sa.Integer(),default='0'),time('next_retry_at',True),
     string('lease_token',36,True),time('lease_until',True),
+    check('employee_profile_status',"status IN ('UNVERIFIED','PENDING','REJECTED','RECHECK_REQUIRED','VERIFIED','UNAVAILABLE')"),
     check('employee_sync_status',"sync_status IN ('SUCCESS','PARTIAL','FAILED')"),
     check('employee_retry_count','retry_count >= 0'),unique('user_id'))
 sa.Index('ix_cbd_employee_retry',employee_profile.c.next_retry_at,employee_profile.c.lease_until)
+employee_profile_version=table('employee_profile_version',fk('profile_id','employee_profile'),
+    string('fingerprint',64),string('ldap_department_code',100,True),flag('ldap_valid_flag'),flag('api_complete_flag'),
+    string('employee_name',250,True),string('designation',250,True),
+    string('branch_code',40,True),string('branch_name',250,True),string('current_branch_code',40,True),
+    string('zone_code',40,True),string('zone_name',250,True),string('department_code',100,True),
+    string('department_name',250,True),string('employee_status',40,True),
+    string('observation_source',20),col('observed_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle')),col('api_observed_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle'),True),
+    check('employee_version_source',"observation_source IN ('LOGIN','API_RETRY')"),unique('profile_id','fingerprint'))
+employee_profile_review=table('employee_profile_review',fk('profile_id','employee_profile'),
+    fk('version_id','employee_profile_version'),fk('previous_version_id','employee_profile_version',True),
+    fk('requested_by','user'),col('requested_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle')),string('request_reason',1000),
+    string('status',20,default="'PENDING'"),fk('decided_by','user',True),col('decided_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle'),True),string('decision_reason',1000,True),
+    check('employee_review_status',"status IN ('PENDING','APPROVED','REJECTED','SUPERSEDED','OBSOLETE')"),
+    check('employee_review_independent',"status NOT IN ('APPROVED','REJECTED') OR (decided_by IS NOT NULL AND decided_by <> requested_by AND decided_at IS NOT NULL AND decision_reason IS NOT NULL)"))
+sa.Index('uq_cbd_employee_pending',sa.case((employee_profile_review.c.status=='PENDING',employee_profile_review.c.profile_id),else_=None),unique=True)
 
-
-# Source-aware employee department verification supplements retained LDAP evidence.
-for column in [flag('emp_dept_managed_flag'),string('emp_dept_approved_code',100,True),
-    string('emp_dept_approved_name',250,True),string('emp_dept_approved_namespace',10,True),
-    string('emp_dept_observed_code',100,True),string('emp_dept_observed_name',250,True),
-    string('emp_dept_namespace',10,True),string('emp_dept_source',30,True),string('emp_dept_status',30,True),
-    string('emp_dept_observation_id',36,True),col('emp_dept_checked_at',sa.DateTime().with_variant(OracleTimestamp(),'oracle'),True),
-    string('emp_dept_warning',500,True)]:user.append_column(column)
-user.append_constraint(check('emp_dept_managed','emp_dept_managed_flag IN (0,1)'))
-user.append_constraint(check('emp_dept_status',"emp_dept_status IS NULL OR emp_dept_status IN ('UNVERIFIED','VERIFIED','MISMATCH','UNAVAILABLE','RECHECK_REQUIRED')"))
-for column in [string('identity_source',30,default="'LEGACY_LDAP'"),string('previous_namespace',10,True),
-    string('proposed_namespace',10,True),string('previous_department_name',250,True),string('proposed_department_name',250,True),
-    flag('automatic_flag')]:ldap_department_request.append_column(column)
-ldap_department_request.append_constraint(check('dept_request_source',"identity_source IN ('LEGACY_LDAP','EMPLOYEE_API','LDAP_FALLBACK')"))
-ldap_department_request.append_constraint(check('dept_request_auto','automatic_flag IN (0,1)'))
+# The configurable classifications retain their original permanent codes on checks.
+obligation_nature = master("obligation_nature", 40, col("display_sequence", sa.Integer(), default="100"))
+control_type = master("control_type", 40, col("display_sequence", sa.Integer(), default="100"))
+execution_mode = master("execution_mode", 40, col("display_sequence", sa.Integer(), default="100"))
+dropdown_config = table("dropdown_config", col("revision", sa.Integer()), text("definition"))
+dropdown_answer = table("dropdown_answer", string("form_key", 80), string("record_id", 36),
+                        text("answers"), unique("form_key", "record_id"))

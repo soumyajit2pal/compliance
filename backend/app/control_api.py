@@ -40,7 +40,7 @@ def install(app,get_db,current):
     @app.get('/api/control-assignees')
     def owners(unit_id:str,role:str,db=Depends(get_db),actor=Depends(current)):
         actor.require(READ_ROLES,unit_id)
-        if role not in {'CONTROL_OWNER','REVIEWER','APPROVER'}:raise HTTPException(422,'Choose a control owner, reviewer or approver.')
+        if role not in {'CONTROL_OWNER','REVIEWER','APPROVER'}:raise HTTPException(422,'Choose a check owner, reviewer or approver.')
         result=[]
         for user in d.allrows(db,m.user,m.user.c.active_flag==1):
             try:repo.eligible(db,user['id'],role,unit_id)

@@ -10,14 +10,13 @@ from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
-from ldap3 import Server, Connection, Tls, SUBTREE, BASE, ALL_ATTRIBUTES, ALL_OPERATIONAL_ATTRIBUTES
+from ldap3 import Server, Connection, Tls, SUBTREE, BASE
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn
 from ldap3.core.exceptions import LDAPException
 import sqlalchemy as sa
 from . import models as m
 from .events import new_id
-from .ldap_profile import public_attributes
 from .ldap_ca_certificates import (
     CertificateValidationError, normalize_base64_certificate_bundle, safe_certificate_name,
 )
@@ -27,9 +26,7 @@ DEFAULTS = {
     'base_dn': '', 'bind_dn': '', 'bind_password': '',
     'user_dn_template': '', 'user_search_filter': '(sAMAccountName={username})',
     'ca_cert_file': '', 'ca_certificate_pem': '', 'ca_certificate_name': '',
-    'ca_certificate_metadata': [], 'attr_full_name': 'displayName',
-    'attr_email': 'mail', 'attr_department_code': 'department',
-    'attr_division': 'division', 'attr_info': 'info',
+    'ca_certificate_metadata': [], 'attr_department_code': 'department',
 }
 
 
@@ -140,7 +137,7 @@ def validate_directory(cfg):
         raise HTTPException(422, 'Configure a base DN and read-only bind account, or a direct user DN template.')
     if template.count('{username}') != 1 or re.search(r'[{}]', template.replace('{username}', '')):
         raise HTTPException(422, 'The selected username pattern must include {username} exactly once, with no other placeholders.')
-    for name in ('attr_full_name', 'attr_email', 'attr_department_code', 'attr_division', 'attr_info'):
+    for name in ('attr_department_code',):
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9;-]*', cfg.get(name, DEFAULTS[name])):
             raise HTTPException(422, 'Enter valid directory profile attribute names.')
 
@@ -190,14 +187,7 @@ def mock_profile(settings, username, password):
     if not username.casefold().startswith(prefix.casefold()): return None, False
     if not password or not hmac.compare_digest(password.encode(), settings.ldap_mock_password.encode()):
         return None, True
-    suffix = username[len(prefix):].strip('-_. ').replace('-', ' ').replace('_', ' ').title()
-    full_name = 'Mock LDAP ' + (suffix or username)
-    email = username + '@mock-ldap.test'
-    return {'full_name': full_name, 'email': email, 'department_code':'DEMO-001',
-            'division': 'DEMO DIVISION', 'info': 'DEMO INFO',
-            'source': 'uat_mock', 'distinguished_name': None, 'attributes_available': True,
-            'attributes': {'uid': [username], 'displayName': [full_name], 'mail': [email],
-                           'department':['DEMO-001'], 'division':['DEMO DIVISION'], 'info':['DEMO INFO']}}, True
+    return {'username':username,'source':'uat_mock','ldap_department_code':'DEMO-LDAP-001'}, True
 
 
 def authenticate_directory(db, settings, username, password, *, config_override=None, allow_mock=True):
@@ -240,38 +230,19 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                 c.unbind()
                 raise
 
-        attributes = list(dict.fromkeys([ALL_ATTRIBUTES, ALL_OPERATIONAL_ATTRIBUTES] +
-            [cfg.get(k, DEFAULTS[k]) for k in ('attr_full_name', 'attr_email', 'attr_department_code',
-                'attr_division', 'attr_info') if cfg.get(k, DEFAULTS[k])] + ['cn']))
-        profile = {'full_name': username, 'email': None, 'department_code':None, 'division':None, 'info':None,
-                   'comparison_attributes_valid': True,
-                   'source': 'ldap', 'distinguished_name': None,
-                   'attributes_available': False, 'attributes': {}}
+        # Resolve the authenticated identity and separate LDAP department only.
+        attributes=list(dict.fromkeys(['sAMAccountName',cfg['attr_department_code']]))
+        profile={'username':username,'source':'ldap'}
 
-        def enrich(entry):
-            returned = public_attributes(entry.entry_attributes_as_dict)
-            profile.update(distinguished_name=entry.entry_dn,
-                           attributes_available=True, attributes=returned)
-            attrs = {k.casefold(): v for k, v in returned.items()}
-            for key, name in [('full_name', 'attr_full_name'), ('email', 'attr_email')]:
-                value = attrs.get(cfg[name].casefold()) or (attrs.get('cn') if key == 'full_name' else None)
-                if value:
-                    value = value[0] if isinstance(value, list) else value
-                    if isinstance(value, (str, int, float, bool)): profile[key] = str(value)
-            def single(name):
-                value=attrs.get(name.casefold()) if name else None
-                if value is None or value == []:return None
-                if isinstance(value,(list,tuple)):
-                    if len(value)!=1:
-                        profile['comparison_attributes_valid']=False
-                        return None
-                    value=value[0]
-                if isinstance(value,(str,int)) and not isinstance(value,bool):return str(value)
-                profile['comparison_attributes_valid']=False
-                return None
-            profile['department_code']=single(cfg.get('attr_department_code',''))
-            profile['division']=single(cfg.get('attr_division', 'division'))
-            profile['info']=single(cfg.get('attr_info', 'info'))
+        def identify(entry):
+            values={k.casefold():v for k,v in entry.entry_attributes_as_dict.items()}
+            code=values.get(cfg['attr_department_code'].casefold())
+            if isinstance(code,(list,tuple)):code=code[0] if len(code)==1 else None
+            if isinstance(code,str) and code.strip() and len(code)<=100 and not any(ord(c)<32 or ord(c)==127 for c in code):profile['ldap_department_code']=code
+            value=values.get('samaccountname')
+            if isinstance(value,(list,tuple)):value=value[0] if len(value)==1 else None
+            if isinstance(value,str) and value.strip() and len(value)<=100 and not any(ord(c)<32 or ord(c)==127 for c in value):
+                profile['username']=value
 
         if cfg.get('bind_dn') and cfg.get('base_dn'):
             stage = 'service_bind'
@@ -288,10 +259,9 @@ def authenticate_directory(db, settings, username, password, *, config_override=
             if not searched or len(service.entries) != 1: return None
             entry = service.entries[0]
             dn = entry.entry_dn
-            enrich(entry)
+            identify(entry)
         else:
             dn = cfg['user_dn_template'].replace('{username}', escape_rdn(username))
-            profile['distinguished_name'] = dn
         stage = 'user_bind'
         conn = connect(dn, password)
         if not conn.bind():
@@ -303,9 +273,9 @@ def authenticate_directory(db, settings, username, password, *, config_override=
         if not service:
             try:
                 if conn.search(dn, '(objectClass=*)', BASE, attributes=attributes) and conn.entries:
-                    enrich(conn.entries[0])
+                    identify(conn.entries[0])
             except LDAPException:
-                pass  # An authenticated user may lack permission to read profile data.
+                pass  # Identity already authenticated; no employee-profile lookup is required.
         return profile
     except DirectoryError:
         raise

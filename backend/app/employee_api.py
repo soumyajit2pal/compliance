@@ -19,7 +19,6 @@ class Configuration(BaseModel):
     max_retry_seconds:int=Field(default=3600,ge=30,le=86400)
     auth_type:Literal['NONE','BEARER','API_KEY']='NONE'
     api_key_header:str=Field(default='X-API-Key',max_length=80)
-    department_code_map:dict[str,str]=Field(default_factory=dict,max_length=500)
     secret:str=Field(default='',max_length=4000)
     clear_secret:StrictBool=False
     ca_action:Literal['keep','replace','remove']='keep'
@@ -70,6 +69,7 @@ def install(app,get_db,current,settings):
         result=ep.lookup(cfg,payload.test_pf_no,settings)
         audit(db,actor,'system',ep.CODE,'EMPLOYEE_API_TESTED',new={'ok':not result['error'],'code':result['error'],'missing_fields':result['missing']})
         return {'ok':not result['error'],'code':result['error'],'missing_fields':result['missing'],
+            'guidance':ep.failure_guidance(result['error']) if result['error'] else None,
             'message':'Connection and employee identity verified. No employee profile or settings were saved.' if not result['error'] else 'The lookup failed ('+result['error']+'). Existing sign-in and employee details remain available.'}
 
     @app.post('/api/admin/employee-api/retry')

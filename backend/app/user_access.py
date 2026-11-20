@@ -4,53 +4,28 @@ import sqlalchemy as sa
 from . import models as m
 from .events import notify, new_id
 
-ACTION_STATES = {'PENDING_APPROVAL', 'ROLE_ASSIGNMENT_REQUIRED', 'ROLE_REVIEW_REQUIRED',
-    'LDAP_DEPARTMENT_REQUIRED','LDAP_DEPARTMENT_CHANGED','LDAP_DEPARTMENT_UNAVAILABLE',
-    'DEPARTMENT_REQUIRED','DEPARTMENT_CHANGED','DEPARTMENT_UNAVAILABLE'}
+ACTION_STATES={'PENDING_APPROVAL','ROLE_ASSIGNMENT_REQUIRED','ROLE_REVIEW_REQUIRED','DEPARTMENT_REQUIRED','DEPARTMENT_CHANGED','DEPARTMENT_UNAVAILABLE'}
 
 
-def access_state(user, assignments):
-    """Enabled accounts, usable roles and first-login requirements are distinct."""
-    count = sum(bool(a.get('effective_flag')) for a in assignments)
+def access_state(user,assignments):
+    count=sum(bool(a.get('effective_flag')) for a in assignments)
     if not user['active_flag']:
-        status, label, message = 'INACTIVE', 'Inactive account', 'This account is disabled. Review the account before restoring access.'
-    elif user.get('emp_dept_managed_flag') and user.get('emp_dept_status')!='VERIFIED':
-        states={'UNVERIFIED':('DEPARTMENT_REQUIRED','Department verification required','An observed department is automatically queued for independent administrator review.'),
-            'MISMATCH':('DEPARTMENT_CHANGED','Department changed','Business access is restricted. Review the source-aware department request and existing role scope.'),
-            'UNAVAILABLE':('DEPARTMENT_UNAVAILABLE','Department unavailable','Approved details are retained. Check the employee API and LDAP fallback mapping.'),
-            'RECHECK_REQUIRED':('DEPARTMENT_RECHECK','Fresh sign-in required','The department is approved. A fresh sign-in must verify it before access opens.')}
-        status,label,message=states.get(user.get('emp_dept_status'),states['UNVERIFIED'])
-    elif user['login_type']=='LDAP' and (user.get('needs_email_confirmation_flag') or user.get('needs_department_selection_flag')) and (
-        user.get('emp_dept_managed_flag') or
-        user.get('ldap_department_status')=='VERIFIED' or (user.get('ldap_department_status')=='UNVERIFIED'
-        and not user.get('department_code') and user.get('ldap_last_seen_department_code'))):
-        status,label='PROFILE_PENDING','Profile confirmation pending'
-        message=('Roles are assigned. The user must confirm their work email and Home organisation; LDAP department verification is separate.' if count else
-                 'The user must confirm their work email and Home organisation before administrator department and access approval.')
-    elif user['login_type']=='LDAP' and not user.get('emp_dept_managed_flag') and user.get('ldap_department_status')!='VERIFIED':
-        states={
-            'UNVERIFIED':('LDAP_DEPARTMENT_REQUIRED','LDAP department verification required','Review the LDAP department baseline separately from Home organisation and roles.'),
-            'MISMATCH':('LDAP_DEPARTMENT_CHANGED','LDAP department changed','Access is blocked. Review the old/current LDAP department and pending update request.'),
-            'UNAVAILABLE':('LDAP_DEPARTMENT_UNAVAILABLE','LDAP department details unavailable','LDAP did not supply valid department code, division or info values. Check the directory attribute mappings and permissions.'),
-            'RECHECK_REQUIRED':('LDAP_DEPARTMENT_RECHECK','Fresh LDAP sign-in required','The department update is approved. The user must sign in again before access opens.')}
-        status,label,message=states.get(user.get('ldap_department_status'),states['UNVERIFIED'])
+        status,label,message='INACTIVE','Inactive account','This account is disabled. Review it before restoring access.'
+    elif user['login_type']=='LDAP' and (user.get('needs_email_confirmation_flag') or user.get('needs_department_selection_flag')):
+        status,label,message='PROFILE_PENDING','Profile confirmation pending','The employee must confirm work email and Home organisation. Employee profile approval and role assignment remain separate.'
+    elif user.get('employee_profile_required',user['login_type']=='LDAP') and user.get('employee_profile_status')!='VERIFIED':
+        state=user.get('employee_profile_status')
+        if state=='RECHECK_REQUIRED':status,label,message='DEPARTMENT_RECHECK','Fresh sign-in required','Employee profile approved. Fresh authentication is required before access opens.'
+        elif state=='UNAVAILABLE':status,label,message='DEPARTMENT_UNAVAILABLE','LDAP department unavailable','Review the LDAP department mapping and current employee observation. Approved data is retained.'
+        elif user.get('employee_approved_version_id'):status,label,message='DEPARTMENT_CHANGED','Employee profile change requires review','Review all changed employee fields against the approved snapshot; existing access remains restricted.'
+        else:status,label,message='DEPARTMENT_REQUIRED','Employee profile approval required','Complete LDAP/API employee details require independent administrator approval.'
     elif not count:
-        if assignments:
-            status, label = 'ROLE_REVIEW_REQUIRED', 'Role review required'
-            message = 'No assigned role is currently effective. Review role validity, availability and organisation scope.'
-        elif user['login_type'] == 'LDAP':
-            status, label = 'PENDING_APPROVAL', 'Pending access approval'
-            message = 'Profile confirmed. Review the request and assign approved roles and organisation scope.'
-        else:
-            status, label = 'ROLE_ASSIGNMENT_REQUIRED', 'Role assignment required'
-            message = 'This Standard account has no effective roles. Assign approved roles and organisation scope.'
-    elif user.get('must_change_password_flag'):
-        status, label = 'PASSWORD_CHANGE_REQUIRED', 'Password change required'
-        message = 'Roles are assigned. The user must change their temporary password at sign-in.'
-    else:
-        status, label, message = 'ACCESS_READY', 'Access assigned', 'Effective roles are assigned. The user can sign in with the approved access.'
-    return {'access_status': status, 'access_status_label': label, 'access_message': message,
-            'effective_role_count': count, 'admin_action_required': status in ACTION_STATES}
+        if assignments:status,label,message='ROLE_REVIEW_REQUIRED','Role review required','No assigned role is currently effective. Review role validity and organisation scope.'
+        elif user['login_type']=='LDAP':status,label,message='PENDING_APPROVAL','Pending access approval','Assign approved roles and organisation scope separately from employee profile approval.'
+        else:status,label,message='ROLE_ASSIGNMENT_REQUIRED','Role assignment required','This Standard account has no effective roles.'
+    elif user.get('must_change_password_flag'):status,label,message='PASSWORD_CHANGE_REQUIRED','Password change required','Change the temporary password at sign-in.'
+    else:status,label,message='ACCESS_READY','Access assigned','All employee, profile and effective role checks are complete.'
+    return {'access_status':status,'access_status_label':label,'access_message':message,'effective_role_count':count,'admin_action_required':status in ACTION_STATES}
 
 
 def assignment_rows(db):
@@ -80,15 +55,15 @@ def account_catalogue(db):
         by_user.setdefault(assignment['user_id'], []).append(assignment)
     users = []
     for row in db.execute(sa.select(m.user).order_by(m.user.c.username)).mappings():
-        user = {k: v for k, v in row.items() if k != 'password_hash'}
+        from .employee_identity import decorate
+        user = decorate(db,{k: v for k, v in row.items() if k != 'password_hash'})
         users.append({**user, **access_state(user, by_user.get(user['id'], []))})
     summary = {'total': len(users), 'standard': 0, 'ldap': 0, 'active_accounts': 0,
                'action_required': 0, 'pending_approval': 0, 'role_assignment_required': 0,
                'role_review_required': 0, 'profile_pending': 0, 'access_ready': 0,
                'password_change_required': 0, 'inactive': 0,
-               'ldap_department_required':0,'ldap_department_changed':0,'ldap_department_unavailable':0,'ldap_department_recheck':0,
                'department_required':0,'department_changed':0,'department_unavailable':0,'department_recheck':0,
-               'department_pending':db.execute(sa.select(sa.func.count()).select_from(m.ldap_department_request).where(m.ldap_department_request.c.status=='PENDING')).scalar_one()}
+               'department_pending':db.execute(sa.select(sa.func.count()).select_from(m.employee_profile_review).where(m.employee_profile_review.c.status=='PENDING')).scalar_one()}
     for user in users:
         summary[user['login_type'].lower()] += 1
         summary['active_accounts'] += bool(user['active_flag'])
@@ -99,7 +74,8 @@ def account_catalogue(db):
 
 def current_access(db, identifier):
     user = db.execute(sa.select(m.user).where(m.user.c.id == identifier)).mappings().one()
-    return access_state(dict(user), [a for a in assignment_rows(db) if a['user_id'] == identifier])
+    from .employee_identity import decorate
+    return access_state(decorate(db,user), [a for a in assignment_rows(db) if a['user_id'] == identifier])
 
 
 def notify_administrators(db, identifier, kind, *, include_user=False):

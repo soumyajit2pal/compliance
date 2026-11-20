@@ -1,3 +1,4 @@
+import {customFields} from '../../ui/dropdown-fields.ts';
 import { state } from '../../core/state.ts';
 
 import { covered } from '../../core/access.ts';
@@ -123,7 +124,7 @@ export async function instrumentForm(edit = false) {
           area('keywords', i.keywords || ''),
           'Use searchable business terms.',
           'full',
-        )}
+        )}${customFields('instrument',i.custom_answers)}
       </div>
       <p class="print-note">
         ${edit ? 'Saving updates the initial Draft instrument and its source details.' : 'Saving creates Draft version 1.0.'} Add or review source Clauses / Para next; review and approval remain separate steps.

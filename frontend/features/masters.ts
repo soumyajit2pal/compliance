@@ -1,3 +1,4 @@
+import {customFields, captureCustom, formFields} from '../ui/dropdown-fields.ts';
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
 import { childIndex, subtreeIds } from '../core/hierarchy.ts';
@@ -8,13 +9,13 @@ import { heading } from '../ui/layout.ts';
 import { domainStatus } from '../ui/domains.ts';
 import { panel, table, tablePanel, tabs, note, searchForm, detailFields, pagedCollection } from '../ui/widgets.ts';
 
-const otherLookups = ['frequency', 'evidence_type', 'confidentiality_class', 'process', 'legal_entity', 'product', 'channel', 'customer_segment', 'geography', 'role'];
+const otherLookups = ['frequency', 'evidence_type', 'confidentiality_class', 'process', 'legal_entity', 'product', 'channel', 'customer_segment', 'geography', 'system', 'taxonomy_scheme', 'control_type', 'execution_mode', 'obligation_nature', 'role'];
 const availableNow = (row) => row.active_flag &&
   (!row.effective_from || row.effective_from <= localDate()) &&
   (!row.effective_to || row.effective_to > localDate());
-const editButton = (key, row) => key === 'regulator' && row.approval_status !== 'DRAFT'
+export const editButton = (key, row, label = 'Edit') => key === 'regulator' && row.approval_status !== 'DRAFT'
   ? '<span class="small muted">Retained approval record</span>'
-  : button('edit-master', 'Edit', `data-key="${esc(key)}" data-id="${esc(row.id)}"`, 'small');
+  : button('edit-master', label, `data-key="${esc(key)}" data-id="${esc(row.id)}"`, 'small');
 const addButton = (key, parent = '') => {
   const definition = state.view.masterCatalogue.find((d) => d.key === key);
   return definition?.can_create ? button('add-master', 'Add ' + definition.label.toLowerCase(),
@@ -148,11 +149,14 @@ export async function renderMasters(_id, query = new URLSearchParams()) {
   );
 }
 
-function masterDialog(key, id = '', parent = '') {
+async function masterDialog(key, id = '', parent = '') {
   const definition = state.view.masterCatalogue.find((d) => d.key === key);
   if (!definition) throw new Error('Reload Master data before editing.');
   const row = id ? state.masters[key].find((r) => r.id === id) : null;
   if (id && !row) throw new Error('This record no longer exists. Reload the page.');
+  const formKey='master.'+key,request=state.routeNumber;
+  const answers=id && formFields(formKey).length ? await api('/admin/masters/'+key+'/'+id+'/custom-fields') : {};
+  if(request!==state.routeNumber || !state.identity) return;
   state.view.masterEdit = { key, id, definition };
   // Exclude the current record and all its descendants from a parent picker.
   const excluded = definition.parent_field ? subtreeIds(state.masters[key], definition.parent_field, id) : new Set();
@@ -179,7 +183,7 @@ function masterDialog(key, id = '', parent = '') {
     return field(f.label, control, immutable ? 'Permanent code.' : '', f.kind === 'textarea' ? 'full' : '');
   }).join('');
   modal((row ? 'Edit ' : 'Add ') + definition.label.toLowerCase(),
-    `<div class="form-grid">${fields}${field('Reason for change', area('reason', '', 'required minlength="5" maxlength="2000"'), '', 'full')}</div>`,
+    `<div class="form-grid">${fields}${customFields(formKey,answers)}${field('Reason for change', area('reason', '', 'required minlength="5" maxlength="2000"'), '', 'full')}</div>`,
     'master-record', row ? 'Save changes' : 'Add record',
     key === 'organisational_unit' ? 'Parent changes also update descendant levels and organisation scope.' : 'Changes are retained in the audit history.');
 }
@@ -221,7 +225,7 @@ export function masterHandlers({ render }) {
             : control.value || null;
         }
         const result = await api('/admin/masters/' + key + (id ? '/' + id : ''), id ? 'PATCH' : 'POST', {
-          values, reason: form.elements.reason.value,
+          values, custom_fields:captureCustom(form), reason: form.elements.reason.value,
         });
         for (const record of result.records) {
           const cached = state.masters[key].find(row => row.id === record.id);

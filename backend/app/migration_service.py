@@ -260,7 +260,7 @@ def load_batch(db,actor,identifier,storage=None):
         if result['errors']:raise HTTPException(409,f"Row {row['row_number']} changed eligibility: "+'; '.join(result['errors']))
         values=result['normalised']
         if result['entity_type']=='instrument':
-            loaded=repo.create_instrument(db,actor,InstrumentInput(**values));entity='instrument'
+            loaded=repo.create_instrument(db,actor,InstrumentInput(**values),imported=True);entity='instrument'
         else:
             version=values.pop('version_id');loaded=repo.add_clause(db,actor,version,ClauseInput(**values),imported=True);entity='clause'
         db.execute(m.migration_row.update().where(m.migration_row.c.id==row['id']).values(validation_status='LOADED',target_entity_type=entity,target_entity_id=loaded['id'],loaded_at=now()))

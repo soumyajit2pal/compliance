@@ -47,7 +47,7 @@ export function PaginatedCollection({pageKey, initial, server, revision, label, 
     {renderItems(visible)}
     {(summary || info.total > info.page_size) && <div className="table-summary shared-pagination">
       <span className="pagination-range" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true">{info.total ? `Showing ${info.start}–${info.end} of ${info.total} ${label}` : `0 ${label}`}</span>
-      {info.total > 0 && <div className="pagination-size"><label htmlFor={sizeId}>Per page</label><SearchableSelectField id={sizeId} aria-label={'Items per page for ' + label} value={info.page_size}
+      {info.total > 0 && <div className="pagination-size"><label htmlFor={sizeId}>Per page</label><SearchableSelectField data-choice-key="page_size" id={sizeId} aria-label={'Items per page for ' + label} value={info.page_size}
         disabled={pending} onChange={event => navigate(1, Number(event.target.value))}>{PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}</SearchableSelectField></div>}
       {info.total_pages > 1 && <nav className="pagination" aria-label={'Pagination for ' + label}>
         {control(1, '«', 'First page', pending || info.page <= 1)}

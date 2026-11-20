@@ -1,3 +1,4 @@
+import {customDetails} from '../ui/dropdown-fields.ts';
 import {auditActor} from '../ui/components.ts';
 import {state} from '../core/state.ts';
 /** Obligation reading experience, shared with existing summary, table and pagination components. */
@@ -179,7 +180,7 @@ function history(d){
 export function renderObligationDetail(d,p,query,returnPath='obligations'){
   const o=d.obligation,today=localDate(),status=statusLabel(o,p.stage,today),guidance=nextStep(d,p,today),tab=detailTab(query.get('tab'));
   const recordActions=obligationExportButton(o.id)+(state.identity?.menu.some(i=>i.id==='control-mappings')?link('control-mappings?obligation='+o.id,'Checks and coverage','btn'):'')+(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?button('obl-decision','Withdraw to Draft','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
-  const contents=tab==='overview'?renderObligationOverview(d):tab==='owners'?owners(d,p):tab==='applicability'?applicability(d,p):tab==='sources'?sources(d,p):history(d);
+  const contents=tab==='overview'?renderObligationOverview(d)+customDetails(d.obligation.custom_answers):tab==='owners'?owners(d,p):tab==='applicability'?applicability(d,p):tab==='sources'?sources(d,p):history(d);
   const checks=readiness(d,p),foldChecks=o.approval_status!=='APPROVED'&&checks;
   const checklist=foldChecks?`<details class="obligation-setup-checks"><summary>Setup and activation checks · ${activationChecklistItems(d,p,today).length} outstanding</summary>${checks}</details>`:checks;
   return `<article class="obligation-detail">${link(returnPath,obligationBackLabel(returnPath),'back-link')}

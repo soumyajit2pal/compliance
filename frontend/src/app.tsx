@@ -39,6 +39,9 @@ export function App() {
     const [path, queryString = ''] = location.hash.slice(1).split('?');
     const [page, id] = path.split('/');
     const query = new URLSearchParams(queryString);
+    if (page === 'team' && query.has('metric')) {
+      document.getElementById('dashboard-records')?.focus();
+    }
     if (['obligations','accountability','applicability'].includes(page) && !id) restoreObligationLocation();
     if (page === 'obligations' && id && !['new','imports'].includes(id)) retainObligationLocation(id);
     if (page === 'repository' && !id) { restoreLibraryLocation(); return; }

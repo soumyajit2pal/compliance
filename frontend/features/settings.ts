@@ -44,13 +44,7 @@ export async function ldapPage() {
       </div>
       ${certificateDetails ? `<details><summary>View certificate details (${data.ca_certificate_count})</summary>${certificateDetails}</details>` : ''}
     `)}</div>
-    <div class="mt24">${panel('Directory profile attributes', `<div class="form-grid">
-      ${field('Full name attribute', input('attr_full_name', data.attr_full_name))}
-      ${field('Email attribute', input('attr_email', data.attr_email))}
-      ${field('Department code attribute', input('attr_department_code', data.attr_department_code || 'department', 'text', 'required'), 'LDAP department contains the code. Home organisation is assigned separately.')}
-      ${field('Division attribute', input('attr_division', data.attr_division || 'division', 'text', 'required'), 'Stored and compared with the approved LDAP division.')}
-      ${field('Info attribute', input('attr_info', data.attr_info || 'info', 'text', 'required'), 'Stored and compared with the approved LDAP info value.')}
-    </div>`)}</div>
+    <div class="mt24">${panel('LDAP department',field('Department code attribute',input('attr_department_code',data.attr_department_code,'text','required maxlength="100"'),'Stored separately from the employee API department. Every login checks it against its own approved LDAP baseline.')+note('Only the authenticated account and this department attribute are requested. Other employee details come from the employee API.'))}</div>
     <div class="mt24">${panel('Test before saving', `
       <p class="small muted">Test the values currently shown, including unsaved certificate changes. Test credentials are used once. Testing does not create an account or save the configuration.</p>
       <div class="form-grid">
@@ -112,9 +106,17 @@ export async function applicationsPage() {
   return (
     heading(
       'Connected applications',
-      'Retain existing compliance capabilities, with a clear path from this portal.',
+      'Open bank-approved applications from this portal.',
+      has('ADMIN') ? button('application', 'Add application', '', 'primary') : '',
     ) +
-    pagedCollection(rows.map((r, i) => `<section class="connection-card"><div class="row between"><span class="connection-icon">${icon(['shield', 'checkSquare', 'layers'][i] || 'external')}</span>${badge(r.active_flag && r.url ? 'AVAILABLE' : 'CONFIGURATION_PENDING')}</div><h3>${esc(r.name)}</h3><p>${esc(r.description)}</p><div class="small muted">${r.active_flag && r.url ? 'Bank-approved link available.' : 'Approved bank URL has not been configured.'}</div><div class="actions">${r.active_flag && r.url ? `<a class="btn primary" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">${icon('external')}Open application</a>` : ''}${has('ADMIN') ? button('application', 'Configure link', `data-id="${r.id}"`) : ''}</div></section>`),{pageKey:'applications',className:'grid-3',label:'applications'}) + `<div class="mt24">${note('Retained applications remain separate. This portal provides governed links; it does not recreate their workflows.')}</div>`
+    pagedCollection(rows.map((row) => {
+      const available = Boolean(row.active_flag && row.url);
+      const stateLabel = available ? 'AVAILABLE' : row.configured ? 'INACTIVE' : 'CONFIGURATION_PENDING';
+      return `<section class="connection-card"><div class="row between"><span class="connection-icon">${icon('external')}</span>${badge(stateLabel)}</div>
+        <h3>${esc(row.name)}</h3>${row.description?.trim() ? `<p>${esc(row.description)}</p>` : ''}
+        <div class="actions">${available ? `<a class="btn primary" href="${esc(row.url)}" target="_blank" rel="noopener noreferrer">Open application ${icon('external')}</a>` : ''}
+        ${has('ADMIN') ? button('application', 'Manage application', `data-id="${esc(row.id)}" aria-label="Manage ${esc(row.name)}"`) : ''}</div></section>`;
+    }), {pageKey:'applications',className:'grid-3',label:'applications'})
   );
 }
 export function settingsHandlers({ render }) {
@@ -141,14 +143,21 @@ export function settingsHandlers({ render }) {
         }
       },
       application: ({ id }) => {
-        state.view.link = id;
         const row = state.view.links.find((r) => r.id === id);
+        if (!has('ADMIN') || (id && !row)) return;
+        state.view.link = row?.id;
         modal(
-          'Configure ' + row.name,
-          `<div class="form-grid">${field('Bank-approved HTTPS address', input('url', row.url || '', 'url', 'required'), 'Use the approved address for this retained application.', 'full')}<label class="check-label full"><input type="checkbox" name="active_flag" ${row.active_flag ? 'checked' : ''}> Make link available</label></div>`,
+          row ? 'Manage application' : 'Add application',
+          `<div class="form-grid">
+            ${field('Application name', input('name', row?.name || '', 'text', 'required maxlength="250"'))}
+            ${field('Application code', input('code', row?.code || '', 'text', row ? 'readonly' : 'required maxlength="40"'), 'Use a permanent code with letters, numbers, dots, hyphens or underscores.')}
+            ${field('Description', `<textarea name="description" maxlength="4000">${esc(row?.description?.trim() || '')}</textarea>`, '', 'full')}
+            ${field('Bank-approved HTTPS address', input('url', row?.url || '', 'url', 'maxlength="1000"'), 'Required when making the link available.', 'full')}
+            <label class="check-label full"><input type="checkbox" name="active_flag" ${row?.active_flag && row.url ? 'checked' : ''}> Make link available</label>
+          </div>`,
           'application',
-          'Save link',
-          'The external application keeps its own access controls.',
+          row ? 'Save changes' : 'Add application',
+          'The connected application manages its own access permissions.',
         );
       },
     },
@@ -159,12 +168,17 @@ export function settingsHandlers({ render }) {
         await render();
       },
       application: async (form) => {
-        await api('/applications/' + state.view.link, 'PATCH', {
-          url: form.elements.url.value,
+        const id = state.view.link;
+        const payload = {
+          name: form.elements.name.value,
+          description: form.elements.description.value,
+          url: form.elements.url.value || null,
           active_flag: form.elements.active_flag.checked,
-        });
+          ...(!id ? {code: form.elements.code.value} : {}),
+        };
+        await api('/applications' + (id ? '/' + encodeURIComponent(id) : ''), id ? 'PATCH' : 'POST', payload);
         close();
-        message('Approved application link saved.');
+        message(id ? 'Application updated.' : 'Application added.');
         await render();
       },
     },

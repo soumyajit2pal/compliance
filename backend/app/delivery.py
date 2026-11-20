@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from fastapi import HTTPException
 from . import models as m,repository as repo,obligations as obl
 from .access import actor_for,READ_ROLES,REGULATORY_ROLES
-from .events import audit,history,notify,new_id,now
+from .events import audit,history,notify,new_id,now,record_audit
 from .source_documents import inspect_source,preserve_bytes
 from .storage import stored_path
 
@@ -73,15 +73,17 @@ def create(db,actor,p):
     fail(not duplicates,'An assignment already exists for this obligation, department, type and period.',409)
     from . import controls
     mappings=controls.prepare_links(db,actor,o,p)
-    identifier=new_id();values=p.model_dump(exclude={'due_date','control_mapping_ids'});values.update(id=identifier,code=repo.next_code(db,'action'),applicability_id=app['id'],original_due_date=p.due_date,current_due_date=p.due_date,record_status='OPEN',created_by=actor.id,retained_validation_required_flag=int(p.retained_validation_required_flag or o['testing_required_flag'] or o['certification_required_flag']))
+    identifier=new_id();values=p.model_dump(exclude={'due_date','control_mapping_ids','custom_fields'});values.update(id=identifier,code=repo.next_code(db,'action'),applicability_id=app['id'],original_due_date=p.due_date,current_due_date=p.due_date,record_status='OPEN',created_by=actor.id,retained_validation_required_flag=int(p.retained_validation_required_flag or o['testing_required_flag'] or o['certification_required_flag']))
     db.execute(m.action.insert().values(**values));controls.link_action(db,actor,values,mappings);audit(db,actor,'action',identifier,'ASSIGNED',new={**values,'control_mapping_ids':p.control_mapping_ids});history(db,actor,'action',identifier,None,'OPEN','Period-specific work assigned from an Active obligation.')
+    from .dropdowns import save_answers
+    save_answers(db,actor,'action',identifier,p.custom_fields)
     notify(db,'action',identifier,p.owner_user_id,'ACTION_ASSIGNED',identifier+':assigned')
     return {'id':identifier,'code':values['code']}
 
-def evidence_read(db,actor,identifier):
+def evidence_read(db,actor,identifier,*,action_id=None):
     e=repo.one(db,m.evidence_item,identifier);permitted=False
     for link in allrows(db,m.evidence_link,m.evidence_link.c.evidence_id==identifier):
-        if not link['action_id']:continue
+        if not link['action_id'] or (action_id and link['action_id']!=action_id):continue
         try:a,o=read(db,actor,link['action_id'])
         except HTTPException:continue
         rank=repo.one(db,m.confidentiality_class,e['confidentiality_class_id'])['rank_number']
@@ -139,7 +141,8 @@ def detail(db,actor,identifier):
         if instance:workflows.extend(allrows(db,m.workflow_action,m.workflow_action.c.instance_id==instance['id']))
     _,edition,instrument=obl.source(db,actor,o['primary_clause_id'])
     from . import controls
-    return {'action':a,'obligation':o,'return_reason':return_reason(db,a),'controls':controls.action_context(db,actor,a),'source':{'id':instrument['id'],'title':instrument['title'],'version_id':edition['id'],'version_number':edition['version_number'],'clause_id':o['primary_clause_id']},'evidence':evidence,'submissions':submissions,'evidence_decisions':decisions,'extensions':extensions,'extension_tasks':workflows,'validations':ordered_validations(db,identifier)[0],'regulatory_deadline':effective_deadline(db,actor,o),'history':allrows(db,m.status_history,sa.and_(m.status_history.c.entity_type=='action',m.status_history.c.entity_id==identifier)),'audit':allrows(db,m.audit_log,sa.and_(m.audit_log.c.entity_type=='action',m.audit_log.c.entity_id==identifier)),'permissions':{'can_work':actor.id==a['owner_user_id'] and actor.covers(a['owner_unit_id'],OWNER_ROLES),'can_review':actor.id==a['reviewer_user_id'] and actor.covers(o['regulatory_owner_unit_id'],{'REVIEWER'}),'can_validate':actor.covers(o['regulatory_owner_unit_id'],{'AUTHOR'}),'can_cancel':actor.covers(o['regulatory_owner_unit_id'],{'APPROVER'})}}
+    from .dropdowns import read_answers
+    return {'action':{**a,'custom_answers':read_answers(db,'action',identifier)},'obligation':o,'return_reason':return_reason(db,a),'controls':controls.action_context(db,actor,a),'source':{'id':instrument['id'],'title':instrument['title'],'version_id':edition['id'],'version_number':edition['version_number'],'clause_id':o['primary_clause_id']},'evidence':evidence,'submissions':submissions,'evidence_decisions':decisions,'extensions':extensions,'extension_tasks':workflows,'validations':ordered_validations(db,identifier)[0],'regulatory_deadline':effective_deadline(db,actor,o),'history':allrows(db,m.status_history,sa.and_(m.status_history.c.entity_type=='action',m.status_history.c.entity_id==identifier)),'audit':record_audit(db,sa.and_(m.audit_log.c.entity_type=='action',m.audit_log.c.entity_id==identifier)),'permissions':{'can_work':actor.id==a['owner_user_id'] and actor.covers(a['owner_unit_id'],OWNER_ROLES),'can_review':actor.id==a['reviewer_user_id'] and actor.covers(o['regulatory_owner_unit_id'],{'REVIEWER'}),'can_validate':actor.covers(o['regulatory_owner_unit_id'],{'AUTHOR'}),'can_cancel':actor.covers(o['regulatory_owner_unit_id'],{'APPROVER'})}}
 
 def listing(db,actor,filters=None):
     actor.require(READ_ROLES);filters=filters or {};result=[]

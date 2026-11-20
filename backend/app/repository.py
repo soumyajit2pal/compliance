@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from fastapi import HTTPException
 from . import models as m,business_ids
 from .access import READ_ROLES,REGULATORY_ROLES,actor_for,can_read_instrument
-from .events import now,new_id,audit,history,notify
+from .events import now,new_id,audit,history,notify,record_audit
 
 PENDING_VERSION_STATUSES=('DRAFT','IN_REVIEW','REVIEWED')
 
@@ -111,8 +111,8 @@ def save_instrument_domains(db,instrument_id,primary_domain_id,secondary_domain_
         db.execute(m.instrument_domain_map.insert().values(id=new_id(),instrument_id=instrument_id,
             domain_id=domain_id,domain_role=role,effective_from=effective_from))
 
-def create_instrument(db,actor,payload):
-    values=payload.model_dump();secondary_domains=validate_instrument_domains(
+def create_instrument(db,actor,payload,*,imported=False):
+    values=payload.model_dump(exclude={'custom_fields'});secondary_domains=validate_instrument_domains(
         db,values['primary_domain_id'],values.pop('secondary_domain_ids',[]))
     unit=values['regulatory_owner_unit_id'];actor.require({'AUTHOR'},unit)
     regulator=active(db,m.regulator,values['regulator_id'])
@@ -131,6 +131,8 @@ def create_instrument(db,actor,payload):
     db.execute(m.instrument_version.insert().values(id=version,instrument_id=identifier,version_number='1.0',
         version_date=values['issue_date'],effective_from=values['effective_date'],source_document_id=values['source_document_id'],
         change_summary='Initial registered source',created_by=actor.id))
+    from .dropdowns import save_answers
+    save_answers(db,actor,'instrument',identifier,payload.custom_fields,require_complete=not imported)
     save_instrument_domains(db,identifier,values['primary_domain_id'],secondary_domains,values['effective_date'])
     audit(db,actor,'instrument',identifier,'REGISTERED',new={**values,'secondary_domain_ids':secondary_domains,'code':code,'initial_version_id':version})
     history(db,actor,'instrument',identifier,None,'DRAFT','Registered with initial version')
@@ -139,7 +141,7 @@ def create_instrument(db,actor,payload):
 def edit_instrument(db,actor,identifier,payload):
     old=read_instrument(db,actor,identifier,lock=True);actor.require({'AUTHOR'},old['regulatory_owner_unit_id'])
     if old['approval_status']!='DRAFT' or old['created_by']!=actor.id: raise HTTPException(409,'Only the maker can edit this Draft. Approved records are retained.')
-    values=payload.model_dump()
+    values=payload.model_dump(exclude={'custom_fields'})
     secondary_domains=validate_instrument_domains(db,values['primary_domain_id'],values.pop('secondary_domain_ids',[]))
     if any(values[k]!=old[k] for k in ['regulator_id','regulatory_owner_unit_id','confidentiality_class_id','primary_domain_id']):
         raise HTTPException(422,'Regulator, primary domain, department and classification are fixed after registration. Withdraw and register a corrected Draft.')
@@ -159,6 +161,8 @@ def edit_instrument(db,actor,identifier,payload):
     db.execute(m.regulatory_clause.update().where(m.regulatory_clause.c.instrument_version_id==initial['id']).values(effective_from=values['effective_date']))
     previous_domains=[dict(r) for r in db.execute(sa.select(m.instrument_domain_map.c.domain_id,m.instrument_domain_map.c.domain_role)
         .where(m.instrument_domain_map.c.instrument_id==identifier,m.instrument_domain_map.c.effective_to.is_(None))).mappings()]
+    from .dropdowns import save_answers
+    save_answers(db,actor,'instrument',identifier,payload.custom_fields)
     save_instrument_domains(db,identifier,values['primary_domain_id'],secondary_domains,values['effective_date'])
     audit(db,actor,'instrument',identifier,'DRAFT_UPDATED',old={**old,'domain_assignments':previous_domains},new={**values,'secondary_domain_ids':secondary_domains})
     return {'id':identifier}
@@ -301,6 +305,9 @@ def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False):
 def submit(db,actor,version_id,payload):
     version,instrument=read_version(db,actor,version_id,lock=True);unit=instrument['regulatory_owner_unit_id'];actor.require({'AUTHOR'},unit)
     if version['created_by']!=actor.id or version['approval_status']!='DRAFT': raise HTTPException(409,'Only the maker can submit this Draft.')
+    if not version['supersedes_version_id']:
+        from .dropdowns import save_answers
+        save_answers(db,actor,'instrument',instrument['id'],{})
     require_no_pending_version(db,instrument['id'],exclude_id=version_id)
     eligible(db,payload.reviewer_id,'REVIEWER',unit,(actor.id,));eligible(db,payload.approver_id,'APPROVER',unit,(actor.id,payload.reviewer_id))
     domain_ids=db.execute(sa.select(m.instrument_domain_map.c.domain_id).where(
@@ -665,6 +672,18 @@ def listing(db,actor,filters):
     return result
 
 
+def library_stage(record):
+    if record['regulatory_status']=='CURRENT':
+        return 'current'
+    if record['approval_status']=='IN_REVIEW':
+        return 'in_review'
+    if record['approval_status']=='REVIEWED':
+        return 'awaiting_approval'
+    if record['approval_status']=='DRAFT' and record['regulatory_status']=='DRAFT':
+        return 'draft'
+    return 'retained'
+
+
 def source_edition_listing(db,actor,instrument_id=None):
     """Authorised edition metadata, including sources with no captured clauses."""
     visible_ids=[read_instrument(db,actor,instrument_id)['id']] if instrument_id else [row['id'] for row in listing(db,actor,{})]
@@ -746,7 +765,9 @@ def detail(db,actor,identifier):
                 m.workflow_instance.c.entity_id.in_(correction_ids))).mappings()]
         tasks.extend(correction_tasks)
     entities=[identifier,*version_ids,*correction_ids]
-    audit_rows=[dict(r) for r in db.execute(sa.select(m.audit_log).where(m.audit_log.c.entity_id.in_(entities)).order_by(m.audit_log.c.event_at.desc())).mappings()]
+    event = m.audit_log.c
+    audit_rows = record_audit(db, event.entity_id.in_(entities) & event.entity_type.in_(
+        ['instrument', 'version', 'metadata_correction']), event.event_at.desc())
     cancellations={r['entity_id']:r for r in audit_rows if r['entity_type']=='version' and r['action']=='DRAFT_CANCELLED'}
     for version in versions:
         cancellation=cancellations.get(version['id'])
@@ -755,6 +776,8 @@ def detail(db,actor,identifier):
     statuses=[dict(r) for r in db.execute(sa.select(m.status_history).where(m.status_history.c.entity_id.in_(entities)).order_by(m.status_history.c.changed_at.desc())).mappings()]
     comments=[dict(r) for r in db.execute(sa.select(m.comment).where(m.comment.c.entity_id==identifier).order_by(m.comment.c.created_at)).mappings()]
     carried=[dict(r) for r in db.execute(sa.select(m.clause_carry_forward).where(m.clause_carry_forward.c.target_version_id.in_(version_ids))).mappings()] if version_ids else []
+    from .dropdowns import read_answers
+    row={**row,'custom_answers':read_answers(db,'instrument',identifier)}
     return {'instrument':row,'versions':versions,'secondary_domains':secondary_domains,'source_documents':source_documents,'clause_carry_forward':carried,
         'clauses':clauses,'clause_relationships':clause_relationships,'tasks':tasks,
         'linked_obligations':instrument_links(db,actor,identifier,clause_ids),

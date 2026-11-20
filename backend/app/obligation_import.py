@@ -17,7 +17,7 @@ from .import_choices import current_master
 from .config import ROOT
 
 SHEETS=excel.SHEETS
-LOOKUPS={'primary_clause_id':m.regulatory_clause,'category_id':m.obligation_category,'frequency_id':m.frequency,
+LOOKUPS={'obligation_nature':m.obligation_nature,'primary_clause_id':m.regulatory_clause,'category_id':m.obligation_category,'frequency_id':m.frequency,
  'primary_domain_id':m.regulatory_domain,'regulatory_owner_unit_id':m.organisational_unit,'business_owner_unit_id':m.organisational_unit,
  'compliance_reviewer_user_id':m.user,'org_unit_id':m.organisational_unit,'user_id':m.user,'legal_entity_id':m.legal_entity,
  'product_id':m.product,'process_id':m.process,'channel_id':m.channel,'customer_segment_id':m.customer_segment,'geography_id':m.geography}
@@ -101,7 +101,15 @@ def map_payload(db,group):
                 if col in table.c:alternatives.append(sa.func.upper(table.c[col])==value.upper())
             if table is m.user:alternatives.append(sa.func.upper(table.c.full_name+sa.literal(' (')+table.c.username+sa.literal(')'))==value.upper())
             elif 'name' in table.c:alternatives.append(sa.func.upper(table.c.name+sa.literal(' (')+table.c.code+sa.literal(')'))==value.upper())
-            matches=db.execute(sa.select(table.c.id).where(sa.or_(*alternatives))).scalars().all()
+            column = table.c.code if table is m.obligation_nature else table.c.id
+            query = sa.select(column).where(sa.or_(*alternatives))
+            if table is m.obligation_nature:
+                query = query.where(table.c.active_flag == 1)
+            matches=db.execute(query).scalars().all()
+            if not matches and table is m.obligation_category and value.casefold() in {'control','control (obl-ctrl)'}:
+                matches=db.execute(sa.select(column).where(table.c.code=='OBL-CTRL')).scalars().all()
+            if not matches and table is m.user and value.casefold()=='control owner (control.owner)':
+                matches=db.execute(sa.select(column).where(table.c.username=='control.owner')).scalars().all()
             if len(matches)!=1:raise ValueError(excel.label(sheet,key)+': choose one listed name or enter an exact reference or username.')
             return matches[0]
         if key.endswith('_flag'):

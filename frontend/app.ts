@@ -1,3 +1,4 @@
+import {dropdownHandlers} from './features/dropdowns.ts';
 import { installEvents } from './core/events.ts';
 import { render } from './core/router.ts';
 import { SessionExpired } from './core/api.ts';
@@ -17,6 +18,7 @@ import { installSearchableSelects } from './ui/searchable-select.ts';
 import { regulationRegisterHandlers } from './features/regulation-registers.ts';
 import { obligationHandlers,installObligationEditorEvents } from './features/obligations.ts';
 import { deliveryHandlers } from './features/delivery.ts';
+import { auditTrailHandlers } from './features/audit-trail.ts';
 
 import {controlHandlers} from './features/controls.ts';
 import {employeeSettingsHandlers} from './features/employee-settings.ts';
@@ -27,6 +29,7 @@ installObligationEditorEvents();
 const context = { render, loadIdentity, loginView };
 import {delegationHandlers} from './features/delegations.ts';
 const features = [
+  auditTrailHandlers,
   employeeSettingsHandlers,
   delegationHandlers,
   controlHandlers,
@@ -37,6 +40,7 @@ const features = [
   workHandlers,
   userHandlers,
   masterHandlers,
+  dropdownHandlers,
   settingsHandlers,
   workspaceHandlers,
   clauseHandlers,

@@ -1,4 +1,5 @@
 /** Shared read-only summary for the workspace and mapped Excel validation preview. */
+import {classificationName} from '../ui/dropdown-fields.ts';
 import { esc,ref,title,badge,date,statusTag,link,localDate } from '../ui/components.ts';
 import { detailFields,table,recordCell } from '../ui/widgets.ts';
 import { ownerRoles,ownerResponse,assignmentApproval,statusLabel,processRelationshipLabel,timestamp } from '../core/obligation-detail.ts';
@@ -6,7 +7,7 @@ import { ownerRoles,ownerResponse,assignmentApproval,statusLabel,processRelation
 /** One field definition feeds the reader, wizard review and import preview. */
 const narrativeFields=[['statement','Requirement','What needs to be done'],['internal_interpretation','Internal interpretation','Bank’s interpretation'],['evidence_standard','Evidence requirement','Evidence required'],['breach_consequence','Breach consequence','Breach consequence']];
 export function requirementEntries(o,reading=false){return narrativeFields.map(([key,label,readingLabel])=>[reading?readingLabel:label,o[key]]);}
-export function classificationEntries(o){return [['Category',esc(ref('obligation_category',o.category_id))],['Domain',esc(ref('regulatory_domain',o.primary_domain_id))],['Frequency',esc(ref('frequency',o.frequency_id))],['Nature',esc(title(o.obligation_nature))]];}
+export function classificationEntries(o){return [['Category',esc(ref('obligation_category',o.category_id))],['Domain',esc(ref('regulatory_domain',o.primary_domain_id))],['Frequency',esc(ref('frequency',o.frequency_id))],['Nature',esc(classificationName('obligation_nature',o.obligation_nature))]];}
 
 export function obligationSummary(o,stage=o.approval_status||'PROPOSED'){
   return detailFields([

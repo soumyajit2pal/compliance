@@ -5,6 +5,7 @@ from pydantic import Field,model_validator
 from .schemas import Input
 
 class ActionInput(Input):
+    custom_fields:dict[str,str|None]=Field(default_factory=dict,max_length=120)
     obligation_id:str=Field(max_length=36)
     description:str=Field(min_length=10,max_length=10000)
     owner_unit_id:str=Field(max_length=36)

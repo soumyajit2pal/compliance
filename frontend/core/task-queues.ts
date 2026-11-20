@@ -1,3 +1,9 @@
+export const rbiWorkflowPath = 'tasks?queue=rbi';
+
+export function showRbiWorkflowGuide(query: URLSearchParams) {
+  return query.get('queue') === 'rbi' && query.get('view') !== 'assignments' && !query.has('tab') && !query.has('q');
+}
+
 /** Read-only convenience queues; delegation and scope are enforced by existing APIs. */
 export function taskQueue(tasks:any[],queue:string,sources:any[],regulators:any[]){
  if(queue==='rbi'){

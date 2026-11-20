@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from fastapi import HTTPException
 from . import models as m, repository as repo, obligations as obl
 from .access import READ_ROLES, REGULATORY_ROLES, actor_for
-from .events import audit, history, notify, new_id, now
+from .events import audit, history, notify, new_id, now, record_audit
 
 KINDS={'controls':m.control,'control-mappings':m.obligation_control_map}
 PENDING={'DRAFT','IN_REVIEW','REVIEWED'}
@@ -34,7 +34,7 @@ def context(db,actor,kind,r):
                 try:obl.read(db,actor,mapping['obligation_id'])
                 except HTTPException:continue
                 allowed=True;break
-        fail(allowed,'Control not found in your authorised area.',404)
+        fail(allowed,'Check not found in your authorised area.',404)
         return r['governance_unit_id']
     o=obl.read(db,actor,r['obligation_id']);control=read(db,actor,'controls',r['control_id'])
     fail(actor.covers(r['scope_unit_id'],READ_ROLES) or actor.covers(o['regulatory_owner_unit_id'],REGULATORY_ROLES),'Mapping not found in your authorised area.',404)
@@ -61,23 +61,30 @@ def change(db,actor,kind,r,values,event,reason):
     return {**r,**values}
 def validate(db,actor,kind,values):
     if kind=='controls':
-        fail(values['governance_unit_id'],'Legacy control needs a validated governance department.')
+        fail(values['governance_unit_id'],'This earlier check needs a validated governance department.')
         for table,key in [(m.organisational_unit,'owner_unit_id'),(m.organisational_unit,'governance_unit_id'),(m.frequency,'frequency_id'),(m.evidence_type,'evidence_type_id')]:repo.active(db,table,values[key])
         if values['system_id']:repo.active(db,m.system,values['system_id'])
         owner=actor_for(db,values['owner_user_id']);owner.require({'CONTROL_OWNER'},values['owner_unit_id'])
-        fail(not any(owner.user.get(k) for k in ['must_change_password_flag','needs_email_confirmation_flag','needs_department_selection_flag']),'The control owner must complete onboarding.')
+        fail(not any(owner.user.get(k) for k in ['must_change_password_flag','needs_email_confirmation_flag','needs_department_selection_flag']),'The check owner must complete onboarding.')
         fail(values['review_date']>=values['effective_from'],'Review date must cover the effective start.')
         return values['governance_unit_id']
     from .delivery import current_obligation
     o=obl.read(db,actor,values['obligation_id'],True)
     c=read(db,actor,'controls',values['control_id'],True)
     current_obligation(db,actor,o,values['scope_unit_id'])
-    fail(current(c) and c['control_status'] in {'DESIGNED','IMPLEMENTED'},'Use a current approved control; ineffective or retired controls cannot provide new coverage.',409)
-    fail(c['effective_from']<=values['effective_from'] and (not c['effective_to'] or values['effective_to'] and values['effective_to']<=c['effective_to']),'Mapping dates must fit the approved control dates.')
-    fail(o['effective_from']<=values['effective_from'] and (not o['effective_to'] or values['effective_to'] and values['effective_to']<=o['effective_to']),'Mapping dates must fit the obligation dates.')
-    fail(actor.covers(values['scope_unit_id'],READ_ROLES) or actor.covers(o['regulatory_owner_unit_id'],REGULATORY_ROLES),'Mapping scope is outside your approved area.',403)
+    fail(current(c) and c['control_status'] in {'DESIGNED','IMPLEMENTED'},'Choose a current approved check that is designed or implemented.',409)
+    fail(c['effective_from']<=values['effective_from'] and (not c['effective_to'] or values['effective_to'] and values['effective_to']<=c['effective_to']),'Obligation link dates must fit the approved check dates.')
+    fail(o['effective_from']<=values['effective_from'] and (not o['effective_to'] or values['effective_to'] and values['effective_to']<=o['effective_to']),'Obligation link dates must fit the obligation dates.')
+    fail(actor.covers(values['scope_unit_id'],READ_ROLES) or actor.covers(o['regulatory_owner_unit_id'],REGULATORY_ROLES),'The obligation link is outside your approved scope.',403)
     return o['regulatory_owner_unit_id']
-def input_values(p):return p.model_dump(exclude={'reason'}) | {'change_reason':p.reason}
+def validate_classifications(db, values, retained):
+    for key,label in (('control_type','check type'),('execution_mode','operation')):
+        table=getattr(m,key)
+        active=db.execute(sa.select(table.c.active_flag).where(table.c.code==values[key])).scalar_one_or_none()
+        if not active and values[key] != retained.get(key):
+            raise HTTPException(422,'Select an active '+label+'.')
+
+def input_values(p):return p.model_dump(exclude={'reason','custom_fields'}) | {'change_reason':p.reason}
 def create(db,actor,kind,p,previous=None):
     values=input_values(p);unit=validate(db,actor,kind,values)
     fail(maker(actor,kind,values,unit),'Your role cannot prepare this record.',403)
@@ -89,13 +96,17 @@ def create(db,actor,kind,p,previous=None):
             fail(all(values[k]==old[k] for k in ['obligation_id','scope_unit_id']),'A revision must retain the obligation and department.')
         fail(not db.execute(sa.select(table.c.id).where(table.c.supersedes_id==previous,table.c.approval_status.in_(PENDING))).first(),'A revision is already in preparation or review.',409)
         values.update(supersedes_id=previous);version=old['version_number']+1
-        if kind=='controls':fail(values['owner_unit_id']==old['owner_unit_id'] and values['governance_unit_id']==old['governance_unit_id'],'Department transfers require a separately governed new control and mapping.')
+        if kind=='controls':fail(values['owner_unit_id']==old['owner_unit_id'] and values['governance_unit_id']==old['governance_unit_id'],'Department transfers require a new check and obligation link with their own approvals.')
     elif kind=='control-mappings':
         existing=rows(db,table,sa.and_(table.c.obligation_id==values['obligation_id'],table.c.control_id==values['control_id'],table.c.scope_unit_id==values['scope_unit_id'],table.c.superseded_by_id.is_(None),table.c.approval_status.in_(list(PENDING|{'APPROVED'}))))
-        fail(not existing,'This obligation/control/department already has a mapping. Open it and create a revision.',409)
-    if kind=='controls':values['code']=old['code'] if previous else repo.next_code(db,'control')
+        fail(not existing,'This check is already linked to the obligation for this department. Open the link and create a revision.',409)
+    if kind=='controls':
+        validate_classifications(db,values,old if previous else {})
+        values['code']=old['code'] if previous else repo.next_code(db,'control')
     identifier=new_id();values.update(id=identifier,created_by=actor.id,version_number=version,edit_revision=1)
     db.execute(table.insert().values(**values));audit(db,actor,kind,identifier,'REVISION_CREATED' if previous else 'CREATED',new=values,reason=p.reason)
+    from .dropdowns import save_answers
+    save_answers(db,actor,kind,identifier,p.custom_fields,p.reason,previous)
     return {'id':identifier}
 def edit(db,actor,kind,identifier,p,revision):
     r=read(db,actor,kind,identifier,True);fail(r['created_by']==actor.id and r['approval_status']=='DRAFT','Only the Draft maker can edit. Revise approved content.',409)
@@ -104,10 +115,15 @@ def edit(db,actor,kind,identifier,p,revision):
     immutable=['owner_unit_id','governance_unit_id'] if kind=='controls' else ['obligation_id','control_id','scope_unit_id']
     fail(all(r[k]==values[k] for k in immutable),'Keep the original record scope. Create a separate record for a different scope.')
     unit=validate(db,actor,kind,values);fail(maker(actor,kind,r,unit),'Your role cannot edit this scope.',403)
+    if kind=='controls':validate_classifications(db,values,r)
+    from .dropdowns import save_answers
+    save_answers(db,actor,kind,identifier,p.custom_fields,p.reason)
     return change(db,actor,kind,r,values,'DRAFT_EDITED',p.reason)
 def submit(db,actor,kind,identifier,p):
     r=read(db,actor,kind,identifier,True);expected(r,p);unit=context(db,actor,kind,r)
     fail(r['created_by']==actor.id and maker(actor,kind,r,unit) and r['approval_status']=='DRAFT','Only the Draft maker can submit.',403)
+    from .dropdowns import save_answers
+    save_answers(db,actor,kind,identifier,{})
     validate(db,actor,kind,r)
     for uid,role in [(p.reviewer_user_id,'REVIEWER'),(p.approver_user_id,'APPROVER')]:
         candidate=obl.eligible(db,uid,role,unit,{r['created_by'],p.approver_user_id if role=='REVIEWER' else p.reviewer_user_id})
@@ -135,14 +151,14 @@ def decide(db,actor,kind,identifier,p):
                 for other in rows(db,m.obligation_control_map,sa.and_(m.obligation_control_map.c.obligation_id==r['obligation_id'],m.obligation_control_map.c.scope_unit_id==r['scope_unit_id'],m.obligation_control_map.c.approval_status=='APPROVED',m.obligation_control_map.c.superseded_by_id.is_(None))):
                     if other['id'] in {r['id'],r['supersedes_id']} or other['mapping_status']!='ACTIVE':continue
                     overlap=(not other['effective_to'] or r['effective_from']<other['effective_to']) and (not r['effective_to'] or other['effective_from']<r['effective_to'])
-                    fail(not overlap or other['control_id']!=r['control_id'],'An approved mapping already covers this control, obligation and department.',409)
-                    fail(not overlap or not (r['primary_control_flag'] and other['primary_control_flag']),'Only one primary control mapping may cover a department at a time. Revise the existing primary mapping first.',409)
+                    fail(not overlap or other['control_id']!=r['control_id'],'An approved link already covers this check, obligation and department.',409)
+                    fail(not overlap or not (r['primary_control_flag'] and other['primary_control_flag']),'Only one primary check can cover this obligation in a department at a time. Revise the existing primary link first.',409)
             values={'approval_status':'REVIEWED','reviewed_by':actor.id,'reviewed_at':now()} if reviewing else {'approval_status':'APPROVED','approved_by':actor.id,'approved_at':now()}
             if not reviewing and r['supersedes_id']:
                 old=read(db,actor,kind,r['supersedes_id'],True)
                 fail(not old['superseded_by_id'],'Another revision has replaced this record.',409)
                 withdrawing=r['control_status'] in {'INEFFECTIVE','RETIRED'} if kind=='controls' else r['mapping_status']=='RETIRED'
-                fail(withdrawing or not open_linked_actions(db,kind,old),'Finish or cancel open linked work before replacing this control or mapping. Original assignments remain retained.',409)
+                fail(withdrawing or not open_linked_actions(db,kind,old),'Finish or cancel open linked work before replacing this check or obligation link. Original assignments remain retained.',409)
                 fail(r['effective_from']<=today(),'A replacement must be effective now; future replacement scheduling is not supported.')
                 change(db,actor,kind,old,{'superseded_by_id':identifier},'SUPERSEDED',p.reason)
     updated=change(db,actor,kind,r,values,p.decision,p.reason)
@@ -174,12 +190,14 @@ def detail(db,actor,kind,identifier):
     for link in links:
         try:a,_=d.read(db,actor,link['action_id']);actions.append(a)
         except HTTPException:continue
+    from .dropdowns import read_answers
+    r={**r,'custom_answers':read_answers(db,kind,identifier)}
     return {'record':r,'previous':previous,'actions':actions,'permissions':{
         'can_edit':r['approval_status']=='DRAFT' and r['created_by']==actor.id and maker(actor,kind,r,unit),
         'can_revise':r['approval_status']=='APPROVED' and not r['superseded_by_id'] and maker(actor,kind,r,unit),
         'can_decide':r['approval_status'] in {'IN_REVIEW','REVIEWED'} and actor.id==r['reviewer_user_id' if r['approval_status']=='IN_REVIEW' else 'approver_user_id'] and actor.covers(unit,{'REVIEWER' if r['approval_status']=='IN_REVIEW' else 'APPROVER'}),
         'can_withdraw':r['created_by']==actor.id and r['approval_status'] in PENDING and maker(actor,kind,r,unit)},
-        'audit':rows(db,m.audit_log,sa.and_(m.audit_log.c.entity_type==kind,m.audit_log.c.entity_id==identifier))}
+        'audit':record_audit(db,sa.and_(m.audit_log.c.entity_type==kind,m.audit_log.c.entity_id==identifier))}
 def tasks(db,actor):
     result=[]
     for kind in KINDS:
@@ -190,6 +208,9 @@ def tasks(db,actor):
             if draft or decision:result.append({'id':r['id'],'kind':'DRAFT' if draft else 'DECISION','workflow_kind':'CONTROL','action_path':kind+'/'+r['id'],'code':r.get('code') or r['control_code']+' → '+r['obligation_code'],'title':r.get('title') or r['control_title'],'department_id':unit,'stage':status,'due_at':r.get('review_date')})
     return result
 
+def obligations_with_current_check_links(db, actor):
+    return {link['obligation_id'] for link in listing(db, actor, 'control-mappings', {'current':'true'})}
+
 def action_mappings(db,actor,obligation,unit):
     result=[]
     for r in listing(db,actor,'control-mappings',{'obligation':obligation,'department':unit,'current':'true'}):
@@ -198,16 +219,16 @@ def action_mappings(db,actor,obligation,unit):
     return result
 def prepare_links(db,actor,o,p):
     identifiers=p.control_mapping_ids
-    fail(len(identifiers)==len(set(identifiers)),'Choose each control mapping once.')
-    fail(identifiers or len(p.control_scope_reason or '')>=10,'Select approved controls or explain why this action has no control execution scope.')
+    fail(len(identifiers)==len(set(identifiers)),'Choose each obligation link once.')
+    fail(identifiers or len(p.control_scope_reason or '')>=10,'Select approved checks or explain why this work requires no checks.')
     result=[]
     for identifier in identifiers:
         r=read(db,actor,'control-mappings',identifier,True);c=read(db,actor,'controls',r['control_id'],True)
         fail(r['obligation_id']==o['id'] and r['scope_unit_id']==p.owner_unit_id,'The mapping must match the exact obligation revision and department.')
-        fail(current(r) and r['mapping_status']=='ACTIVE' and current(c) and c['control_status'] in {'DESIGNED','IMPLEMENTED'},'The selected control or mapping is no longer current.',409)
-        fail(c['control_status']=='IMPLEMENTED','Execution work needs an implemented control. Use a reasoned implementation action to establish a designed control.',409)
-        for v in [r,c]:fail(v['effective_from']<=p.period_from and (not v['effective_to'] or p.period_to<v['effective_to']),'The control and mapping must cover the entire reporting period.')
-        fail(c['evidence_type_id']==p.evidence_type_id,'The action evidence type must match every selected control; use separate assignments for different proof types.')
+        fail(current(r) and r['mapping_status']=='ACTIVE' and current(c) and c['control_status'] in {'DESIGNED','IMPLEMENTED'},'The selected check or obligation link is no longer current.',409)
+        fail(c['control_status']=='IMPLEMENTED','Execution work needs an implemented check. Create an implementation task with a reason if the check is still at the design stage.',409)
+        for v in [r,c]:fail(v['effective_from']<=p.period_from and (not v['effective_to'] or p.period_to<v['effective_to']),'The check and obligation link must cover the entire reporting period.')
+        fail(c['evidence_type_id']==p.evidence_type_id,'The evidence type must match every selected check. Use separate assignments for different proof types.')
         result.append(r)
     return result
 def link_action(db,actor,a,mappings):
@@ -225,8 +246,8 @@ def record_result(db,actor,identifier,p):
     a,o=d.read(db,actor,identifier,True);d.revision(a,p);d.require_owner(actor,a)
     fail(a['record_status'] in {'OPEN','IN_PROGRESS'},'Results cannot change during review.',409)
     fail(a['period_to']<=today() and a['period_from']<=p.performed_date<=today(),'Record the result after the period ends, with a valid performance date.')
-    scope=next((x for x in action_context(db,actor,a) if x['mapping']['id']==p.mapping_id),None);fail(scope,'Select a control mapped to this action.')
-    c=scope['control'];fail(current(c) and current(scope['mapping']),'Control coverage needs reassessment before recording this result.',409)
+    scope=next((x for x in action_context(db,actor,a) if x['mapping']['id']==p.mapping_id),None);fail(scope,'Select a check linked to this work.')
+    c=scope['control'];fail(current(c) and current(scope['mapping']),'Check coverage needs reassessment before recording this result.',409)
     fail(p.performed_date>=a['period_to'],'Performance date cannot precede the end of the reporting period.')
     execution=new_id();db.execute(m.control_execution.insert().values(id=execution,control_id=c['id'],period_from=a['period_from'],period_to=a['period_to'],due_date=a['current_due_date'],performed_date=p.performed_date,performed_by=actor.id,result='PENDING',exception_count=p.exception_count,comments=p.comments,certification_status='RETAINED_ACTION_GATE' if a['retained_validation_required_flag'] else 'NOT_REQUIRED'))
     result=new_id();db.execute(m.action_control_result.insert().values(id=result,link_id=scope['link']['id'],execution_id=execution,attempt_number=len(scope['results'])+1,proposed_result=p.result))
@@ -234,19 +255,19 @@ def record_result(db,actor,identifier,p):
     return {'id':result}
 def bind_submission(db,actor,a,submission,proof):
     for x in action_context(db,actor,a):
-        fail(current(x['mapping']) and current(x['control']),'A control or mapping requires reassessment before submission.',409)
+        fail(current(x['mapping']) and current(x['control']),'A check or obligation link requires reassessment before submission.',409)
         last=x['results'][-1] if x['results'] else None
-        fail(last and not last['submission_id'],'Record a fresh result for every mapped control before submitting this period.',409)
+        fail(last and not last['submission_id'],'Record a fresh result for every linked check before submitting this period.',409)
         db.execute(m.action_control_result.update().where(m.action_control_result.c.id==last['id']).values(submission_id=submission))
         for e in proof:db.execute(m.evidence_link.insert().values(id=new_id(),evidence_id=e['evidence_id'],control_execution_id=last['execution_id'],link_purpose='EXECUTION',primary_evidence_flag=0,linked_by=actor.id,linked_at=now()))
 def decide_result(db,actor,identifier,p,storage):
     from . import delivery as d
     r=repo.one(db,m.action_control_result,identifier);link=repo.one(db,m.action_control_link,r['link_id']);a,o=d.read(db,actor,link['action_id'],True);d.revision(a,p);d.require_reviewer(actor,a,o)
     r=repo.one(db,m.action_control_result,identifier,True);sub=d.latest(db,a)
-    fail(a['record_status']=='PENDING_VALIDATION' and sub and r['submission_id']==sub['id'] and r['decision']=='PENDING','Review the current submitted control result once.',409)
+    fail(a['record_status']=='PENDING_VALIDATION' and sub and r['submission_id']==sub['id'] and r['decision']=='PENDING','Review the current submitted check result once.',409)
     proof=json.loads(sub['evidence_snapshot']);decisions=rows(db,m.action_evidence_decision,m.action_evidence_decision.c.submission_id==sub['id'])
     if p.decision=='ACCEPT':
-        fail(proof and all(any(x['evidence_link_id']==e['link_id'] and x['decision']=='ACCEPT' and x['reviewed_by']==actor.id for x in decisions) for e in proof),'Review and accept every submitted proof item before accepting a control result.',409)
+        fail(proof and all(any(x['evidence_link_id']==e['link_id'] and x['decision']=='ACCEPT' and x['reviewed_by']==actor.id for x in decisions) for e in proof),'Review and accept every submitted proof item before accepting a check result.',409)
         for e in proof:
             item=d.evidence_read(db,actor,e['evidence_id']);d.evidence_valid(a,item);d.integrity(db,item,storage)
     execution=repo.one(db,m.control_execution,r['execution_id'],True)
@@ -257,6 +278,6 @@ def decide_result(db,actor,identifier,p,storage):
     return {'ok':True}
 def closure(db,actor,a,submission):
     for x in action_context(db,actor,a):
-        fail(current(x['mapping']) and current(x['control']) and x['mapping']['mapping_status']=='ACTIVE' and x['control']['control_status']=='IMPLEMENTED','Current approved control coverage is required before closing mapped work.',409)
+        fail(current(x['mapping']) and current(x['control']) and x['mapping']['mapping_status']=='ACTIVE' and x['control']['control_status']=='IMPLEMENTED','Current approved check coverage is required before closing linked work.',409)
         matched=[r for r in x['results'] if r['submission_id']==submission['id']]
-        fail(len(matched)==1 and matched[0]['decision']=='ACCEPT' and matched[0]['execution']['result']=='EFFECTIVE','Each mapped control needs an independently accepted effective result for this submission. Exceptions and failures require correction.',409)
+        fail(len(matched)==1 and matched[0]['decision']=='ACCEPT' and matched[0]['execution']['result']=='EFFECTIVE','Each linked check needs an independently accepted effective result for this submission. Exceptions and failures require correction.',409)

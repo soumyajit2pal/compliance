@@ -9,7 +9,6 @@
 @import './styles/login.css';
 @import './styles/searchable-select.css';
 @import './styles/loading.css';
-@import './styles/ldap-accounts.css';
 @import './styles/work-profile.css';
 @import './styles/import-preview.css';
 @import './styles/pagination.css';
@@ -25,10 +24,17 @@
 @import './styles/home.css';
 @import './styles/obligation-register.css';
 @import './styles/application.css';
+@import './styles/ldap-accounts.css';
 @import './styles/delivery.css';
+@import './styles/report-dashboard.css';
+@import './styles/rbi-workflow.css';
+@import './styles/audit-trail.css';
 
 @import './styles/action-tracker.css';
 
 @import './styles/controls.css';
 
 .leave-acting-banner{position:relative;display:flex;gap:14px;align-items:center;border:1px solid #bfa9d2;background:#f2e9fa;color:#412e51;padding:16px;flex-wrap:wrap}.leave-acting-banner>span{flex:1;min-width:180px}.leave-acting-banner .btn{flex-shrink:0}
+
+.dropdown-option-row {display:grid;grid-template-columns:minmax(7rem,1fr) minmax(9rem,2fr) auto auto auto;gap:.6rem;align-items:end;margin-bottom:.75rem}
+@media (max-width:760px){.dropdown-option-row{grid-template-columns:repeat(2,minmax(0,1fr));padding-block:.65rem;border-bottom:1px solid var(--border)}}

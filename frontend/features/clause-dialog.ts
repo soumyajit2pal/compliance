@@ -56,7 +56,7 @@ export function openClauseDialog(targets: ClauseDraftTarget[], formId: string, c
       ${field('Parent clause (optional)', `<select name="parent_clause_id">${parentOptions(target, clause.id, clause.parent_clause_id)}</select>`, 'Choose a parent from this source edition. Siblings follow source numbering, with creation order used when numbering is unavailable.', 'full')}
       ${field('Original regulatory text', area('clause_text', clause.clause_text || '', 'required maxlength="50000" rows="6"'), 'Preserve the regulator’s wording as it appears in the source.', 'full')}
       ${field('Bank’s internal interpretation', area('internal_interpretation', clause.internal_interpretation || '', 'maxlength="50000" rows="5"'), 'Record the bank’s explanation separately. You can complete it while the source edition is Draft.', 'full')}
-      <fieldset class="clause-control-flags full"><legend>Control flags</legend><div>${controlFlags.map((flag) => `<label class="check-label"><input type="checkbox" name="${flag}_flag" ${(clause[flag + '_flag'] ?? flag === 'mandatory') ? 'checked' : ''}>${esc(title(flag))}</label>`).join('')}</div></fieldset>
+      <fieldset class="clause-control-flags full"><legend>Clause requirements</legend><div>${controlFlags.map((flag) => `<label class="check-label"><input type="checkbox" name="${flag}_flag" ${(clause[flag + '_flag'] ?? flag === 'mandatory') ? 'checked' : ''}>${esc(title(flag))}</label>`).join('')}</div></fieldset>
       <p class="clause-save-guidance full">Saving keeps this clause in Draft. Submit the source edition from its Workflow tab when it is ready for independent review.</p>
     </div>`,
     formId,

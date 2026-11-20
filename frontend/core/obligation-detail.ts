@@ -1,6 +1,6 @@
 /** Presentation policy only. The API remains authoritative for all decisions and activation. */
 import { setupSectionSteps } from './obligation-setup.ts';
-export const ownerRoles = {REGULATORY:'Regulatory owner',BUSINESS:'Business owner',CONTROL:'Control owner',EVIDENCE:'Evidence owner',DATA:'Data owner',COMPLIANCE_REVIEWER:'Compliance reviewer'};
+export const ownerRoles = {REGULATORY:'Regulatory owner',BUSINESS:'Business owner',CONTROL:'Check owner',EVIDENCE:'Evidence owner',DATA:'Data owner',COMPLIANCE_REVIEWER:'Compliance reviewer'};
 export const processRelationshipChoices = [
   {id:'PRIMARY',name:'Primary — main process for this obligation'},
   {id:'DIRECT',name:'Direct — performs the required activity'},
@@ -58,7 +58,7 @@ export function assignmentApproval(value) {
 const setupIssues = {
   MISSING_REGULATORY_OWNER:['Primary regulatory owner','Not assigned','owners'],
   MISSING_BUSINESS_OWNER:['Primary business owner','Not assigned','owners'],
-  MISSING_CONTROL_OWNER:['Control owner','Not assigned','owners'],
+  MISSING_CONTROL_OWNER:['Check owner','Not assigned','owners'],
   MISSING_COMPLIANCE_REVIEWER_OWNER:['Compliance reviewer','Not assigned','owners'],
   INVALID_OWNER_ACCESS:['Owner access','Needs attention','owners'],
   MISSING_APPLICABILITY:['Where it applies','Not assessed','applicability'],
@@ -91,7 +91,7 @@ export function readinessItems(d, policy) {
 const activationMessages={
   MISSING_REGULATORY_OWNER:'A primary Regulatory owner is required.',
   MISSING_BUSINESS_OWNER:'A primary Business owner is required for the accountable business department.',
-  MISSING_CONTROL_OWNER:'At least one Control owner is required.',
+  MISSING_CONTROL_OWNER:'At least one Check owner is required.',
   MISSING_COMPLIANCE_REVIEWER_OWNER:'A named Compliance reviewer is required.',
   INVALID_OWNER_ACCESS:'Assigned owners must have current access for their role and department.',
   MISSING_APPLICABILITY:'At least one applicability assessment is required, followed by final approval.',

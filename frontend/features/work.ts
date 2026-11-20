@@ -1,4 +1,4 @@
-import {taskQueue} from '../core/task-queues.ts';
+import { rbiWorkflowPath, showRbiWorkflowGuide, taskQueue } from '../core/task-queues.ts';
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
 import {
@@ -15,8 +15,14 @@ import {
 import { icon } from '../ui/icons.ts';
 import { heading, pageHelp } from '../ui/layout.ts';
 import { note, tabs, table, tablePanel, person, searchForm, recordCell, pagedCollection } from '../ui/widgets.ts';
+import { rbiWorkflowPage } from './rbi-workflow.ts';
 
 export async function tasksPage(page, query = new URLSearchParams()) {
+  const queue=query.get('queue')||'';
+  const rbi=queue==='rbi';
+  if (page==='tasks' && showRbiWorkflowGuide(query)) {
+    return rbiWorkflowPage();
+  }
   const tab = query.get('tab') || 'all',
     q = (query.get('q') || '').toLowerCase();
   const week = new Date();
@@ -24,7 +30,6 @@ export async function tasksPage(page, query = new URLSearchParams()) {
   const end = week.toLocaleDateString('en-CA');
   const sourceRows = await api('/instruments');
   const sources = new Map<string, any>(sourceRows.map((r) => [r.id, r]));
-  const queue=query.get('queue')||'';
   const all = taskQueue((state.work || []).filter((t) => page !== 'approvals' || t.kind === 'DECISION'),queue,sourceRows,state.masters.regulator||[]);
   let rows = all.filter(
     (t) =>
@@ -65,11 +70,11 @@ export async function tasksPage(page, query = new URLSearchParams()) {
       'A role grants eligibility. A named, in-scope assignment is still needed before work appears here.',
     ) +
     heading(
-      queue==='rbi'?'RBI notification workflow':page === 'approvals' ? 'My decisions' : 'My tasks',
-      queue==='rbi'?'Your assigned work linked to visible RBI sources. Open each record for its governed workflow.':page === 'approvals'
+      rbi?(page==='approvals'?'My RBI decisions':'My RBI assignments'):page === 'approvals' ? 'My decisions' : 'My tasks',
+      rbi?'Your named assignments linked to RBI instruments you can access.':page === 'approvals'
         ? 'Open your assigned stage, then record your review or approval on the record’s Workflow tab.'
         : 'Personal assignments that your role and organisation scope permit you to perform.',
-      `<div class="actions">${link('tasks','All my tasks','btn '+(page==='tasks'?'primary':''))}${link('approvals','My decisions','btn '+(page==='approvals'?'primary':''))}${state.identity.menu.some(i=>i.id==='actions')?link('actions','Compliance work tracker','btn'):''}</div>`,
+      `<div class="actions">${rbi?link(rbiWorkflowPath,'RBI workflow guide','btn'):''}${link('tasks','All my tasks','btn '+(page==='tasks'&&!rbi?'primary':''))}${link('approvals','My decisions','btn '+(page==='approvals'&&!rbi?'primary':''))}${state.identity.menu.some(i=>i.id==='actions')?link('actions','Compliance work tracker','btn'):''}</div>`,
     ) +
     note(
       'Department visibility does not assign its work to you. Open a register for the team population; this list contains your named actionable work.',
@@ -89,7 +94,7 @@ export async function tasksPage(page, query = new URLSearchParams()) {
       'view-filter',
       'Search your ' + (page === 'approvals' ? 'decisions' : 'tasks') + '…',
       query.get('q') || '',
-      `<input type="hidden" name="tab" value="${esc(tab)}">${queue?`<input type="hidden" name="queue" value="${esc(queue)}">`:''}`,
+      `<input type="hidden" name="tab" value="${esc(tab)}">${queue?`<input type="hidden" name="queue" value="${esc(queue)}">`:''}${rbi&&page==='tasks'?'<input type="hidden" name="view" value="assignments">':''}`,
     ) +
     tablePanel(
       table(

@@ -13,9 +13,11 @@ import { close } from '../ui/dialog.ts';
 import { clearFormError, reportError } from '../ui/feedback.ts';
 import { domainGuidance, syncSecondaryDomainPicker } from '../ui/domains.ts';
 import { beginInteraction, isBusy } from '../ui/loading.ts';
+import { installDashboardInfo } from '../ui/dashboard-info.ts';
 
 /** Bind once; replacement views and dialogs use delegated events. */
 export function installEvents({ actions, forms }) {
+  installDashboardInfo();
   actions.close = close;
   const closeFilters = (details: HTMLDetailsElement, restoreFocus = false) => {
     const focusInside = details.contains(document.activeElement);

@@ -16,6 +16,7 @@ class Onboard(Input):
     email:str=Field(min_length=3,max_length=254)
     org_unit_id:str
 class InstrumentInput(Input):
+    custom_fields: dict[str,str | None] = Field(default_factory=dict,max_length=120)
     regulator_id:str
     instrument_type_id:str
     primary_domain_id:str
@@ -155,8 +156,15 @@ class DomainInput(Input):
     domain_owner_unit_id:str
     active_flag:bool
 class LinkInput(Input):
-    url:str
-    active_flag:bool
+    url: str | None = Field(default=None, max_length=1000)
+    active_flag: bool | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=250)
+    description: str | None = Field(default=None, max_length=4000)
+
+class NewLinkInput(LinkInput):
+    code: str = Field(min_length=1, max_length=40, pattern=r'^[a-zA-Z0-9][a-zA-Z0-9._-]*$')
+    name: str = Field(min_length=1, max_length=250)
+    active_flag: bool = False
 class DirectoryInput(Input):
     model_config=ConfigDict(extra='forbid',str_strip_whitespace=False)
     enabled:bool=True
@@ -172,14 +180,10 @@ class DirectoryInput(Input):
     ca_certificate_action:Literal['keep','replace','remove']='keep'
     ca_certificate_data:str|None=Field(default=None,max_length=1398104,repr=False)
     ca_certificate_name:str|None=Field(default=None,max_length=255)
-    attr_full_name:str=Field(default='displayName',max_length=100)
-    attr_email:str=Field(default='mail',max_length=100)
     attr_department_code:str=Field(default='department',min_length=1,max_length=100)
-    attr_division:str=Field(default='division',min_length=1,max_length=100)
-    attr_info:str=Field(default='info',min_length=1,max_length=100)
 
     @field_validator('server_uri','base_dn','bind_dn','user_dn_template','user_search_filter',
-                     'ca_cert_file','attr_full_name','attr_email','attr_department_code','attr_division','attr_info')
+                     'ca_cert_file','attr_department_code')
     @classmethod
     def strip_directory_values(cls,value):return value.strip()
 

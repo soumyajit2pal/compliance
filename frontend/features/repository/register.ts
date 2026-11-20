@@ -15,7 +15,29 @@ import { icon } from '../../ui/icons.ts';
 import { heading, pageHelp } from '../../ui/layout.ts';
 import { table, tablePanel, recordCell } from '../../ui/widgets.ts';
 import { withoutPaging } from '../../core/pagination.ts';
-export function renderRegister(rows, q, pagination = undefined) {
+import { dashboardTiles } from '../../ui/dashboard.ts';
+
+const libraryStages=[
+  ['current','Current instruments','book','Instruments marked current in the regulatory library.'],
+  ['draft','Draft instruments','pen','Draft instruments that are still being prepared for review.'],
+  ['in_review','In review','eye','Instruments submitted for review that are awaiting a reviewer’s decision.'],
+  ['awaiting_approval','Awaiting final approval','shield','Instruments that have completed review and are waiting for a final decision.'],
+  ['retained','Other instruments','folder','Instruments outside the current and preparation stages, including superseded and withdrawn records.'],
+];
+
+function libraryTiles(counts:Record<string,number>|undefined, query:URLSearchParams) {
+  if(!counts)return '';
+  return dashboardTiles('Regulatory library stages',libraryStages.map(([key,title,symbol,explanation])=>{
+    const next=withoutPaging(query);
+    const selected=next.get('library_stage')===key;
+    if(selected)next.delete('library_stage');
+    else next.set('library_stage',key);
+    return {title,symbol,explanation,count:counts[key]||0,href:'repository'+(next.size?'?'+next:''),selected,
+      description:selected?'Clear stage filter':'View instruments'};
+  }));
+}
+
+export function renderRegister(rows, q, pagination = undefined, counts = undefined) {
   const statusCell = (record) => {
     const position = record.regulatory_status;
     const status = ['CURRENT', 'SUPERSEDED', 'WITHDRAWN'].includes(position)
@@ -38,7 +60,9 @@ export function renderRegister(rows, q, pagination = undefined) {
         ? '<a class="btn primary" href="#repository/new">' + icon('plus') + 'New instrument</a>'
         : '',
     ) +
+    libraryTiles(counts,q)+
     `<form id="filters">
+      ${q.get('library_stage')?input('library_stage',q.get('library_stage'),'hidden'):''}
       <div class="filters">
         <div class="search-field">${icon('search')}${input('q', q.get('q') || '', 'search', 'placeholder="Search title, official reference number or keyword…" aria-label="Search regulatory repository"')}</div>
         <select class="filter-select" name="domain_id" aria-label="Affected domain"><option value="">All domains</option>${state.masters.regulatory_domain.map((d) => `<option value="${d.id}" ${selectedDomain === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>

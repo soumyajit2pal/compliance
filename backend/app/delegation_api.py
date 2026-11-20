@@ -2,6 +2,7 @@ from fastapi import Depends,Query,HTTPException
 import sqlalchemy as sa
 from . import delegations as d,delegation_schemas as c,models as m,repository as repo
 from .access import READ_ROLES,actor_for
+from .events import record_audit
 
 def install(app,get_db,current):
     @app.get('/api/delegations/options')
@@ -26,10 +27,12 @@ def install(app,get_db,current):
     def detail(identifier:str,db=Depends(get_db),actor=Depends(current)):
         record=next((r for r in d.listing(db,actor) if r['id']==identifier),None)
         if not record:raise HTTPException(404,'Delegation not found in your authorised area.')
-        events=[dict(r) for r in db.execute(sa.select(m.audit_log).where(m.audit_log.c.entity_type=='leave_delegation',m.audit_log.c.entity_id==identifier).order_by(m.audit_log.c.event_at,m.audit_log.c.id)).mappings()]
+        event = m.audit_log.c
+        events=record_audit(db, (event.entity_type=='leave_delegation') & (event.entity_id==identifier), event.event_at,event.id)
         actions=[]
         if actor.id in {record['principal_user_id'],record['delegate_user_id']} or actor.covers(record['scope_unit_id'],{'CCO'}):
-            actions=[dict(r) for r in db.execute(sa.select(m.audit_log).where(m.audit_log.c.delegation_id==identifier).order_by(m.audit_log.c.event_at,m.audit_log.c.id)).mappings() if d.audit_visible(db,actor,r)]
+            actions=[r for r in record_audit(db, (event.delegation_id==identifier) & (event.entity_type!='portal_access'),
+                                              event.event_at,event.id) if d.audit_visible(db,actor,r)]
         return {'record':record,'audit':events,'decisions_on_behalf':actions}
     @app.post('/api/delegations/{identifier}/decision')
     def decision(identifier:str,payload:c.Decision,db=Depends(get_db),actor=Depends(current)):return d.decision(db,actor,identifier,payload)

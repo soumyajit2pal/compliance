@@ -48,7 +48,7 @@ function showIdentity(data: any) {
     const department = ldapDepartmentState(user);
     if (department.blocked) {
       requirements.push(department.label + '.');
-      if (user.department_code || user.ldap_last_seen_department_code) requirements.push('Approved / current LDAP code: ' + (user.department_code || 'Not approved') + ' / ' + (user.ldap_last_seen_department_code || 'Unavailable') + '; division: ' + (user.ldap_division || 'Not recorded') + ' / ' + (user.ldap_last_seen_division || 'Not returned') + '; info: ' + (user.ldap_info || 'Not recorded') + ' / ' + (user.ldap_last_seen_info || 'Not returned') + '.');
+      if(user.employee_profile_required)requirements.push('Employee profile: '+(user.employee_profile_status||'Not approved')+'. Separate LDAP and API baselines require independent review.');
     }
   }
   if (!identity.roles.length) requirements.push('Administrator-approved roles and scope are required.');

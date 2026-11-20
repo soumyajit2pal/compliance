@@ -5,6 +5,7 @@ import re
 import sqlalchemy as sa
 from fastapi import HTTPException
 from pydantic import Field, ValidationError, field_validator, model_validator
+from .business_dropdowns import BUSINESS_MASTERS
 from . import models as m, repository as repo
 from .schemas import Input
 from .events import audit, new_id
@@ -13,6 +14,7 @@ from .events import audit, new_id
 class MasterChange(Input):
     values: dict = Field(min_length=1, max_length=25)
     reason: str = Field(min_length=5, max_length=2000)
+    custom_fields: dict[str,str | None] = Field(default_factory=dict,max_length=120)
 
 
 class Record(Input):
@@ -81,6 +83,15 @@ class Category(Record):
     code: str = Field(min_length=1, max_length=20)
 
 
+class OrderedChoice(Record):
+    display_sequence: int = Field(default=100, ge=0, le=1000000)
+
+
+class Taxonomy(Record):
+    code: str = Field(min_length=1, max_length=30)
+    source_reference: str = Field(min_length=1, max_length=250)
+
+
 class Frequency(Record):
     code: str = Field(min_length=1, max_length=30)
     schedule_rule: str | None = Field(default=None, max_length=250)
@@ -113,6 +124,11 @@ class Product(Record):
 
 # A single allowlist drives validation, API metadata and the shared frontend form.
 DEFINITIONS = {
+    'obligation_nature': ('Nature of the requirement', OrderedChoice, None, None),
+    'control_type': ('Check type', OrderedChoice, None, None),
+    'execution_mode': ('Check execution mode', OrderedChoice, None, None),
+    'system': ('Related system', Record, None, None),
+    'taxonomy_scheme': ('Taxonomy scheme', Taxonomy, None, None),
     'regulatory_domain': ('Regulatory domain', Domain, 'parent_domain_id', 'domain_level'),
     'regulator': ('Regulator', Regulator, 'parent_regulator_id', None),
     'instrument_type': ('Instrument type', InstrumentType, None, None),
@@ -275,5 +291,11 @@ def save(db, actor, key, payload, identifier=None):
     if old and key in {'process','product'} and any(old.get(k)!=v for k,v in values.items()):
         from .obligations import notify_reassessment
         notify_reassessment(db,actor,key,identifier)
+    if key in BUSINESS_MASTERS:
+        # Existing sessions refresh their shared option cache on the next navigation.
+        db.execute(m.dropdown_config.update().where(m.dropdown_config.c.id=='portal')
+                   .values(revision=m.dropdown_config.c.revision+1))
+    from .dropdowns import save_answers
+    save_answers(db,actor,'master.'+key,identifier,payload.custom_fields,payload.reason)
     return {'id': identifier, 'records': [dict(row) for row in db.execute(
         sa.select(table).where(table.c.id.in_(changed)).order_by(table.c.id)).mappings()]}

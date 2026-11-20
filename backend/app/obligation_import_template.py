@@ -12,7 +12,7 @@ FIELDS={
   ('statement','Requirement',True,'Describe one actionable requirement. Split combined requirements into separate obligations.','Review customer identification evidence before opening the account.'),
   ('internal_interpretation','Internal interpretation',True,'Explain how the bank will apply the requirement. Keep original regulatory wording in its source clause.','The onboarding team records and checks the identification evidence.'),
   ('category_id','Category',True,'Choose the category name from Choices.','Choose from Choices'),
-  ('obligation_nature','Nature',True,'Choose Ongoing, Periodic, Event driven or One time.','Ongoing'),
+  ('obligation_nature','Nature',True,'Choose an active nature from Choices.','Ongoing'),
   ('frequency_id','Review / execution frequency',True,'Choose the frequency name from Choices.','Choose from Choices'),
   ('primary_domain_id','Regulatory domain',True,'Choose the regulatory domain name from Choices.','Choose from Choices'),
   ('criticality','Criticality',True,'Choose Critical, High, Medium or Low.','High'),
@@ -32,9 +32,9 @@ FIELDS={
  ],
  'Owners':[
   ('import_reference','Import reference',True,'Match one Obligations row. Add one row per named assignment.','OBL-001'),
-  ('owner_role','Owner role',True,'Choose Regulatory owner, Business owner, Control owner, Evidence owner or Data owner. Compliance reviewer is assigned on Obligations.','Business owner'),
+  ('owner_role','Owner role',True,'Choose Regulatory owner, Business owner, Check owner, Evidence owner or Data owner. Compliance reviewer is assigned on Obligations.','Business owner'),
   ('org_unit_id','Owner department',True,'Choose the department for this assignment. The person must hold the required role for this department.','Choose from Choices'),
-  ('user_id','Named owner',True,'Choose a person from Choices. Business, Control and Evidence owners must be independent of the maker and reviewer.','Choose from Choices'),
+  ('user_id','Named owner',True,'Choose a person from Choices. Business, Check and Evidence owners must be independent of the maker and reviewer.','Choose from Choices'),
   ('primary_owner_flag','Primary owner',False,'Choose Yes for exactly one Regulatory owner and one Business owner per obligation. Other assignments can be No.','Yes'),
  ],
  'Applicability':[
@@ -61,14 +61,13 @@ FIELDS={
 SHEETS={sheet:[field[0] for field in fields] for sheet,fields in FIELDS.items()}
 GUIDANCE_SHEETS={'How to fill','Example','Choices','References'}
 ENUMS={
- 'obligation_nature':{'Ongoing':'ONGOING','Periodic':'PERIODIC','Event driven':'EVENT_DRIVEN','One time':'ONE_TIME'},
  'criticality':{'Critical':'CRITICAL','High':'HIGH','Medium':'MEDIUM','Low':'LOW'},
- 'owner_role':{'Regulatory owner':'REGULATORY','Business owner':'BUSINESS','Control owner':'CONTROL','Evidence owner':'EVIDENCE','Data owner':'DATA'},
+ 'owner_role':{'Regulatory owner':'REGULATORY','Business owner':'BUSINESS','Check owner':'CONTROL','Evidence owner':'EVIDENCE','Data owner':'DATA'},
  'applicability_status':{'Applicable':'APPLICABLE','Partial':'PARTIALLY_APPLICABLE','Not applicable':'NOT_APPLICABLE'},
  'relevance_type':{'Primary':'PRIMARY','Direct':'DIRECT','Indirect':'INDIRECT','Supporting':'SUPPORTING'},
 }
 CHOICE_KEYS=['primary_clause_id','category_id','frequency_id','primary_domain_id','org_unit_id','user_id',
- 'legal_entity_id','product_id','process_id','channel_id','customer_segment_id','geography_id',*ENUMS,'yes_no']
+ 'legal_entity_id','product_id','process_id','channel_id','customer_segment_id','geography_id','obligation_nature',*ENUMS,'yes_no']
 CHOICE_LABELS={key:next((label for fields in FIELDS.values() for name,label,*_ in fields if name==key),key) for key in CHOICE_KEYS}
 CHOICE_LABELS.update(org_unit_id='Department',user_id='Person',yes_no='Yes / No')
 
@@ -87,6 +86,7 @@ def friendly_value(key,value):
         choices=ENUMS.get(key,{})
         for name,code in choices.items():
             if text.casefold()==name.casefold() or token==code:return code
+        if key=='owner_role' and token=='CONTROL_OWNER':return 'CONTROL'
         if key=='applicability_status' and token=='PARTIALLY_APPLICABLE':return token
         if key in {'effective_from','effective_to','next_review_date'} and text:
             for pattern in ['%d/%m/%Y','%Y-%m-%d']:

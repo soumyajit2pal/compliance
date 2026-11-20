@@ -1,3 +1,4 @@
+import {dropdownsPage} from '../features/dropdowns.ts';
 import { state } from './state.ts';
 import { loginView } from '../features/auth.ts';
 import { homePage } from '../features/home.ts';
@@ -12,8 +13,9 @@ import { usersPage } from '../features/users.ts';
 import { renderMasters } from '../features/masters.ts';
 import { ldapPage, applicationsPage } from '../features/settings.ts';
 import { baselinePage } from '../features/baseline.ts';
+import { auditTrailPage } from '../features/audit-trail.ts';
 import { renderHelp } from '../features/help.ts';
-import { shell } from '../ui/layout.ts';
+import { canNavigate, shell } from '../ui/layout.ts';
 import { panel, note } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
 import { esc, empty, link, title, message } from '../ui/components.ts';
@@ -29,6 +31,8 @@ import {delegationsPage} from '../features/delegations.ts';
 import {employeeSettingsPage} from '../features/employee-settings.ts';
 const pages = {
   'employee-api':employeeSettingsPage,
+  'audit-trail': (_id, query) => auditTrailPage(query),
+  'approval-workflow-log': (_id, query) => auditTrailPage(query, true),
   delegations:delegationsPage,
   controls:controlsPage,
   'control-mappings':controlMappingsPage,
@@ -47,6 +51,7 @@ const pages = {
   approvals: (_id, q) => tasksPage('approvals', q),
   notifications: notificationsPage,
   masters: renderMasters,
+  dropdowns: dropdownsPage,
   users: usersPage,
   ldap: ldapPage,
   applications: applicationsPage,
@@ -75,8 +80,10 @@ export async function render() {
   const view=obligationView(query);
   if (
     !pages[page] || (page==='team'&&!ccoViewAllowed(state.identity.roles,query)) ||
-    (!state.identity.menu.some((item) => item.id === page) && page !== 'notifications') ||
-    (page==='obligations'&&!id&&view!=='register'&&!state.identity.menu.some(item=>item.id===view))
+    (!canNavigate(page) && page !== 'notifications') ||
+    (page==='audit-trail'&&!state.identity.roles.includes('ADMIN')) ||
+    ((page==='tasks'||page==='approvals')&&query.get('queue')==='rbi'&&!canNavigate('repository')) ||
+    (page==='obligations'&&!id&&view!=='register'&&!canNavigate(view))
   ) {
     return shell(
       `<div class="access-boundary">${panel('This area is outside your role scope', note('Your approved role does not permit this workspace. No record details are shown.', 'warn') + '<div class="mt24">' + link('home', 'Return to Home', 'btn primary') + '</div>')}</div>`,

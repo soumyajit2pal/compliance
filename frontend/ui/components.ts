@@ -5,13 +5,30 @@ export const esc = (value) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
-export const title = (value) =>
-  ['LDAP', 'CCO', 'RBI', 'UAT'].includes(value)
+const checkLabels = new Map([
+  ['CONTROL', 'Check'],
+  ['MISSING_CONTROL_OWNER', 'Missing Check Owner'],
+  ['CONTROL_REVIEW', 'Check Review Requested'],
+  ['CONTROL_RETURN', 'Check Returned for Revision'],
+  ['CONTROL_REJECT', 'Check Rejected'],
+  ['CONTROL_APPROVE', 'Check Approved'],
+  ['CONTROL_WITHDRAW', 'Check Withdrawn'],
+  ['CONTROL_RESULT_RECORDED', 'Check Result Recorded'],
+  ['CONTROL_RESULT_ACCEPT', 'Check Result Accepted'],
+  ['CONTROL_RESULT_REJECT', 'Check Result Rejected'],
+]);
+export const title = (value) => {
+  if (value === 'CONTROL_OWNER') {
+    const roleName = state.masters?.role?.find((role) => role.code === value)?.name;
+    return roleName && roleName !== value ? roleName : 'Check Owner';
+  }
+  return checkLabels.get(value) ?? (['LDAP', 'CCO', 'RBI', 'UAT'].includes(value)
     ? value
     : String(value ?? '')
         .replaceAll('_', ' ')
         .toLowerCase()
-        .replace(/\b\w/g, (c) => c.toUpperCase());
+        .replace(/\b\w/g, (c) => c.toUpperCase()));
+};
 export const versionLabel = (value) =>
   /^\d+$/.test(String(value ?? '')) ? `${value}.0` : String(value ?? '—');
 export const badge = (value) => {
@@ -74,7 +91,7 @@ export const field = (label, control, help = '', css = '') => {
   const openingControl = /<(?:input|select|textarea)\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/i.exec(control)?.[0] || '';
   const required = /\srequired(?=\s|=|\/?>)/i.test(openingControl.replace(/"[^"]*"|'[^']*'/g, '""'));
   control = control
-    .replace(/aria-label="[^"]*"/, `aria-label="${esc(label)}"`)
+    .replace(/aria-label="[^"]*"/, () => `aria-label="${esc(label)}"`)
     .replace(
       /<(input|select|textarea)\b/,
       `<$1 id="${id}"${help ? ` aria-describedby="${hint}"` : ''}`,

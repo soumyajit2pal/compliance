@@ -1,3 +1,4 @@
+import {captureCustom} from '../../ui/dropdown-fields.ts';
 import { detailFields } from '../../ui/widgets.ts';
 import { wizardActions, validateWizard } from './wizard.ts';
 import { state } from '../../core/state.ts';
@@ -288,6 +289,7 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
         if (form.dataset.wizard !== undefined && !validateWizard(form)) return;
         const formData = new FormData(form);
         const values: Record<string, any> = Object.fromEntries(formData);
+        values.custom_fields = captureCustom(form,values);
         values.secondary_domain_ids = formData.getAll('secondary_domain_ids');
         delete values.source_file;
         for (const key of [

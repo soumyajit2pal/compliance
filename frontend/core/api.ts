@@ -57,6 +57,13 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
       data = { detail: 'The service returned an unexpected response.' };
     }
     if (!response.ok) throwApiError(response.status,data,path);
+    const revision=response.headers.get('X-Dropdown-Revision');
+    if(path==='/tasks' && revision && state.masters &&
+        Number(revision)!==state.masters.dropdown_configuration?.[0]?.revision){
+      const identity=state.identity;
+      const fresh=await api<Record<string,any[]>>('/masters');
+      if(state.identity===identity && (fresh.dropdown_configuration?.[0]?.revision||0)>=(state.masters?.dropdown_configuration?.[0]?.revision||0))state.masters=fresh;
+    }
     return data as T;
   });
 }

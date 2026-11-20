@@ -1,3 +1,4 @@
+import {customDetails} from '../../ui/dropdown-fields.ts';
 import { state } from '../../core/state.ts';
 import { renderInstrumentSummary } from './summary.ts';
 import { libraryReturnPath } from '../../core/library-navigation.ts';
@@ -304,7 +305,7 @@ export function renderRecord(q) {
       ), 'Metadata correction history')}</div>` : '') +
       `<div class="mt24">${panel('Status history', activity(history, 'record-status-history'))}</div>`;
   else if (!['versions', 'clauses', 'obligations', 'workflow'].includes(tab))
-    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauses.length + ' source Clauses / Para', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(workflowPath, 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}</div></div>`;
+    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauses.length + ' source Clauses / Para', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(workflowPath, 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}${customDetails(i.custom_answers)}</div></div>`;
   const discussion = panel(
     'Discussion',
     comments

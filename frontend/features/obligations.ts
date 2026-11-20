@@ -1,3 +1,4 @@
+import {customFields, captureCustom} from '../ui/dropdown-fields.ts';
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
 import { has,covered } from '../core/access.ts';
@@ -13,6 +14,7 @@ import { esc,title,ref,badge,button,field,input,select,fixedSelect,area,link,loc
 import { heading } from '../ui/layout.ts';
 import { panel,table,tablePanel,detailFields,note,recordCell } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
+import { dashboardInfo } from '../ui/dashboard-info.ts';
 import { showWizardStep, validateWizardStep } from '../ui/wizard.ts';
 import { modal,close } from '../ui/dialog.ts';
 import { obligationImportsPage,obligationImportHandlers } from './obligation-import.ts';
@@ -25,7 +27,36 @@ import { obligationExportButton } from '../ui/obligation-export.ts';
 const criticalities=['CRITICAL','HIGH','MEDIUM','LOW'];
 const roles=['REGULATORY','BUSINESS','CONTROL','EVIDENCE','DATA'];
 const roleCodes={REGULATORY:'AUTHOR',BUSINESS:'BUSINESS_OWNER',CONTROL:'CONTROL_OWNER',EVIDENCE:'EVIDENCE_OWNER',DATA:'BUSINESS_OWNER'};
-const issueNames={SOURCE_PERIOD_MISMATCH:'Source edition does not cover the obligation start',PENDING_BUSINESS_VALIDATION:'Owner confirmation pending',MISSING_REGULATORY_OWNER:'No primary regulatory owner',MISSING_BUSINESS_OWNER:'No primary business owner',MISSING_CONTROL_OWNER:'No control owner',MISSING_COMPLIANCE_REVIEWER_OWNER:'No Compliance reviewer',INVALID_OWNER_ACCESS:'Owner access requires review',MISSING_APPLICABILITY:'Applicability not assessed',MISSING_PROCESS_MAPPING:'No process mapping',CONTENT_VALIDATION_PENDING:'Content validation pending',MISSING_EVIDENCE_STANDARD:'No evidence requirement',UNAPPROVED_SOURCE:'Source approval required',SOURCE_REASSESSMENT_REQUIRED:'Source changed — reassessment required',PROCESS_REASSESSMENT_REQUIRED:'Process changed — reassessment required',PRODUCT_REASSESSMENT_REQUIRED:'Product changed — reassessment required',MISSING_OR_UNAVAILABLE_CLAUSE:'Source clause unavailable',PARTIAL_APPLICABILITY:'Partially applicable',UNAPPROVED_NON_APPLICABILITY:'Non-applicability awaiting approval',REVIEW_OVERDUE:'Review overdue',HIGH_CRITICAL:'High / critical'};
+const issueNames={SOURCE_PERIOD_MISMATCH:'Source edition does not cover the obligation start',PENDING_BUSINESS_VALIDATION:'Owner confirmation pending',MISSING_REGULATORY_OWNER:'No primary regulatory owner',MISSING_BUSINESS_OWNER:'No primary business owner',MISSING_CONTROL_OWNER:'No check owner',MISSING_COMPLIANCE_REVIEWER_OWNER:'No Compliance reviewer',INVALID_OWNER_ACCESS:'Owner access requires review',MISSING_APPLICABILITY:'Applicability not assessed',MISSING_PROCESS_MAPPING:'No process mapping',CONTENT_VALIDATION_PENDING:'Content validation pending',MISSING_EVIDENCE_STANDARD:'No evidence requirement',UNAPPROVED_SOURCE:'Source approval required',SOURCE_REASSESSMENT_REQUIRED:'Source changed — reassessment required',PROCESS_REASSESSMENT_REQUIRED:'Process changed — reassessment required',PRODUCT_REASSESSMENT_REQUIRED:'Product changed — reassessment required',MISSING_OR_UNAVAILABLE_CLAUSE:'Source clause unavailable',PARTIAL_APPLICABILITY:'Partially applicable',UNAPPROVED_NON_APPLICABILITY:'Non-applicability awaiting approval',REVIEW_OVERDUE:'Review overdue',HIGH_CRITICAL:'High / critical'};
+const coverageFinding='ACTIVE_WITHOUT_MAPPED_CONTROLS';
+const coverageLabel='Active obligations without linked checks';
+const exceptionCards = [
+  ['MISSING_BUSINESS_OWNER','Obligations without a business owner','gap','Obligations that still need a named primary business owner.'],
+  ['MISSING_OR_UNAVAILABLE_CLAUSE','Obligations with a missing or unavailable clause','gap','Obligations whose supporting source clause is missing or unavailable.'],
+  ['PENDING_BUSINESS_VALIDATION','Pending business-owner validation','pending','Obligations waiting for assigned owners to confirm ownership and applicability.'],
+  ['PARTIAL_APPLICABILITY','Partially applicable obligations','pending','Obligations with at least one assessment saying the requirement applies in part.'],
+  ['UNAPPROVED_NON_APPLICABILITY','Unapproved non-applicability','pending','Obligations with a non-applicability assessment that lacks approval.'],
+  ['CONTENT_VALIDATION_PENDING','Content validation pending','pending','Obligations whose regulatory content still needs validation.'],
+  ['HIGH_CRITICAL','Critical or high obligations','pending','Obligations rated critical or high in the current report filters.'],
+  ['MISSING_EVIDENCE_STANDARD','Obligations without an evidence definition','gap','Obligations that lack a description of the proof staff should retain.'],
+  [coverageFinding,coverageLabel,'gap','Active, approved obligations in effect today that have no current approved obligation link.'],
+] as const;
+
+function exceptionOverview(counts: Record<string,number> | undefined, query: URLSearchParams) {
+  const cards=exceptionCards.map(([code,label,tone,explanation])=>{
+    const selected=query.get('exception')===code;
+    const next=withoutPaging(query);
+    if(selected)next.delete('exception');
+    else next.set('exception',code);
+    const count=counts ? counts[code] ?? 0 : '—';
+    return `<li><a class="obligation-exception-card" href="#obligations?${esc(next.toString())}" data-tone="${typeof count==='number' && count>0?tone:'clear'}" ${selected?'aria-current="true"':''}>
+      <span>${esc(label)}</span><strong>${esc(count)}</strong></a>${dashboardInfo(label,explanation)}</li>`;
+  }).join('');
+  return `<section class="obligation-exception-overview" aria-labelledby="obligation-exception-title">
+    <header class="obligation-exception-heading"><div><h1 id="obligation-exception-title">Obligation exception reports</h1>
+    <p>Exceptions are obligations that need attention. Select a card to see which records to review or follow up on. An obligation can appear in more than one count.</p></div>${obligationExportButton()}</header>
+    <ul class="obligation-exception-cards" aria-label="Findings and counts">${cards}</ul></section>`;
+}
 const active=(name)=> (state.masters[name]||[]).filter(r=>r.active_flag!==0);
 const current=(expectedId='')=>{
   const d=state.view.obligation;
@@ -47,6 +78,11 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
   state.view.obligationRegisterQuery=query.toString();
   const response=await api('/obligations?'+apiPageQuery(query,'obligations'));
   const report=query.get('tab')==='reports';
+  const registerView=report
+    ? '<input type="hidden" name="tab" value="reports">'
+    : '<label class="obligation-register-mode"><span>Register view</span><select name="tab" aria-label="Register view"><option value="register" selected>All obligations</option><option value="reports">Exceptions</option></select></label>';
+  const findingLabels=report || query.get('exception')===coverageFinding
+    ? {...issueNames,[coverageFinding]:coverageLabel} : issueNames;
   const filter=(name,rows,label,blank)=>select(name,rows,query.get(name),label,'class="filter-select"',blank);
   const advanced=['domain','criticality','owner','exception'];
   const advancedCount=advanced.filter(key=>query.get(key)).length;
@@ -55,7 +91,7 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
     if(key==='q')return 'Search: '+value;
     if(key==='status')return 'Stage: '+stageLabel(value);
     if(key==='criticality')return 'Criticality: '+title(value);
-    if(key==='exception')return 'Finding: '+(issueNames[value]||title(value));
+    if(key==='exception')return 'Finding: '+(findingLabels[value]||title(value));
     const master={domain:'regulatory_domain',department:'organisational_unit',owner:'user'}[key];
     const row=active(master).find(item=>item.id===value);
     return ({domain:'Domain',department:'Department',owner:'Owner'}[key])+': '+(row?.name||row?.full_name||value);
@@ -74,14 +110,18 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
       `<span class="obligation-register-department">${icon('org')}<span>${esc(ref('organisational_unit',r.business_owner_unit_id))}</span></span>`,
       statusTag(status.label,status.tone),
       `<span class="obligation-criticality is-${esc(String(r.criticality).toLowerCase())}"><i aria-hidden="true"></i>${esc(title(r.criticality))}</span>`,
-      r.issues.length?`<ul class="obligation-register-findings">${r.issues.map(k=>`<li>${esc(issueNames[k]||title(k))}</li>`).join('')}</ul>`:'<span class="obligation-register-no-findings">None reported</span>',
+      r.issues.length?`<ul class="obligation-register-findings">${r.issues.map(k=>`<li>${esc(findingLabels[k]||title(k))}</li>`).join('')}</ul>`:'<span class="obligation-register-no-findings">None reported</span>',
     ];
   });
-  return `<div class="obligation-register">`+workspaceHeading(
-    (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+obligationExportButton(), report ? 'Exception reports' : 'Obligations', report ? 'Review findings and gaps that need attention in your authorised obligations.' : 'Requirements, department applicability and named responsibilities.')+
-    workspaceTabs('register',query)+
-    `<form id="view-filter" class="obligation-register-filters" aria-label="Register filters">
-      <div class="obligation-register-filter-heading"><div><h2>Find an obligation</h2><p>Search requirements and narrow your view.</p></div><div class="obligation-register-filter-heading-actions"><label class="obligation-register-mode"><span>Register view</span><select name="tab" aria-label="Register view"><option value="register" ${report?'':'selected'}>All obligations</option><option value="reports" ${report?'selected':''}>Exceptions</option></select></label>${link('obligations','Clear','obligation-register-clear')}</div></div>
+  return `<div class="obligation-register">`+
+    (report?exceptionOverview(response.finding_counts,query):workspaceHeading(
+      (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+obligationExportButton())+
+      workspaceTabs('register',query))+
+    `<form id="view-filter" class="obligation-register-filters" aria-label="${report?'Exception filters':'Register filters'}">
+      <div class="obligation-register-filter-heading">
+        <div><h2>${report?'Filter exceptions':'Find an obligation'}</h2>${report?'':'<p>Search requirements and narrow your view.</p>'}</div>
+        <div class="obligation-register-filter-heading-actions">${registerView}${link(report?'obligations?tab=reports':'obligations','Clear','obligation-register-clear')}</div>
+      </div>
       <div class="obligation-register-filter-fields">
         ${field('Search obligations',`<div class="search-field">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Requirement or regulatory source"')}</div>`)}
         ${field('Accountable department',filter('department',active('organisational_unit'),'name','All departments'))}
@@ -91,14 +131,14 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
           ${field('Regulatory domain',filter('domain',active('regulatory_domain'),'name','All domains'))}
           ${field('Criticality',filter('criticality',criticalities.map(id=>({id,name:title(id)})),'name','All criticalities'))}
           ${field('Named owner',filter('owner',active('user'),'full_name','All owners'))}
-          ${field('Finding',filter('exception',Object.entries(issueNames).map(([id,name])=>({id,name})),'name','All findings'))}
+          ${field('Finding',filter('exception',Object.entries(findingLabels).map(([id,name])=>({id,name})),'name','All findings'))}
         </div></details>
       </div>
       ${chips?`<div class="obligation-applied-filters"><span>Applied filters</span>${chips}</div>`:''}
     </form>`+
-    (report?note('Current Draft and Active records are shown by default. Unmapped legacy clauses and owners remain in '+link('obligations/imports','Import validation findings')+'.'):'')+
+    (report?note('Only obligations with a finding appear here. Findings include high or critical priority, pending validations and applicability gaps. Use More filters → Finding to focus the report. Unmapped legacy records appear in '+link('obligations/imports','Import validation findings')+'.'):'')+
     `<section class="obligation-register-results ${rows.length?'':'is-empty'}" aria-labelledby="obligation-register-results-title"><header class="obligation-register-results-heading"><div><h2 id="obligation-register-results-title">${report?'Exceptions':'Obligation register'}<span class="obligation-register-total">${response.pagination.total}</span></h2><p>${applied.length?'Matching your applied filters.':'Requirements in your authorised view.'}</p></div><span class="obligation-register-results-note">${icon('eye')}Select a record for quick view</span></header>`+
-    tablePanel(table(['Obligation','Regulatory source','Accountable department','Stage','Criticality','Findings'],rows,{pageKey:'obligations',pagination:response.pagination,empty:'No obligations match this view.'}))+`</section></div>`;
+    tablePanel(table(['Obligation','Regulatory source','Accountable department','Stage','Criticality','Findings'],rows,{pageKey:'obligations',pagination:response.pagination,empty:report?'No exceptions match this view.':'No obligations match this view.'}))+`</section></div>`;
 
 }
 
@@ -180,7 +220,7 @@ async function openOwnerAssignment(){
   const guidance=policy.canEdit?'Save the owner changes to this Draft. Owner acceptance and final approval follow the existing review process.':'Submit a separate ownership change for Compliance review, owner acceptance and independent final approval. The obligation revision stays unchanged. Current owners remain assigned until final approval. Changes take effect on approval, or from the obligation’s future start date.';
   modal('Assign / reassign owner',input('obligation_id',id,'hidden')+input('expected_revision',d.obligation.edit_revision,'hidden')+note(guidance)+
     `<div class="obligation-business-accountability"><div class="form-grid">${field('Accountable business department',select('business_owner_unit_id',active('organisational_unit'),value.business_owner_unit_id,'name','required'),'The primary Business owner below is assigned to this department.','full')}</div>${primaryBusinessOwnerFields(value.business_owner_unit_id,accountability.primary,primaryPeople,!policy.canEdit)}</div>`+
-    `<section class="obligation-editor-group"><div class="obligation-group-heading"><h3>Additional owner assignments (<span data-additional-owner-count>${accountability.additional.length}</span>)</h3>${button('obl-add-row','Add additional owner','data-kind="owners"','small')}</div><p class="obligation-additional-hint">Expand a person to change their role, department or assignment. Keep the primary Regulatory owner and at least one Control owner here.</p><div data-obl-list="owners">${additional}</div><p class="obligation-empty muted">No additional owner assignments added.</p></section>`+
+    `<section class="obligation-editor-group"><div class="obligation-group-heading"><h3>Additional owner assignments (<span data-additional-owner-count>${accountability.additional.length}</span>)</h3>${button('obl-add-row','Add additional owner','data-kind="owners"','small')}</div><p class="obligation-additional-hint">Expand a person to change their role, department or assignment. Keep the primary Regulatory owner and at least one Check owner here.</p><div data-obl-list="owners">${additional}</div><p class="obligation-empty muted">No additional owner assignments added.</p></section>`+
     `<section class="obligation-editor-group"><h3>Compliance reviewer</h3><p class="obligation-additional-hint">Reviews this ${policy.canEdit?'obligation':'ownership change'} for ${esc(ref('organisational_unit',value.regulatory_owner_unit_id))} before named owner responses.</p>${field('Named Compliance reviewer',select('compliance_reviewer_user_id',reviewers,value.compliance_reviewer_user_id,'full_name','required'))}</section>`+
     (policy.canEdit?'':field('Independent final Approver',select('approver_id',[],'','full_name','required'),'Must be independent of the request author, Compliance reviewer and current/proposed owners.'))+
     field('Reason for assignment / reassignment',area('reason','','required minlength="10" maxlength="2000"'),'Explain the change for the retained history.'),
@@ -233,7 +273,10 @@ async function editor(identifier,query){
   const primaryPeople=value.business_owner_unit_id?await people('BUSINESS_OWNER',value.business_owner_unit_id):[];
   if(!isCurrent())return '';
   state.view.obligationEditorUnit=value.regulatory_owner_unit_id;
-  const fields=renderSetupQuestions(value,{active,row:rowControls,ownerCard:owner=>popupOwnerRow(owner),primaryPeople,clauses,instruments,chosen,reviewers,sourceMarkup:sourceContext(chosen,value.regulatory_owner_unit_id),editing});
+  const formChoices=(name:string)=>name==='obligation_category' && editing
+    ? (state.masters[name]||[]).filter(r=>r.active_flag || r.id===value.category_id) : active(name);
+  const fields=renderSetupQuestions(value,{active:formChoices,row:rowControls,ownerCard:owner=>popupOwnerRow(owner),primaryPeople,clauses,instruments,chosen,reviewers,sourceMarkup:sourceContext(chosen,value.regulatory_owner_unit_id),editing});
+  fields[1]+=customFields('obligation',editing?state.view.obligation.obligation.custom_answers:{});
   const cancel=editing?'obligations/'+identifier:'obligations';
   return heading(editing?'Edit Draft obligation':'Create a new obligation','One question at a time. Prepare the requirement, then send it for independent review.')+
     '<ol class="obligation-lifecycle-strip" aria-label="Obligation lifecycle"><li aria-current="step">1. Prepare</li><li>2. Compliance review</li><li>3. Owner acceptance</li><li>4. Final approval</li></ol>'+
@@ -339,6 +382,7 @@ function readRows(form,kind){return [...form.querySelectorAll(`[data-obl-row="${
 function readInput(form){
   const value:any=Object.fromEntries([...new FormData(form)].filter(([key])=>!key.includes('.')&&!key.startsWith('wizard_')));
   for(const flag of ['testing','certification','reporting','retention'])value[flag+'_required_flag']=Boolean(form.elements[flag+'_required_flag'].checked);
+  value.custom_fields=captureCustom(form);
   value.effective_to=value.effective_to||null;
   value.owners=readRows(form,'owners');value.applicability=readRows(form,'applicability');value.processes=readRows(form,'processes');value.supporting_clause_ids=readRows(form,'citations').map(r=>r.clause_id);
   if(form.dataset.id)value.expected_revision=Number(form.dataset.revision);
@@ -496,7 +540,7 @@ export function obligationHandlers(context){
       if(sending&&form.dataset.approverLookupState!=='ready'){showWizardStep(form,6,true);throw new Error('Wait for eligible final approvers to load, or retry the lookup before sending.');}
       const payload=readInput(form);
       if(sending){
-        const requirements=[!payload.owners.some(owner=>owner.owner_role==='REGULATORY'&&owner.primary_owner_flag)?['Add a primary Regulatory owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='BUSINESS'&&owner.primary_owner_flag)?['Choose a primary Business owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='CONTROL')?['Add at least one Control owner before sending.',4]:null,!payload.applicability.length?['Add a department assessment before sending.',2]:null,!payload.processes.length?['Link at least one process before sending.',3]:null].filter(Boolean);
+        const requirements=[!payload.owners.some(owner=>owner.owner_role==='REGULATORY'&&owner.primary_owner_flag)?['Add a primary Regulatory owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='BUSINESS'&&owner.primary_owner_flag)?['Choose a primary Business owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='CONTROL')?['Add at least one Check owner before sending.',4]:null,!payload.applicability.length?['Add a department assessment before sending.',2]:null,!payload.processes.length?['Link at least one process before sending.',3]:null].filter(Boolean);
         if(requirements.length){showWizardStep(form,requirements[0][1] as number,true);throw new Error(requirements[0][0] as string);}
       }
       const actor=state.identity.user.id,route=state.routeNumber,id=form.dataset.id,chosenApprover=approver.value,comments=form.elements.wizard_submission_comments.value;

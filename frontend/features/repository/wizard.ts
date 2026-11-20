@@ -1,3 +1,4 @@
+import {customFields} from '../../ui/dropdown-fields.ts';
 import { state } from '../../core/state.ts';
 import { api } from '../../core/api.ts';
 import { covered, has } from '../../core/access.ts';
@@ -103,7 +104,7 @@ export async function instrumentWizard(query=new URLSearchParams()) {
     field(
       'Search keywords',
       input('keywords', '', 'text', 'placeholder="Separate keywords with commas"'),
-    );
+    ) + customFields('instrument');
   const account =
     field(
       'Regulatory owner department',

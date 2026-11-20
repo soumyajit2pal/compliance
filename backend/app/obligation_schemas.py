@@ -44,12 +44,13 @@ class ProcessMap(Input):
 
 
 class ObligationInput(Input):
+    custom_fields: dict[str,str | None] = Field(default_factory=dict,max_length=120)
     primary_clause_id:str
     title:str=Field(min_length=3,max_length=500)
     statement:str=Field(min_length=10,max_length=20000)
     internal_interpretation:str=Field(min_length=10,max_length=20000)
     category_id:str
-    obligation_nature:Literal['ONGOING','PERIODIC','EVENT_DRIVEN','ONE_TIME']='ONGOING'
+    obligation_nature:str=Field(default='ONGOING',min_length=1,max_length=40)
     frequency_id:str
     primary_domain_id:str
     criticality:Criticality='MEDIUM'

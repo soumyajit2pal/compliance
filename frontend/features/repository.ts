@@ -11,7 +11,7 @@ export async function repositoryPage(id, query) {
   const request = state.routeNumber;
   const data = await api(id ? '/instruments/' + id : '/instruments?' + apiPageQuery(query, 'instruments'));
   if (request !== state.routeNumber || !state.identity) return '';
-  if (!id) return renderRegister(Array.isArray(data) ? data : data.items, query, data.pagination);
+  if (!id) return renderRegister(Array.isArray(data) ? data : data.items, query, data.pagination, data.library_counts);
   state.record = data;
   return renderRecord(query);
 }

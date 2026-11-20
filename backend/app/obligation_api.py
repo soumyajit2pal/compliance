@@ -1,5 +1,6 @@
 """Routes share the application's authentication, database transaction and paging."""
 import csv,io
+from collections import Counter
 from typing import Literal
 from fastapi import Depends,Query,Request,Response,HTTPException,UploadFile,File,Form
 from fastapi.responses import FileResponse
@@ -21,8 +22,18 @@ def install(app,get_db,current):
     @app.get('/api/obligations')
     def listing(request:Request,paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
         actor.require(service.READ_ROLES)
-        rows=service.listing(db,actor,dict(request.query_params))
-        return paginate(rows,page=paging['page'] or 1,page_size=paging['page_size'] or 25)
+        filters=dict(request.query_params)
+        pagination={'page':paging['page'] or 1,'page_size':paging['page_size'] or 25}
+        if filters.get('tab')!='reports':
+            return paginate(service.listing(db,actor,filters),**pagination)
+        # Keep the summary useful while one finding is selected. Other filters
+        # and authorisation apply to both the full population and the page.
+        finding=filters.pop('exception',None)
+        rows=service.listing(db,actor,filters)
+        counts=Counter(issue for row in rows for issue in row['issues'])
+        if finding:
+            rows=[row for row in rows if finding in row['issues']]
+        return {**paginate(rows,**pagination),'finding_counts':dict(counts)}
 
     @app.get('/api/obligations/report.csv')
     def report(request:Request,db=Depends(get_db),actor=Depends(current)):

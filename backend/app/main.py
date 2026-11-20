@@ -3,10 +3,10 @@ import asyncio
 import csv,io,json,hashlib,re,logging
 import ipaddress
 import time
+from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
-from urllib.parse import urlparse
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError,DatabaseError
 from fastapi import FastAPI,Depends,Request,Response,HTTPException,UploadFile,File,Form,Query
@@ -23,6 +23,7 @@ from . import authentication as auth
 from .login_encryption import load_material, public_login_key, consume_challenge, encrypted_login_credentials
 from .access import actor_for,READ_ROLES,REGULATORY_ROLES,DISCUSS_ROLES
 from .events import new_id,now,audit
+from .request_audit import RequestAuditWriter, access_event, insert_request, request_context
 from .security import hash_password
 from .directory import (load_directory, public_directory, prepare_directory, save_directory,
                         safe_directory_audit, authenticate_directory)
@@ -33,8 +34,8 @@ from .import_workbook import download_workbook
 from .user_access import account_catalogue, current_access, notify_administrators
 from . import clause_carry,notification_families as families
 from .source_documents import file_transaction, save_document, MAX_SOURCE_BYTES
-from . import ldap_department as departments
-from . import master_data
+from . import employee_identity as employees
+from . import applications as connected_apps, master_data, dropdowns
 from .api_docs import install_uat_docs
 
 logger=logging.getLogger('cbd.portal')
@@ -48,7 +49,9 @@ def current(request:Request,db=Depends(get_db)):
     actor=auth.resolve(db,request,request.app.state.settings)[0]
     if not actor.roles:raise HTTPException(403,'Your profile is awaiting administrator-approved access.')
     from .delegations import resolve_context
-    return resolve_context(db,actor,request)
+    actor = resolve_context(db,actor,request)
+    request.state.audit_actor = actor
+    return actor
 
 def limited(request:Request,db=Depends(get_db)):
     return auth.resolve(db,request,request.app.state.settings,limited=True)
@@ -57,8 +60,10 @@ def menu(actor):
     common=[('home','Compliance at a Glance'),('tasks','My tasks'),('approvals','My approvals'),('help','Help')]
     if actor.roles & READ_ROLES:common[1:1]=[('repository','Regulatory library'),('notification-families','Notification families'),('clauses','Clauses / Para'),('clause-relationships','Clause / Para relationships'),('obligations','Obligations'),('applicability','Applicability'),('accountability','Accountability')]
     if any(g['role_code'] in {'AUTHOR','REVIEWER'} and g['global_scope_flag'] for g in actor.grants):common.append(('migration','Import existing regulatory records'))
-    if 'ADMIN' in actor.roles:common.extend([('masters','Reference masters'),('users','Users and access'),('ldap','LDAP settings'),('employee-api','Employee profile API')])
-    if actor.roles & READ_ROLES:common.extend([('controls','Controls — checks and procedures'),('control-mappings','Control mappings'),('actions','Assigned actions'),('evidence','Evidence vault'),('delegations','Delegation'),('team','Team overview'),('library','Compliance library')])
+    if 'ADMIN' in actor.roles:common.extend([('masters','Reference masters'),('dropdowns','Dropdowns'),('users','Users and access'),('ldap','LDAP settings'),('employee-api','Employee profile API')])
+    if actor.roles & READ_ROLES:common.extend([('controls','Checks and procedures'),('control-mappings','Obligation links'),('actions','Assigned actions'),('evidence','Evidence vault'),('delegations','Delegation'),('team','Team overview'),('library','Compliance library')])
+    common.append(('approval-workflow-log','Approval Workflow Log'))
+    if 'ADMIN' in actor.roles:common.append(('audit-trail','Audit Log'))
     common.extend([('baseline','Release baseline'),('applications','Retained applications')])
     return [{'id':key,'label':label} for key,label in common]
 
@@ -106,6 +111,11 @@ def create_app(settings=None,engine=None):
     app.state.settings=cfg;app.state.engine=engine
     app.state.login_material=login_material
     app.state.consume_login_challenge=lambda claims:consume_challenge(app.state.engine,claims)
+    def persist_access(event):
+        with app.state.engine.begin() as db:
+            insert_request(db, event)
+    # An injected engine belongs to tests and supplies its own rollback-bound writer.
+    app.state.write_request_audit = persist_access if engine is None else None
 
     @app.middleware('http')
     async def security(request,call_next):
@@ -144,6 +154,7 @@ def create_app(settings=None,engine=None):
         request.state.request_id=reference
         token=logging_request_id.set(reference);started=time.perf_counter()
         client_token=logging_client_ip.set(client_ip_from_scope(request.scope))
+        audit_token=request_context.set(request)
         def route_name():
             route=request.scope.get('route')
             return getattr(route,'path','[unmatched]')
@@ -156,13 +167,18 @@ def create_app(settings=None,engine=None):
                 response=JSONResponse({'detail':'An unexpected server error occurred. Contact support with the request reference.',
                     'request_id':reference},status_code=500,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
             elapsed=(time.perf_counter()-started)*1000
+            if app.state.write_request_audit:
+                request.state.access_audit_event = access_event(request, response.status_code, elapsed, now())
             log=logger.warning if elapsed>=cfg.slow_request_ms or response.status_code>=500 else logger.info
             log('Request completed method=%s route=%s status=%s duration_ms=%.2f',request.method,route_name(),response.status_code,elapsed)
             response.headers['X-Request-ID']=reference
             return response
         finally:
+            request_context.reset(audit_token)
             logging_client_ip.reset(client_token)
             logging_request_id.reset(token)
+
+    app.add_middleware(RequestAuditWriter)
 
     @app.exception_handler(DatabaseError)
     async def db_error(request,exc):
@@ -182,7 +198,7 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/auth/demo-users', dependencies=[Depends(require_demo_login)])
     def demo_users(db=Depends(get_db)):
-        return {'users': available_demo_users(db), 'ldap_demo': {
+        return {'dropdown_presentation':dropdowns.demo_presentation(db),'users': available_demo_users(db), 'ldap_demo': {
             'enabled': cfg.ldap_mock_enabled, 'username': cfg.ldap_mock_username_prefix+'01'
             if cfg.ldap_mock_enabled else '', 'prefix': cfg.ldap_mock_username_prefix if cfg.ldap_mock_enabled else ''}}
 
@@ -199,22 +215,28 @@ def create_app(settings=None,engine=None):
         from .delegations import resolve_context
         actor=resolve_context(db,actual,request)
         result={'user':safe_user(actor.user),'roles':sorted(actor.roles),'grants':actor.grants,
-            'csrf_token':session['csrf_token'],'menu':[] if departments.blocked(actor.user) else menu(actor),'environment':cfg.environment}
+            'csrf_token':session['csrf_token'],'menu':[] if employees.blocked(actor.user) else menu(actor),'environment':cfg.environment}
         from .employee_profiles import public_profile
+        presentation=dropdowns.configuration(db)[1]['presentation']
+        result['dropdown_presentation']=presentation if actor.roles else {
+            k:v for k,v in presentation.items() if k=='org_unit_id'}
         result['employee_profile']=public_profile(db,actual.id,cfg)
-        if actor.delegation:result.update(actual_user=safe_user(actual.user),acting_for={**actor.delegation,'actual_user_name':actual.user['full_name'],'principal_name':actor.user['full_name']})
+        if actor.delegation:
+            # Represented employee metadata must not be disclosed in session annotations.
+            for key in ('employee_approved','employee_observed','employee_warning'):result['user'].pop(key,None)
+            result.update(actual_user=safe_user(actual.user),acting_for={**actor.delegation,'actual_user_name':actual.user['full_name'],'principal_name':actor.user['full_name']})
         return result
 
-    @app.get('/api/auth/department')
+    @app.get('/api/auth/employee-profile')
     def department_status(db=Depends(get_db),identity=Depends(limited)):
         actor,_=identity
-        if actor.user['login_type']!='LDAP' and not actor.user.get('emp_dept_managed_flag'):raise HTTPException(403,'This account has no employee department check.')
-        return departments.public_status(db,actor.user)
+        if not actor.user.get('employee_profile_required'):raise HTTPException(403,'This account has no employee department check.')
+        return employees.public_status(db,actor.user)
 
-    @app.post('/api/auth/department/request')
+    @app.post('/api/auth/employee-profile/request')
     def department_request(payload:s.DepartmentRequest,db=Depends(get_db),identity=Depends(limited)):
         actor,session=identity
-        return departments.request_update(db,actor,session,payload.reason)
+        return employees.request_update(db,actor.user,session,payload.reason)
 
     @app.post('/api/auth/logout')
     def logout(request:Request,response:Response,db=Depends(get_db)):
@@ -234,13 +256,13 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/auth/departments')
     def onboarding_departments(db=Depends(get_db),identity=Depends(limited)):
-        if not departments.can_onboard(identity[0].user):raise HTTPException(403,'Verify your LDAP department before confirming your work profile.')
+        if not employees.can_onboard(identity[0].user):raise HTTPException(403,'Complete employee profile setup before opening the workspace.')
         return [dict(r) for r in db.execute(sa.select(m.organisational_unit).where(m.organisational_unit.c.active_flag==1,m.organisational_unit.c.unit_type=='DEPARTMENT').order_by(m.organisational_unit.c.name)).mappings()]
 
     @app.post('/api/auth/onboarding')
     def onboard(payload:s.Onboard,db=Depends(get_db),identity=Depends(limited)):
         actor,_=identity
-        if not departments.can_onboard(actor.user):raise HTTPException(403,'Verify your LDAP department before confirming your work profile.')
+        if not employees.can_onboard(actor.user):raise HTTPException(403,'Complete employee profile setup before opening the workspace.')
         if actor.user['login_type']!='LDAP' or not (actor.user['needs_email_confirmation_flag'] or actor.user['needs_department_selection_flag']):raise HTTPException(403,'Profile onboarding is already complete. Contact an administrator for access changes.')
         if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',payload.email):raise HTTPException(422,'Enter a valid work email address.')
         unit=repo.active(db,m.organisational_unit,payload.org_unit_id)
@@ -248,18 +270,20 @@ def create_app(settings=None,engine=None):
         db.execute(m.user.update().where(m.user.c.id==actor.id).values(email=payload.email,org_unit_id=unit['id'],needs_email_confirmation_flag=0,needs_department_selection_flag=0))
         audit(db,actor,'user',actor.id,'LDAP_ACCESS_REQUESTED',new={'email':payload.email,'department':unit['code'],'roles':[]})
         access=current_access(db,actor.id)
-        if not actor.user.get('emp_dept_managed_flag') and actor.user['ldap_department_status']=='UNVERIFIED':
-            departments.request_update(db,actor,identity[1],'Initial LDAP department verification after profile confirmation.')
         notify_administrators(db,actor.id,'ACCESS_APPROVAL_REQUIRED' if access['admin_action_required'] else 'LDAP_PROFILE_CONFIRMED')
         return {'ok':True,'message':'Profile confirmed. '+access['access_message']}
+
+    dropdowns.install(app,get_db,current)
 
     @app.get('/api/masters')
     def masters(db=Depends(get_db),actor=Depends(current)):
         result={}
-        for name in ['organisational_unit','regulator','regulatory_domain','instrument_type','confidentiality_class','frequency','evidence_type','obligation_category','role','process','taxonomy_scheme','legal_entity','product','channel','customer_segment','geography','system']:
+        for name in ['organisational_unit','regulator','regulatory_domain','instrument_type','confidentiality_class','frequency','evidence_type','obligation_category','role','process','taxonomy_scheme','legal_entity','product','channel','customer_segment','geography','system','control_type','execution_mode','obligation_nature']:
             table=getattr(m,name);result[name]=[dict(r) for r in db.execute(sa.select(table)).mappings()]
         users=db.execute(sa.select(m.user.c.id,m.user.c.username,m.user.c.full_name,m.user.c.org_unit_id).where(m.user.c.active_flag==1)).mappings().all()
         result['user']=[dict(u) for u in users]
+        revision,config=dropdowns.configuration(db)
+        result['dropdown_configuration']=[{**config,'revision':revision}]
         return result
 
     @app.get('/api/masters/catalogue')
@@ -302,19 +326,19 @@ def create_app(settings=None,engine=None):
     def access_summary(db=Depends(get_db),actor=Depends(current)):
         actor.require({'ADMIN'});return account_catalogue(db)['summary']
 
-    @app.get('/api/admin/ldap-department-requests')
-    def department_requests(user_id:str|None=None,db=Depends(get_db),actor=Depends(current)):
+    @app.get('/api/admin/employee-profile-reviews')
+    def employee_reviews(user_id:str|None=None,db=Depends(get_db),actor=Depends(current)):
         actor.require({'ADMIN'})
-        query=sa.select(m.ldap_department_request,m.user.c.username,m.user.c.full_name,
-            m.user.c.org_unit_id,m.organisational_unit.c.name.label('home_organisation')).join(m.user,
-            m.ldap_department_request.c.user_id==m.user.c.id).outerjoin(m.organisational_unit,
-            m.user.c.org_unit_id==m.organisational_unit.c.id)
-        query=query.where(m.ldap_department_request.c.user_id==user_id) if user_id else query.where(m.ldap_department_request.c.status=='PENDING')
-        return [dict(row) for row in db.execute(query.order_by(m.ldap_department_request.c.requested_at.desc())).mappings()]
+        return employees.review_rows(db,user_id)
 
-    @app.post('/api/admin/ldap-department-requests/{identifier}/decision')
-    def department_decision(identifier:str,payload:s.DepartmentDecision,db=Depends(get_db),actor=Depends(current)):
-        return departments.decide(db,actor,identifier,payload.decision,payload.reason)
+    @app.get('/api/admin/employee-profile-archive/{user_id}')
+    def employee_archive(user_id:str,db=Depends(get_db),actor=Depends(current)):
+        actor.require({'ADMIN'})
+        return [dict(row) for row in db.execute(sa.select(m.employee_legacy_record).where(m.employee_legacy_record.c.user_id==user_id).order_by(m.employee_legacy_record.c.created_at)).mappings()]
+
+    @app.post('/api/admin/employee-profile-reviews/{identifier}/decision')
+    def employee_review_decision(identifier:str,payload:s.DepartmentDecision,db=Depends(get_db),actor=Depends(current)):
+        return employees.decide(db,actor,identifier,payload.decision,payload.reason)
 
     def save_user(db,actor,payload,identifier=None):
         actor.require({'ADMIN'});values=payload.model_dump(exclude={'roles','password'});values['username']=values['username'].lower()
@@ -425,7 +449,15 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/instruments')
     def instruments(request:Request,paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
-        return paginate(repo.listing(db,actor,dict(request.query_params)),**paging)
+        filters=dict(request.query_params)
+        rows=repo.listing(db,actor,filters)
+        selected=filters.get('library_stage')
+        if not any(paging.values()):
+            return [row for row in rows if not selected or repo.library_stage(row)==selected]
+        stages=[(repo.library_stage(row),row) for row in rows]
+        counts=Counter(stage for stage,_ in stages)
+        rows=[row for stage,row in stages if not selected or stage==selected]
+        return {**paginate(rows,**paging),'library_counts':dict(counts)}
     @app.get('/api/notification-families')
     def family_register(as_of:date|None=None,q:str='',paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
         data=families.view(db,actor,when=as_of,search=q)
@@ -538,7 +570,9 @@ def create_app(settings=None,engine=None):
         audit(db,actor,'instrument',identifier,'COMMENT_ADDED',new={'comment_id':comment_id});return {'id':comment_id}
 
     @app.get('/api/tasks')
-    def tasks(db=Depends(get_db),actor=Depends(current)):
+    def tasks(response:Response,db=Depends(get_db),actor=Depends(current)):
+        response.headers['X-Dropdown-Revision']=str(db.execute(sa.select(m.dropdown_config.c.revision)
+            .where(m.dropdown_config.c.id=='portal')).scalar_one())
         visible={r['id']:r for r in repo.listing(db,actor,{})};result=[]
         for v in db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.created_by==actor.id,m.instrument_version.c.approval_status=='DRAFT')).mappings():
             instrument=visible.get(v['instrument_id'])
@@ -618,7 +652,7 @@ def create_app(settings=None,engine=None):
                 from . import controls
                 try:record=controls.read(db,actor,item['entity_type'],item['entity_id'])
                 except HTTPException:continue
-                item.update(source_title=record.get('title') or 'Control mapping review',action_path=item['entity_type']+'/'+record['id'],action_label='Open control decision')
+                item.update(source_title=record.get('title') or 'Obligation link review',action_path=item['entity_type']+'/'+record['id'],action_label='Open decision')
             elif item['entity_type'] in {'action','action_extension'}:
                 from . import delivery
                 try:item.update(delivery.notification_context(db,actor,item))
@@ -715,13 +749,15 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/applications')
     def applications(db=Depends(get_db),actor=Depends(current)):
-        return [dict(r) for r in db.execute(sa.select(m.application_link)).mappings()]
+        return connected_apps.list_links(db, actor)
+
+    @app.post('/api/applications', status_code=201)
+    def create_application(payload: s.NewLinkInput, db=Depends(get_db), actor=Depends(current)):
+        return connected_apps.create(db, actor, payload)
+
     @app.patch('/api/applications/{identifier}')
     def update_application(identifier:str,payload:s.LinkInput,db=Depends(get_db),actor=Depends(current)):
-        actor.require({'ADMIN'});old=repo.one(db,m.application_link,identifier);url=urlparse(payload.url)
-        if url.scheme!='https' or not url.hostname or url.username or url.password:raise HTTPException(422,'Configure a bank-approved HTTPS URL without embedded credentials.')
-        db.execute(m.application_link.update().where(m.application_link.c.id==identifier).values(**payload.model_dump()))
-        audit(db,actor,'application_link',identifier,'LINK_CONFIGURED',old=old,new=payload.model_dump());return {'ok':True}
+        return connected_apps.update(db, actor, identifier, payload)
 
     @app.get('/api/baseline')
     def baseline(actor=Depends(current)):
@@ -741,6 +777,10 @@ def create_app(settings=None,engine=None):
     install_regulation_registers(app,get_db,current)
     from .clause_browser import install as install_clause_browser
     install_clause_browser(app,get_db,current)
+    from .audit_trail import install as install_audit_trail
+    install_audit_trail(app,get_db,current)
+    from .workflow_log import install as install_workflow_log
+    install_workflow_log(app,get_db,current)
     frontend_dist=ROOT/'frontend'/'dist'
     @app.get('/')
     def index():

@@ -1,6 +1,6 @@
 import { assetUrl } from '../core/assets.ts';
 import { state } from '../core/state.ts';
-import { esc, link } from '../ui/components.ts';
+import { esc, link, title } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
 import { heading, canNavigate } from '../ui/layout.ts';
 import { panel, tabs, note, searchForm } from '../ui/widgets.ts';
@@ -62,9 +62,9 @@ export const ROLE_HELP = [
 ];
 const topics = [
   ['Understand checks, work and evidence','Business roles','actions','An obligation states the requirement. A check describes the bank’s reusable procedure. A work item assigns a person a task and a due date. Evidence records what was done for independent review. Open a work item to see its linked obligation, exact checks and supporting evidence together.'],
-  ['Define a check and link its obligations','Authors / Control owners','controls','Open Checks and procedures → New check. Record the objective, procedure, frequency, named owner and evidence type, then obtain independent review and separate approval. Under Obligation links, record which approved requirement the check supports, the department and any limitations. These retain the existing control-mapping governance.'],
+  ['Define a check and link its obligations','Authors / Check owners','controls','Open Checks and procedures → New check. Record the objective, procedure, frequency, named owner and evidence type, then obtain independent review and separate approval. Under Obligation links, record which approved requirement the check supports, the department and any limitations.'],
   ['Arrange leave cover','Business roles','delegations','Open Delegation → New delegation. Choose an existing role, department, eligible delegate and 1–90 inclusive calendar days. Four different people act as principal, delegate, reviewer and final approver. After both decisions, the delegate explicitly selects Act on behalf using their own sign-in. The banner shows both names and Stop leave cover. Current access, private files and independent decisions remain enforced. Revoke with a reason when cover should end.'],
-  ['Complete assigned work','Business / Control / Evidence owners','tasks','Open My tasks, read the approved requirement, record what was done and add proof. The reporting period and proof standard carry forward. Submit to the independent reviewer; returned work keeps the original proof and prior submissions.'],
+  ['Complete assigned work','Business / Check / Evidence owners','tasks','Open My tasks, read the approved requirement, record what was done and add proof. The reporting period and proof standard carry forward. Submit to the independent reviewer; returned work keeps the original proof and prior submissions.'],
   ['Review period-specific proof','Assigned Compliance reviewers','approvals','Open My decisions. Inspect each original proof or repository reference, source, exact period, hash and retention. Accept or reject each proof item, then complete the period or return with reasons. Required retained testing/certification results need separate independent review.'],
   ['Check team pendency','Department leads / CCO / scoped readers','team','Filter current records by domain, department, owner, criticality, status and relevant dates. Select a count to inspect its exact source population, department/domain breakdown and matching export. Completion does not retire the obligation or certify overall compliance.'],
   [
@@ -131,13 +131,13 @@ const topics = [
     'Maintain the organisation tree',
     'ADMIN',
     'masters?tab=organisation',
-    'Open Organisation hierarchy. Add a unit, select Add child unit to prefill its parent, or Edit the selected unit. Parent choices exclude the unit and its descendants. Record a reason before saving. Moves affect descendant role scope; Home organisation and LDAP department identity remain separate.',
+    'Open Organisation hierarchy. Add a unit, select Add child unit to prefill its parent, or Edit the selected unit. Parent choices exclude the unit and its descendants. Record a reason before saving. Moves affect descendant role scope; Home organisation and the approved employee department remain separate.',
   ],
   [
     'Use Standard or LDAP sign-in',
     'ALL ROLES',
     'help',
-    'Standard accounts use the portal password. LDAP accounts bind to the bank directory. New Standard accounts must change their temporary password; new directory users confirm their profile and wait for approved access. Employee departments use the employee API first, with comparable authenticated LDAP fallback. Changes are automatically sent to Users & access → Department changes; an independent Admin reviews them and a fresh sign-in verifies approval. API outages retain approved details and any existing restriction.',
+    'Standard accounts use the portal password. LDAP accounts bind to the bank directory. New Standard accounts must change their temporary password; new directory users confirm their profile and wait for approved access. LDAP authenticates and reads its department code. Every eligible employee sign-in also fetches API employee details. LDAP and API baselines stay separate. Any changed employee field is sent automatically to Users & access → Employee profile changes for independent Admin review and fresh sign-in after approval. If the API fails, use approved employee data with a warning only when LDAP is unchanged and no pending/rejected restriction applies. New staff keep the existing email and Home organisation confirmation.',
   ],
 ];
 export function renderHelp(_id, query = new URLSearchParams()) {
@@ -145,10 +145,10 @@ export function renderHelp(_id, query = new URLSearchParams()) {
     q = (query.get('q') || '').toLowerCase();
   let body = '';
   if (tab === 'roles')
-    body = `<div class="grid-equal">${ROLE_HELP.filter((r) => r.join(' ').toLowerCase().includes(q))
+    body = `<div class="grid-equal">${ROLE_HELP.filter((r) => [title(r[0]), ...r].join(' ').toLowerCase().includes(q))
       .map(([code, purpose, duties, limits]) =>
         panel(
-          code + ' · ' + purpose,
+          title(code) + ' · ' + purpose,
           `<div class="eyebrow mb16">RESPONSIBILITIES</div><p class="small">${esc(duties)}</p><div class="divider"></div><div class="eyebrow mb16">APPROVAL LIMITS</div><p class="small">${esc(limits)}</p>`,
           { cls: state.identity.roles.includes(code) ? 'current-role-card' : '' },
         ),
@@ -169,7 +169,7 @@ export function renderHelp(_id, query = new URLSearchParams()) {
         ),
       )
       .join('')}</div>`;
-  return `<div class="runtime-help">${heading('Help & workflow guide', 'Role-specific steps, expected outcomes and approval controls.', '<button type="button" class="btn" data-action="print-guide">' + icon('file') + 'Print guide</button>')}<div class="guide-downloads"><a class="btn primary" href="${assetUrl('guides/week-1-3-navigation.html')}" target="_blank" rel="noopener">Read source / sign-in reference (Weeks 1–3)</a><a class="btn" href="${assetUrl('guides/week-1-3-navigation.html')}" download>Download source reference (HTML)</a></div>${tabs(
+  return `<div class="runtime-help">${heading('Help & workflow guide', 'Role-specific steps, expected outcomes and approval rules.', '<button type="button" class="btn" data-action="print-guide">' + icon('file') + 'Print guide</button>')}<div class="guide-downloads"><a class="btn primary" href="${assetUrl('guides/week-1-3-navigation.html')}" target="_blank" rel="noopener">Read source / sign-in reference (Weeks 1–3)</a><a class="btn" href="${assetUrl('guides/week-1-3-navigation.html')}" download>Download source reference (HTML)</a></div>${tabs(
     [
       ['guide', 'Step-by-step help'],
       ['roles', 'Roles & responsibilities', ROLE_HELP.length],

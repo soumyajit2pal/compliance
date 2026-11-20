@@ -37,8 +37,10 @@ export function workspaceHandlers() {
       },
       profile: async () => {
         // Ordinary identity refresh exposes background recovery without another login.
-        state.identity.employee_profile=(await api('/auth/me')).employee_profile;
-        if(!state.identity.employee_profile?.warning)document.querySelector('[aria-label="Employee profile refresh"]')?.remove();
+        const latest=await api('/auth/me');
+        state.identity.employee_profile=latest.employee_profile;
+        state.identity.user=latest.user;
+        if(!latest.employee_profile?.warning&&!latest.user?.employee_warning)document.querySelector('[aria-label="Employee profile refresh"]')?.remove();
         return modal(
           'My role & access',
           detailFields([

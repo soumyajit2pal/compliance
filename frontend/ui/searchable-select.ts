@@ -1,3 +1,4 @@
+import { state } from '../core/state.ts';
 import { icon } from './icons.ts';
 
 const controls = new Map<HTMLSelectElement, SearchableSelect>();
@@ -23,6 +24,16 @@ export class SearchableSelect {
   private readonly list = document.createElement('div');
   private readonly status = document.createElement('div');
   private readonly error = document.createElement('span');
+  private readonly hint=document.createElement('small');
+  private get presentation() {
+    const key=(this.select.dataset.choiceKey || this.select.name || this.select.id)
+      .replace(/^(owners|applicability|processes|citations)\.\d+\./,'').replace(/^wizard_scope_process_\d+$/,'wizard_scope_process');
+    return key==='demo-user' ? state.demoDropdown : (state.masters?.dropdown_configuration?.[0]?.presentation || state.identity?.dropdown_presentation)?.[key];
+  }
+  private caption(option?:HTMLOptionElement) {
+    const alias=option && this.presentation?.aliases?.[option.value];
+    return optionTitle(option)+(alias?' ('+alias+')':'');
+  }
   private matches: number[] = [];
   private highlighted = -1;
   private opened = false;
@@ -60,7 +71,9 @@ export class SearchableSelect {
     this.error.id = id + '-error';
     this.error.className = 'searchable-select-error';
     this.error.hidden = true;
-    this.popup.append(this.list, this.status);
+    this.hint.id=id+'-help';
+    this.hint.className='searchable-select-status';
+    this.popup.append(this.hint,this.list,this.status);
     wrapper.append(this.input, this.toggle, this.popup, this.error);
     select.setAttribute('aria-hidden', 'true');
     select.tabIndex = -1;
@@ -112,14 +125,17 @@ export class SearchableSelect {
     this.error.hidden = !this.invalid;
     this.error.textContent = this.invalid ? this.select.validationMessage : '';
     this.input.setAttribute('aria-invalid', String(this.invalid));
-    const hints = [this.select.getAttribute('aria-describedby'), this.invalid ? this.error.id : ''].filter(Boolean).join(' ');
+    const help=this.presentation?.help || '';
+    this.hint.hidden=!help;
+    if(this.hint.textContent!==help)this.hint.textContent=help;
+    const hints = [help?this.hint.id:'',this.select.getAttribute('aria-describedby'), this.invalid ? this.error.id : ''].filter(Boolean).join(' ');
     if (hints) this.input.setAttribute('aria-describedby', hints); else this.input.removeAttribute('aria-describedby');
     const selection = this.select.value + '\u001f' + this.select.selectedIndex;
     if (this.opened && selection !== this.selection) this.close();
     this.selection = selection;
     const selected = this.select.selectedOptions[0];
     this.input.title = selected?.label.trim() || '';
-    if (!this.opened) this.input.value = optionTitle(selected);
+    if (!this.opened) this.input.value = this.caption(selected);
     if (disabled || this.select.hidden || !eligible(this.select)) this.close();
     const signature = Array.from(this.select.options).map(option =>
       [option.label, option.value, option.disabled, option.hidden, option.parentElement?.getAttribute('disabled'),
@@ -141,10 +157,28 @@ export class SearchableSelect {
     let lastGroup: Element | null = null;
     let container = this.list;
     let visible = 0;
-    Array.from(this.select.options).forEach((option, index) => {
+    const ordered=Array.from(this.select.children).flatMap(child=>{
+      const items=child instanceof HTMLOptGroupElement ? Array.from(child.children) : [child];
+      return items.filter((o):o is HTMLOptionElement=>o instanceof HTMLOptionElement);
+    });
+    const order=this.presentation?.order;
+    if(order==='ascending' || order==='descending'){
+      // Sort within contiguous groups and preserve each native option's submission index.
+      for(let start=0;start<ordered.length;){
+        let end=start+1;
+        while(end<ordered.length && ordered[end].parentElement===ordered[start].parentElement)end++;
+        const group=ordered.slice(start,end).sort((a,b)=>{
+          if(!a.value || !b.value)return Number(!!a.value)-Number(!!b.value);
+          return (order==='ascending'?1:-1)*this.caption(a).localeCompare(this.caption(b),undefined,{numeric:true});
+        });
+        ordered.splice(start,group.length,...group);start=end;
+      }
+    }
+    ordered.forEach(option => {
+      const index=option.index;
       if (option.hidden || option.parentElement?.hidden) return;
       const group = option.parentElement instanceof HTMLOptGroupElement ? option.parentElement : null;
-      const text = [option.label, option.value, option.dataset.search, option.dataset.optionTitle, option.dataset.optionDetail, group?.label].join(' ');
+      const text = [this.caption(option),option.label, option.value, option.dataset.search, option.dataset.optionTitle, option.dataset.optionDetail, group?.label].join(' ');
       if (!words.every(word => normalize(text).includes(word))) return;
       if (group && group !== lastGroup) {
         container = document.createElement('div');
@@ -169,14 +203,14 @@ export class SearchableSelect {
       if (detail) {
         const title = document.createElement('span');
         title.className = 'searchable-select-option-title';
-        title.textContent = optionTitle(option);
+        title.textContent = this.caption(option);
         const subtitle = document.createElement('span');
         subtitle.className = 'searchable-select-option-detail';
         subtitle.textContent = detail;
         row.append(title, subtitle);
-        row.setAttribute('aria-label', option.label.trim());
+        row.setAttribute('aria-label', [this.caption(option),detail].join(' · '));
       } else {
-        row.textContent = optionTitle(option) || 'Select…';
+        row.textContent = this.caption(option) || 'Select…';
       }
       if (option.selected) {
         const check = document.createElement('span');
@@ -261,7 +295,7 @@ export class SearchableSelect {
     this.input.removeAttribute('aria-activedescendant');
     this.wrapper.classList.remove('is-open');
     if (this.popup.matches(':popover-open')) this.popup.hidePopover();
-    this.input.value = optionTitle(this.select.selectedOptions[0]);
+    this.input.value = this.caption(this.select.selectedOptions[0]);
     this.input.placeholder = 'Select…';
   }
 

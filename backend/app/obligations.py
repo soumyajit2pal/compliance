@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from fastapi import HTTPException
 from . import models as m,repository as repo,business_ids
 from .access import actor_for,READ_ROLES,REGULATORY_ROLES
-from .events import audit,history,notify,new_id,now
+from .events import audit,history,notify,new_id,now,record_audit
 from .obligation_schemas import ObligationInput
 
 ROLE={'REGULATORY':'AUTHOR','BUSINESS':'BUSINESS_OWNER','CONTROL':'CONTROL_OWNER',
@@ -92,12 +92,20 @@ def eligible(db,user_id,role,unit,exclude=()):
     return candidate
 
 
-def validate(db,actor,payload):
+def validate(db,actor,payload,retained=None):
     clause,version,instrument=source(db,actor,payload.primary_clause_id)
     actor.require({'AUTHOR'},instrument['regulatory_owner_unit_id'])
     if payload.regulatory_owner_unit_id!=instrument['regulatory_owner_unit_id']:
         raise HTTPException(422,'The lead regulatory department must match the primary source instrument.')
-    for table,key in [(m.obligation_category,payload.category_id),(m.frequency,payload.frequency_id),(m.organisational_unit,payload.regulatory_owner_unit_id),
+    retained = retained or {}
+    if payload.obligation_nature != retained.get('obligation_nature'):
+        enabled = db.execute(sa.select(m.obligation_nature.c.active_flag).where(
+            m.obligation_nature.c.code == payload.obligation_nature)).scalar_one_or_none()
+        if not enabled:
+            raise HTTPException(422, 'Choose an active nature of the requirement.')
+    if payload.category_id != retained.get('category_id'):
+        repo.active(db,m.obligation_category,payload.category_id)
+    for table,key in [(m.frequency,payload.frequency_id),(m.organisational_unit,payload.regulatory_owner_unit_id),
                       (m.regulatory_domain,payload.primary_domain_id),(m.organisational_unit,payload.business_owner_unit_id)]:repo.active(db,table,key)
     domains={instrument['primary_domain_id'],*db.execute(sa.select(m.instrument_domain_map.c.domain_id).where(
         m.instrument_domain_map.c.instrument_id==instrument['id'],m.instrument_domain_map.c.effective_to.is_(None))).scalars()}
@@ -134,7 +142,7 @@ def validate(db,actor,payload):
 
 
 def scalar_values(payload):
-    return payload.model_dump(exclude={'owners','applicability','processes','supporting_clause_ids','expected_revision','change_reason'})
+    return payload.model_dump(exclude={'custom_fields','owners','applicability','processes','supporting_clause_ids','expected_revision','change_reason'})
 
 
 def save_owners(db,actor,row,payload):
@@ -163,8 +171,9 @@ def save_children(db,actor,row,payload):
             link_type='PRIMARY' if clause_id==payload.primary_clause_id else 'SUPPORTING',**period))
 
 
-def create(db,actor,payload,*,imported=False,code=None,version=1,supersedes=None):
-    validate(db,actor,payload)
+def create(db,actor,payload,*,imported=False,code=None,version=1,supersedes=None,copy_fields_from=None):
+    retained = repo.one(db,m.compliance_obligation,copy_fields_from) if copy_fields_from else None
+    validate(db,actor,payload,retained)
     identifier=new_id()
     primary=repo.one(db,m.regulatory_clause,payload.primary_clause_id)
     values=dict(id=identifier,code=code or business_ids.obligation(db,primary['code']),version_number=version,
@@ -174,6 +183,9 @@ def create(db,actor,payload,*,imported=False,code=None,version=1,supersedes=None
     if code:
         previous=db.execute(sa.select(m.business_code_alias.c.legacy_code).where(m.business_code_alias.c.obligation_id.is_not(None),m.business_code_alias.c.canonical_code==code).distinct()).scalars().all()
         for old in previous:business_ids.retain_alias(db,'obligation',identifier,old,code)
+    from .dropdowns import save_answers
+    save_answers(db,actor,'obligation',identifier,payload.custom_fields,payload.change_reason,copy_fields_from,
+                 require_complete=not (imported or copy_fields_from))
     save_children(db,actor,values,payload)
     history(db,actor,'obligation',identifier,None,'DRAFT',payload.change_reason)
     audit(db,actor,'obligation',identifier,'IMPORTED_DRAFT' if imported else 'CREATED',new=payload.model_dump(),reason=payload.change_reason)
@@ -184,7 +196,9 @@ def edit(db,actor,identifier,payload):
     row=read(db,actor,identifier,True);actor.require({'AUTHOR'},row['regulatory_owner_unit_id'])
     if row['created_by']!=actor.id or row['approval_status']!='DRAFT':raise HTTPException(409,'Only the Draft maker can edit. Approved content requires a new revision.')
     if payload.expected_revision!=row['edit_revision']:raise HTTPException(409,'This Draft changed. Refresh before saving your edits.')
-    validate(db,actor,payload)
+    validate(db,actor,payload,row)
+    from .dropdowns import save_answers
+    save_answers(db,actor,'obligation',identifier,payload.custom_fields,payload.change_reason)
     save_children(db,actor,row,payload)
     db.execute(m.compliance_obligation.update().where(m.compliance_obligation.c.id==identifier).values(
         **scalar_values(payload),edit_revision=row['edit_revision']+1,content_validation_status='PENDING'))
@@ -260,11 +274,13 @@ def submit(db,actor,identifier,payload):
     if payload.expected_revision!=row['edit_revision']:raise HTTPException(409,'This Draft changed. Refresh before submitting.')
     blocking=set(issues(db,actor,row))-{'CONTENT_VALIDATION_PENDING','PARTIAL_APPLICABILITY','UNAPPROVED_NON_APPLICABILITY','HIGH_CRITICAL'}
     if blocking:raise HTTPException(422,'Resolve before submission: '+', '.join(sorted(blocking)).replace('_',' ').lower()+'.')
-    validate(db,actor,ObligationInput(**input_for(db,row)))
+    from .dropdowns import save_answers
+    save_answers(db,actor,'obligation',identifier,{})
+    validate(db,actor,ObligationInput(**input_for(db,row)),row)
     owners=rows(db,m.obligation_owner,identifier)
     operational=validation_owners(owners,row['created_by'])
     if row['created_by'] in operational or row['compliance_reviewer_user_id'] in operational:
-        raise HTTPException(422,'Business/control/evidence validation must be independent of the maker and Compliance reviewer.')
+        raise HTTPException(422,'Business, check and evidence validation must be independent of the maker and Compliance reviewer.')
     eligible(db,row['compliance_reviewer_user_id'],'REVIEWER',row['regulatory_owner_unit_id'],(row['created_by'],))
     eligible(db,payload.approver_id,'APPROVER',row['regulatory_owner_unit_id'],(row['created_by'],row['compliance_reviewer_user_id'],*operational))
     for participant in {row['compliance_reviewer_user_id'],payload.approver_id,*[o['user_id'] for o in owners]}:
@@ -358,7 +374,7 @@ def decide(db,actor,identifier,payload):
         closed='REJECTED' if decision=='REJECT' else 'WITHDRAWN' if decision=='WITHDRAW' else 'RETURNED'
     elif decision=='REVIEW':
         # Explicit compliance review validates wording, interpretations, citations and assessments.
-        validate(db,actor_for(db,row['created_by']),ObligationInput(**input_for(db,row)))
+        validate(db,actor_for(db,row['created_by']),ObligationInput(**input_for(db,row)),row)
         values.update(approval_status='REVIEWED',reviewed_by=actor.id,reviewed_at=at,content_validation_status='VALIDATED')
         for table in CHILDREN:db.execute(table.update().where(table.c.obligation_id==identifier,table.c.approval_status=='IN_REVIEW').values(
             approval_status='REVIEWED',reviewed_by=actor.id,reviewed_at=at))
@@ -367,7 +383,7 @@ def decide(db,actor,identifier,payload):
         if len(tasks)==1:next_stage='FINAL_APPROVAL'
     elif decision=='APPROVE':
         # Recheck current identities/source validity, not just submission-time eligibility.
-        validate(db,actor_for(db,row['created_by']),ObligationInput(**input_for(db,row)))
+        validate(db,actor_for(db,row['created_by']),ObligationInput(**input_for(db,row)),row)
         blocking=set(issues(db,actor,row))-{'PARTIAL_APPLICABILITY','HIGH_CRITICAL','UNAPPROVED_NON_APPLICABILITY'}
         if blocking:raise HTTPException(422,'Activation prerequisites changed: '+', '.join(sorted(blocking)))
         owner_tasks=db.execute(sa.select(m.workflow_action).where(m.workflow_action.c.instance_id==workflow['id'],m.workflow_action.c.stage=='BUSINESS_VALIDATION')).mappings().all()
@@ -385,7 +401,8 @@ def decide(db,actor,identifier,payload):
         db.execute(m.workflow_instance.update().where(m.workflow_instance.c.id==workflow['id']).values(current_stage='CLOSED',record_status=closed,completed_at=at))
         notify(db,'obligation',identifier,row['created_by'],'OBLIGATION_'+decision,workflow['id']+':'+decision)
     history(db,actor,'obligation',identifier,stage,next_stage or closed or stage,payload.comments)
-    audit(db,actor,'obligation',identifier,decision,new={'task_id':task['id'] if task else None,'workflow_id':workflow['id']},reason=payload.comments)
+    audit(db,actor,'obligation',identifier,decision,new={'task_id':task['id'] if task else None,
+        'workflow_id':workflow['id'],'workflow_stage':stage,'next_stage':next_stage or closed or stage},reason=payload.comments)
     if decision=='APPROVE' and row['effective_from']<=date.today():activate(db,actor,identifier)
     return {'status':next_stage or closed or stage}
 
@@ -441,7 +458,7 @@ def revision_input(db,row,reason):
 def revise(db,actor,identifier,payload):
     row=read(db,actor,identifier,True);actor.require({'AUTHOR'},row['regulatory_owner_unit_id'])
     data,version,predecessor=revision_input(db,row,payload.reason)
-    return create(db,actor,ObligationInput(**data),code=row['code'],version=version,supersedes=predecessor)
+    return create(db,actor,ObligationInput(**data),code=row['code'],version=version,supersedes=predecessor,copy_fields_from=identifier)
 
 
 def assign_owners(db,actor,identifier,payload):
@@ -468,7 +485,7 @@ def assign_owners(db,actor,identifier,payload):
     if not draft:return ownership_changes.submit(db,actor,row,payload)
     data.update(change,change_reason=payload.reason)
     value=ObligationInput(**data)
-    validate(db,actor,value)
+    validate(db,actor,value,row)
     if draft:
         save_owners(db,actor,row,value)
         db.execute(m.compliance_obligation.update().where(m.compliance_obligation.c.id==identifier).values(
@@ -539,21 +556,30 @@ def detail(db,actor,identifier):
             c,v,i=source(db,actor,mapping['clause_id'])
             citations.append({**mapping,'clause':c,'edition':v,'instrument':i})
         except HTTPException:citations.append({'id':mapping['id'],'link_type':mapping['link_type'],'restricted':True})
+    from .dropdowns import read_answers
+    row={**row,'custom_answers':read_answers(db,'obligation',identifier)}
     return {'obligation':row,'instrument':instrument,'clause':clause,'edition':edition,'citations':citations,
         'owners':current_owners,'ownership_history':own,'applicability':rows(db,m.obligation_applicability,identifier),
         'applicability_history':rows(db,m.obligation_applicability,identifier,False),'processes':rows(db,m.obligation_process_map,identifier),
         'versions':versions,'tasks':tasks,'owner_changes':changes,'input':input_for(db,row),'issues':issues(db,actor,row),
         'history':[dict(r) for r in db.execute(sa.select(m.status_history).where(m.status_history.c.entity_type=='obligation',m.status_history.c.entity_id.in_(version_ids)).order_by(m.status_history.c.changed_at.desc())).mappings()],
-        'audit':[dict(r) for r in db.execute(sa.select(m.audit_log).where(m.audit_log.c.entity_type=='obligation',m.audit_log.c.entity_id.in_(version_ids)).order_by(m.audit_log.c.event_at.desc())).mappings()]}
+        'audit':record_audit(db, (m.audit_log.c.entity_type=='obligation') & m.audit_log.c.entity_id.in_(version_ids), m.audit_log.c.event_at.desc())}
 
 
 def listing(db,actor,filters=None):
     filters=filters or {};result=[];eligibility={};legacy=business_ids.aliases(db,'obligation')
+    report=filters.get('tab')=='reports'
+    coverage_finding='ACTIVE_WITHOUT_MAPPED_CONTROLS'
+    check_coverage=report or filters.get('exception')==coverage_finding
+    mapped_obligations=None
+    if check_coverage:
+        from . import controls
+        day=controls.today()
     all_rows=db.execute(sa.select(m.compliance_obligation).order_by(m.compliance_obligation.c.created_at.desc(),m.compliance_obligation.c.id)).mappings()
     for value in all_rows:
         row=dict(value)
         row['legacy_codes']=legacy.get(row['id'],[])
-        if filters.get('tab')=='reports' and not filters.get('status') and (row['record_status'] in {'SUPERSEDED','RETIRED'} or row['approval_status'] in {'REJECTED','WITHDRAWN'}):continue
+        if report and not filters.get('status') and (row['record_status'] in {'SUPERSEDED','RETIRED'} or row['approval_status'] in {'REJECTED','WITHDRAWN'}):continue
         if not visible(db,actor,row):continue
         try:clause,edition,instrument=source(db,actor,row['primary_clause_id'])
         except HTTPException:continue
@@ -568,6 +594,13 @@ def listing(db,actor,filters=None):
         if filters.get('instrument') and row['instrument_id']!=filters['instrument']:continue
         if filters.get('clause') and not any(r['clause_id']==filters['clause'] for r in rows(db,m.obligation_clause_map,row['id'])):continue
         if filters.get('owner') and not any(r['user_id']==filters['owner'] for r in rows(db,m.obligation_owner,row['id'])):continue
+        if (check_coverage and row['record_status']=='ACTIVE' and row['approval_status']=='APPROVED'
+                and row['effective_from']<=day and (not row['effective_to'] or row['effective_to']>day)):
+            if mapped_obligations is None:
+                mapped_obligations=controls.obligations_with_current_check_links(db,actor)
+            if row['id'] not in mapped_obligations:
+                row['issues'].append(coverage_finding)
+        if report and not row['issues']:continue
         if filters.get('exception') and filters['exception'] not in row['issues']:continue
         if filters.get('q') and filters['q'].casefold() not in json.dumps(row,default=str).casefold():continue
         result.append(row)

@@ -16,8 +16,10 @@ from .obligation_workspace import workspace_rows
 
 REGISTER_FILTERS={'q','domain','department','status','criticality','owner','exception','instrument','clause','tab'}
 WORKSPACE_FILTERS={'q','department','assessment','legal_entity','assessment_approval','role','owner','assignment_approval','approval','response','mine','history','gap'}
-ROLE_LABELS={'REGULATORY':'Regulatory owner','BUSINESS':'Business owner','CONTROL':'Control owner','EVIDENCE':'Evidence owner','DATA':'Data owner','COMPLIANCE_REVIEWER':'Compliance reviewer','APPROVER':'Approver'}
-LABELS={'BUSINESS_VALIDATION':'Owner acceptance','COMPLIANCE_REVIEW':'Compliance review','FINAL_APPROVAL':'Final approval','REVIEWED':'Awaiting final approval','IN_REVIEW':'In review','NOT_APPLICABLE':'Does not apply','PARTIALLY_APPLICABLE':'Applies in part','APPLICABLE':'Applies','NOT_STARTED':'Not requested yet','PROPOSED_BY_MAKER':'Proposed by author','REVIEW_ACCEPTED':'Review complete','ACCEPT':'Accepted','OBJECT':'Changes requested','PENDING':'Awaiting response','PRIMARY':'Main clause'}
+ROLE_LABELS={'REGULATORY':'Regulatory owner','BUSINESS':'Business owner','CONTROL':'Check owner','EVIDENCE':'Evidence owner','DATA':'Data owner','COMPLIANCE_REVIEWER':'Compliance reviewer','APPROVER':'Approver'}
+LABELS={'BUSINESS_VALIDATION':'Owner acceptance','COMPLIANCE_REVIEW':'Compliance review','FINAL_APPROVAL':'Final approval','REVIEWED':'Awaiting final approval','IN_REVIEW':'In review','NOT_APPLICABLE':'Does not apply','PARTIALLY_APPLICABLE':'Applies in part','APPLICABLE':'Applies','NOT_STARTED':'Not requested yet','PROPOSED_BY_MAKER':'Proposed by author','REVIEW_ACCEPTED':'Review complete','ACCEPT':'Accepted','OBJECT':'Changes requested','PENDING':'Awaiting response','PRIMARY':'Main clause',
+        'ACTIVE_WITHOUT_MAPPED_CONTROLS':'Active obligations without linked checks',
+        'MISSING_CONTROL_OWNER':'Missing check owner'}
 BASE=['Obligation reference','Revision','Obligation','Regulatory instrument','Source edition','Primary clause reference']
 APP_HEADERS=BASE+['Department','Legal entity','Decision','Assessment approval','Record type','Reason','Included activities & limitations','Process','Product','Channel','Customer segment','Geography','Assessed by','Assessment date','Next review','Effective from','Effective to (exclusive)']
 OWNER_HEADERS=BASE+['Department','Named owner','Owner role','Primary for role','Owner response','Assignment approval','Record type','Response comments','Effective from','Effective to (exclusive)']
@@ -40,6 +42,7 @@ def lookups(db):
     for key in ['organisational_unit','regulatory_domain','obligation_category','frequency','legal_entity','process','product','channel','customer_segment','geography','user']:
         table=getattr(m,key);column=table.c.full_name if key=='user' else table.c.name
         result[key]={row['id']:row['name'] for row in db.execute(sa.select(table.c.id,column.label('name'))).mappings()}
+    result['obligation_nature'] = dict(db.execute(sa.select(m.obligation_nature.c.code,m.obligation_nature.c.name)).all())
     return result
 
 
@@ -84,7 +87,7 @@ def register_values(rows,parents,owners,names):
     result=[];primary_owners={owner['obligation']['id']:owner for owner in owners if owner['kind']=='ASSIGNMENT' and owner.get('owner_role')=='BUSINESS' and owner.get('primary_owner_flag') and not owner.get('retained')}
     for row in rows:
         primary=primary_owners.get(row['id'])
-        result.append(base(parents[row['id']])+[row.get('instrument_title'),ref(names,'organisational_unit',row['business_owner_unit_id']),primary.get('owner_name') if primary else 'Not assigned',ref(names,'organisational_unit',row['regulatory_owner_unit_id']),ref(names,'user',row['compliance_reviewer_user_id']),ref(names,'regulatory_domain',row['primary_domain_id']),ref(names,'obligation_category',row['category_id']),ref(names,'frequency',row['frequency_id']),label(row['obligation_nature']),label(row['record_status']),label(row['approval_status']),label(row['stage']),label(row['criticality']),'; '.join(label(issue) for issue in row['issues']),label(row['content_validation_status']),row['effective_from'],row['effective_to'],row['next_review_date'],row['statement'],row['internal_interpretation'],row['evidence_standard'],row['breach_consequence'],*['Yes' if row[key] else 'No' for key in ['testing_required_flag','certification_required_flag','reporting_required_flag','retention_required_flag']],'; '.join(row.get('legacy_codes') or [])])
+        result.append(base(parents[row['id']])+[row.get('instrument_title'),ref(names,'organisational_unit',row['business_owner_unit_id']),primary.get('owner_name') if primary else 'Not assigned',ref(names,'organisational_unit',row['regulatory_owner_unit_id']),ref(names,'user',row['compliance_reviewer_user_id']),ref(names,'regulatory_domain',row['primary_domain_id']),ref(names,'obligation_category',row['category_id']),ref(names,'frequency',row['frequency_id']),ref(names,'obligation_nature',row['obligation_nature']),label(row['record_status']),label(row['approval_status']),label(row['stage']),label(row['criticality']),'; '.join(label(issue) for issue in row['issues']),label(row['content_validation_status']),row['effective_from'],row['effective_to'],row['next_review_date'],row['statement'],row['internal_interpretation'],row['evidence_standard'],row['breach_consequence'],*['Yes' if row[key] else 'No' for key in ['testing_required_flag','certification_required_flag','reporting_required_flag','retention_required_flag']],'; '.join(row.get('legacy_codes') or [])])
     return result
 
 
@@ -251,7 +254,12 @@ def build(db,actor,view,format,query,identifier=None):
     mode='exceptions' if view=='register' and filters.get('tab')=='reports' else view
     metadata=[['View',mode.capitalize()],['Generated at (IST)',generated.isoformat(timespec='seconds')],['Obligation revisions',count],['Scope','Selected obligation revision' if identifier else 'All authorised matching records across all pages'],['Use','Reporting export; not an import template'],['Related records','Register Excel includes current recorded assignments/assessments and gaps. Pending ownership requests are not applied assignments.'],['Approvals','Owner acceptance, assignment approval and applicability approval remain separate.'],['End dates','Effective-to dates are exclusive.'],['Excel text','Text is stored as text. Unsupported XML control characters are replaced with the replacement symbol.']]
     lookup_filters={'domain':'regulatory_domain','department':'organisational_unit','owner':'user','legal_entity':'legal_entity'}
-    metadata.extend(['Filter — '+key.replace('_',' '),ref(names,lookup_filters[key],value) if key in lookup_filters else value] for key,value in sorted(filters.items()))
+    for key,value in sorted(filters.items()):
+        if key in lookup_filters:
+            value=ref(names,lookup_filters[key],value)
+        elif key=='exception':
+            value=label(value)
+        metadata.append(['Filter — '+key.replace('_',' '),value])
     metadata.extend(['Rows — '+name,len(rows)] for name,_,rows in datasets)
     metadata.append(['Excel layout','Grouped report sheets merge the six shared obligation fields and repeated departments within each revision. Every assessment/owner keeps a separate row with its own scope, decision, approval and dates. Use the unmerged data sheets for sorting and filtering.'])
     data=workbook_bytes(datasets,metadata,grouped=True) if format=='xlsx' else csv_bytes(datasets[0])

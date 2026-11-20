@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "python3 ../scripts/dropdown_catalogue.py",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run build:swagger && node ../scripts/sync_frontend_public.mjs && vite build",

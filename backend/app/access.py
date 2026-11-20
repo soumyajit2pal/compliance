@@ -28,7 +28,7 @@ class Actor:
     @property
     def roles(self): return {g['role_code'] for g in self.grants}
     def covers(self, unit_id, roles):
-        from .ldap_department import blocked
+        from .employee_identity import blocked
         if blocked(self.user):return False
         if self.actual_actor and (not self.actual_actor.covers(unit_id,roles) or not self.principal_actor.covers(unit_id,roles)):return False
         def effective(unit):
@@ -47,8 +47,8 @@ class Actor:
                 current = u['parent_org_unit_id']
         return False
     def require(self, roles, unit=None):
-        from .ldap_department import blocked
-        if blocked(self.user):raise HTTPException(403,'Your LDAP department requires verification before workspace access.')
+        from .employee_identity import blocked
+        if blocked(self.user):raise HTTPException(403,'Your employee profile requires independent approval before workspace access.')
         if not (self.covers(unit, roles) if unit else self.roles.intersection(roles)):
             raise HTTPException(403,'Your role and department scope do not permit this action.')
 
@@ -61,7 +61,8 @@ def actor_for(db, user_id, delegation_context=None):
         .where(m.user_role.c.user_id==user_id,m.role.c.active_flag==1,m.user_role.c.effective_from<=today,
           sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>today))).mappings().all()
     units={r['id']:dict(r) for r in db.execute(sa.select(m.organisational_unit)).mappings()}
-    actor=Actor(dict(user),[dict(g) for g in grants],units)
+    from .employee_identity import decorate
+    actor=Actor(decorate(db,user),[dict(g) for g in grants],units)
     if delegation_context:
         actual,principal,delegation=delegation_context
         actor.actual_actor=actual;actor.principal_actor=principal;actor.delegation=delegation

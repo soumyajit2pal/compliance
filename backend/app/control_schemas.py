@@ -7,6 +7,7 @@ from .schemas import Input
 Id = Annotated[str, Field(min_length=1,max_length=36)]
 
 class Dates(Input):
+    custom_fields: dict[str,str | None] = Field(default_factory=dict,max_length=120)
     effective_from: date
     effective_to: date | None = None
     @model_validator(mode='after')
@@ -19,8 +20,8 @@ class ControlInput(Dates):
     title: str = Field(min_length=3,max_length=500)
     description: str = Field(min_length=10,max_length=10000)
     objective: str = Field(min_length=10,max_length=10000)
-    control_type: Literal['PREVENTIVE','DETECTIVE','CORRECTIVE']
-    execution_mode: Literal['MANUAL','AUTOMATED','HYBRID']
+    control_type: str = Field(min_length=1,max_length=40)
+    execution_mode: str = Field(min_length=1,max_length=40)
     frequency_id: Id
     owner_unit_id: Id
     owner_user_id: Id

@@ -1,6 +1,6 @@
 # Portal frontend
 
-Updated 14 November 2026.
+Updated 20 November 2026.
 
 **Week 4 current checkpoint:** the existing obligation lifecycle, named ownership/applicability, process/source links, exception reports and governed Draft-only Excel import have been checked against the retained requirements and actual local UAT at `20261111_0023`. The baseline tab now reads **Week 1–4 outcomes**; legacy source staging points to the dedicated obligation importer. Sixteen actual UAT browser groups (twelve lifecycle/import and four wizard) passed, plus eight synthetic application groups checking all four milestones and shared routes. The production build/type-check and 144 frontend tests passed. Separately, 320 general backend tests and 53 focused checks (50 Oracle-backed and three workbook units) passed. Test records rolled back, the fixture stopped and private credentials/workbooks were removed. No bank LDAP/Prod or actual bank-register migration was used; approved bank data and sign-off remain inputs. The frontend is rebuilt; the regular API was not restarted and needs normal rollout/restart for the guidance wording. No migration/dependency/API contract was added. See [current verification](../outputs/week-4-recheck-2026-11-14/validation.json) and [operating guide](../docs/week-4/obligation-lifecycle.md). Earlier dated design results below remain historical checkpoints.
 
@@ -112,7 +112,7 @@ The UAT-only [Swagger reference](https://localhost:8010/docs) has a direct **API
 | `features/auth.ts` | Standard/LDAP sign-in, UAT demo selection and first-login gates |
 | `features/repository/` | Register, five-step registration wizard, tabbed source workspace, dialogs and mutations |
 | `features/migration.ts` | Staging, profiling, validation and Draft loading |
-| `features/users.ts`, `features/ldap-accounts.ts` | Standard table, responsive LDAP account cards, access-action queue, independent filters and profile/role management |
+| `features/users.ts`, `features/ldap-accounts.ts` | Standard accounts, compact LDAP directory, access-action queue, independent filters and profile/role management |
 | `core/ldap-readiness.ts` | Shared presentation of LDAP code verification and independent profile/role readiness; API authority is unchanged |
 | `features/notification-families.ts` | Authorised family register/detail, as-of history, scopes, independent decisions, source citations and actual action/control details |
 | `features/clause-dialog.ts` | Same-edition parent choices, self/descendant exclusion and Draft clause entry |
@@ -223,11 +223,11 @@ Demo users have an immediate local placeholder and optional explicit Retry; a di
 
 Run `npm run test:loading -- /path/to/playwright` with the same local UAT/browser package setup as other browser checks. The test uses delayed responses, synthetic DOM fixtures for dependent choices/previews, intercepted failed writes and existing public Reviewer/Admin login/logout. No business mutation is sent to UAT. See [current verification](../outputs/shared-loading-2026-10-30/validation.json).
 
-## LDAP directory account cards
+## LDAP directory
 
-LDAP cards show explicit department-code approval independently of profile confirmation and role assignment. `core/ldap-readiness.ts` classifies display states from the API's raw LDAP fields and readiness; it does not authorize access. Profile/role management cannot approve codes. Pending requests are loaded once per relevant user view, and a direct review action uses the existing independent approval dialog. Department filters do not rely on the overall status priority. Standard accounts retain the table.
+**Users & access → LDAP users** shows one status row per account. Search the complete directory or filter by Access status and Employee profile. Select **Details** for the work profile, role assignments, next step and approved/observed employee values. The dialog links to history, independent review of a pending request and role management. Closing it returns to the same directory page. The authorised catalogue is loaded once per route render and paginated locally.
 
-Run `npm run test:ldap-readiness` for pure readiness invariants and `npm run test:ldap-accounts -- /path/to/playwright` for existing-record/control-response browser checks. The approval browser script supports `CBD_LDAP_QA_OUTPUT` to preserve historical evidence and targets its temporary username explicitly before approving/rejecting. See [verification](../outputs/ldap-account-design-2026-10-30/validation.json).
+Run `npm run test:ldap-accounts -- /path/to/playwright` from `frontend` against a rebuilt local UAT with the public Admin demo enabled. The test checks the existing directory, then supplies 527 synthetic accounts through browser GET responses. Use `--live-only` to check only the existing directory. The [October card report](../outputs/ldap-account-design-2026-10-30/validation.json) documents the earlier design.
 
 ## Week 4 — obligations
 

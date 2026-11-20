@@ -54,7 +54,7 @@ def validate(db,row,proposal,assignments):
     obl.validate(db,maker,proposal_input(db,row,proposal,assignments))
     for role in ['REGULATORY','BUSINESS','CONTROL']:
         if not any(item['owner_role']==role and (role=='CONTROL' or item['primary_owner_flag']) for item in assignments):
-            raise HTTPException(422,'The proposed assignments require primary Regulatory and Business owners and at least one Control owner.')
+            raise HTTPException(422,'The proposed assignments require primary Regulatory and Business owners and at least one Check owner.')
     responders={item['user_id'] for item in validators(assignments,proposal['created_by'])}
     operational={item['user_id'] for item in assignments if item['owner_role']!='REGULATORY' or item['user_id']!=proposal['created_by']}
     if proposal['created_by'] in responders or proposal['compliance_reviewer_user_id'] in operational:
@@ -191,7 +191,8 @@ def decide(db,actor,identifier,change_id,payload):
         db.execute(m.workflow_instance.update().where(m.workflow_instance.c.id==workflow['id']).values(record_status=closed,current_stage='CLOSED',completed_at=at))
         notify(db,'obligation',identifier,proposal['created_by'],'OWNERSHIP_'+closed,workflow['id']+':'+closed)
     history(db,actor,ENTITY,change_id,stage,next_stage or closed or stage,payload.comments)
-    audit(db,actor,'obligation',identifier,'OWNERSHIP_'+decision,new={'change_id':change_id,'task_id':task['id'] if task else None},reason=payload.comments)
+    audit(db,actor,'obligation',identifier,'OWNERSHIP_'+decision,new={'change_id':change_id,'task_id':task['id'] if task else None,
+        'workflow_stage':stage,'next_stage':next_stage or closed or stage},reason=payload.comments)
     return {'id':identifier,'change_id':change_id,'status':next_stage or closed or stage,'created_revision':False}
 
 

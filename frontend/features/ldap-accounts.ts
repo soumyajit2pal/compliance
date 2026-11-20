@@ -1,34 +1,65 @@
-import { esc, button } from '../ui/components.ts';
-import { person, note, pagedCollection } from '../ui/widgets.ts';
-import { ldapReadiness } from '../core/ldap-readiness.ts';
-import { departmentStatusBadge,userDepartmentDetails } from './ldap-department.ts';
+import { button, esc, ref, statusTag } from '../ui/components.ts';
+import { modal } from '../ui/dialog.ts';
+import { panel, person, table } from '../ui/widgets.ts';
+import { ldapDepartmentState, ldapReadiness } from '../core/ldap-readiness.ts';
+import { departmentStatusBadge, userDepartmentDetails } from './ldap-department.ts';
 
-export function ldapAccounts(rows, data, requests, currentUserId, ref) {
-  const ldap = data.users.filter(user => user.login_type === 'LDAP');
-  const unapproved = ldap.filter(user => user.active_flag && !ldapReadiness(user, 0).department.approved).length;
-  const pending = requests.filter(request => request.status === 'PENDING');
-  const overview = `<div class="ldap-directory-overview"><span><strong>${unapproved}</strong> enabled ${unapproved === 1 ? 'account awaiting department approval or verification' : 'accounts awaiting department approval or verification'}</span><a class="text-link" href="#users?tab=LDAP_DEPARTMENTS">${pending.length} pending department ${pending.length === 1 ? 'request' : 'requests'}</a></div>`;
-  const cards = rows.map(user => {
-    const assignments = data.assignments.filter(role => role.user_id === user.id);
-    const effective = assignments.filter(role => role.effective_flag);
-    const request = pending.find(item => item.user_id === user.id);
-    const readiness = ldapReadiness(user, effective.length, Boolean(request));
-    const { department, profilePending, ready } = readiness;
-    const roles = effective.map(role => `<li>${esc(ref('role', role.role_id))}<small>${role.global_scope_flag ? 'Global scope' : esc(ref('organisational_unit', role.scope_org_unit_id))}</small></li>`).join('');
-    return `<article class="ldap-account-card" data-user-id="${esc(user.id)}" aria-labelledby="ldap-account-${esc(user.id)}">
-      <header class="ldap-account-header"><div id="ldap-account-${esc(user.id)}">${person(user.full_name, user.username + ' · LDAP')}</div>
-        <div class="ldap-account-flags"><span class="tag ${user.active_flag ? 'neutral' : 'amber'}">${user.active_flag ? 'Account enabled' : 'Account disabled'}</span><span class="tag ${ready ? 'green' : 'amber'}">${ready ? 'Access ready' : 'Application access blocked'}</span></div></header>
-      <div class="ldap-account-department ${department.tone}">${departmentStatusBadge(user)}<p>${esc(department.detail)}</p></div>
-      <div class="ldap-account-checks">
-        <section aria-label="LDAP department approval"><h3>${user.emp_dept_managed_flag?'Employee department':'LDAP department details'}</h3>${user.emp_dept_managed_flag?userDepartmentDetails(user):`<dl class="ldap-account-codes"><div><dt>Approved code</dt><dd><code>${esc(user.department_code || 'Not approved')}</code></dd></div><div><dt>Current LDAP code</dt><dd><code>${esc(user.ldap_last_seen_department_code || 'Not returned')}</code></dd></div><div><dt>Approved division</dt><dd>${esc(user.ldap_division || 'Not recorded')}</dd></div><div><dt>Current LDAP division</dt><dd>${esc(user.ldap_last_seen_division || 'Not returned')}</dd></div><div><dt>Approved info</dt><dd>${esc(user.ldap_info || 'Not recorded')}</dd></div><div><dt>Current LDAP info</dt><dd>${esc(user.ldap_last_seen_info || 'Not returned')}</dd></div></dl>`}<small>${request ? 'Approval request pending' : department.key === 'not-approved' || department.key === 'changed' ? 'No pending approval request' : department.key === 'recheck' ? 'Fresh sign-in required' : department.key === 'approved' ? 'Current and approved details match' : 'Directory verification required'}</small></section>
-        <section aria-label="Work profile"><h3>Work profile</h3><span class="tag ${profilePending ? 'amber' : 'green'}">${profilePending ? 'Confirmation pending' : 'Confirmed'}</span><dl><dt>Home organisation</dt><dd>${esc(user.org_unit_id ? ref('organisational_unit', user.org_unit_id) : 'Not selected')}</dd><dt>Work email</dt><dd>${esc(user.email || 'Not provided')}</dd></dl></section>
-        <section aria-label="Roles and scope"><h3>Roles & scope</h3><span class="tag ${effective.length ? 'green' : 'amber'}">${effective.length ? effective.length + ' effective ' + (effective.length === 1 ? 'role' : 'roles') : 'No effective roles'}</span>${roles ? '<ul class="ldap-account-roles">' + roles + '</ul>' : '<p class="small muted">Roles must be assigned separately.</p>'}${assignments.length > effective.length ? `<small>${assignments.length - effective.length} assignment(s) not currently effective</small>` : ''}</section>
-      </div>
-      <footer class="ldap-account-footer"><div><strong>Next step</strong><p>${esc(readiness.next)}</p></div><div class="ldap-account-actions">
-        ${request && user.id !== currentUserId ? button('department-review', 'Review department request', `data-id="${esc(request.id)}"`, 'primary small') : request ? '<span class="small muted">Another administrator must review</span>' : ''}
-        ${button('department-history', 'Department history', `data-id="${esc(user.id)}"`, 'small')}
-        ${user.id !== currentUserId ? button('user', 'Manage profile & roles', `data-id="${esc(user.id)}"`, 'small') : '<span class="small muted">Use another administrator to edit your access</span>'}
-      </div></footer></article>`;
+function accessTag(user, ready) {
+  if (!user.active_flag) return statusTag('Account disabled', 'neutral');
+  return ready ? statusTag('Access ready', 'green') : statusTag('Access blocked', 'amber');
+}
+
+function homeOrganisation(user) {
+  return user.org_unit_id ? ref('organisational_unit', user.org_unit_id) : 'Not selected';
+}
+
+export function ldapAccounts(rows, ldapUsers, assignmentsByUser, pendingCount) {
+  const awaiting = ldapUsers.filter(user => user.active_flag && !ldapDepartmentState(user).approved).length;
+  const accounts = rows.map(user => {
+    const effective = (assignmentsByUser.get(user.id) || []).filter(role => role.effective_flag);
+    const { ready } = ldapReadiness(user, effective.length);
+    return [
+      person(user.full_name, user.username),
+      esc(homeOrganisation(user)),
+      accessTag(user, ready),
+      departmentStatusBadge(user),
+      button('ldap-account-details', 'Details',
+        `data-id="${esc(user.id)}" aria-label="Details for ${esc(user.full_name)} (${esc(user.username)})" aria-haspopup="dialog"`, 'small'),
+    ];
   });
-  return `<section class="panel ldap-directory" aria-labelledby="ldap-directory-title"><header class="panel-header"><h2 id="ldap-directory-title">LDAP directory accounts</h2><p>Department approval, profile confirmation and role access are separate checks.</p></header>${overview}${pagedCollection(cards, {pageKey:'ldap-accounts', className:'ldap-account-list', label:'LDAP accounts', empty:note('No LDAP accounts match these filters.')})}</section>`;
+  return panel('LDAP accounts', table(['Account', 'Home organisation', 'Application access', 'Employee profile', 'Actions'], accounts, {
+    pageKey: 'ldap-accounts', label: 'LDAP accounts', caption: 'LDAP accounts',
+    empty: 'No LDAP accounts match these filters.',
+  }), {
+    cls: 'table-panel ldap-directory',
+    sub: awaiting ? `${awaiting} enabled ${awaiting === 1 ? 'account awaits' : 'accounts await'} employee profile verification` : '',
+    action: `<a class="text-link" href="#users?tab=LDAP_DEPARTMENTS">${pendingCount} pending profile ${pendingCount === 1 ? 'review' : 'reviews'}</a>`,
+  });
+}
+
+export function showLdapAccount(user, assignments, request, currentUserId, trigger: HTMLElement) {
+  const effective = assignments.filter(role => role.effective_flag);
+  const { department, profilePending, ready, next } = ldapReadiness(user, effective.length, Boolean(request));
+  const roles = effective.map(role => `<li><strong>${esc(ref('role', role.role_id))}</strong> · ${role.global_scope_flag ? 'Global scope' : esc(ref('organisational_unit', role.scope_org_unit_id))}</li>`).join('');
+  const inactive = assignments.length - effective.length;
+  const ownAccount = user.id === currentUserId;
+  const userId = `data-id="${esc(user.id)}"`;
+  modal(user.full_name, `<div class="ldap-account-detail">
+    <div class="ldap-detail-status">${accessTag(user, ready)}${departmentStatusBadge(user)}</div>
+    <p><strong>Next step</strong><br>${esc(next)}</p>
+    <div class="ldap-account-actions">
+      ${request && !ownAccount ? button('department-review', 'Review employee profile request', `data-id="${esc(request.id)}"`, 'primary small') : ''}
+      ${button('department-history', 'Employee profile history', userId, 'small')}
+      ${ownAccount ? '<span class="small muted">Another administrator must review or edit your access.</span>' : button('user', 'Manage profile & roles', userId, 'small')}
+    </div>
+    <dl class="ldap-profile-facts">
+      <div><dt>Account</dt><dd>${user.active_flag ? 'Enabled' : 'Disabled'}</dd></div>
+      <div><dt>Work profile</dt><dd>${profilePending ? 'Confirmation pending' : 'Confirmed'}</dd></div>
+      <div><dt>Home organisation</dt><dd>${esc(homeOrganisation(user))}</dd></div>
+      <div><dt>Work email</dt><dd>${esc(user.email || 'Not provided')}</dd></div>
+    </dl>
+    <section><h3>Roles &amp; scope</h3>${roles ? `<ul class="ldap-effective-roles">${roles}</ul>` : '<p>No effective roles assigned.</p>'}
+      ${inactive ? `<p class="small muted">${inactive} ${inactive === 1 ? 'assignment is' : 'assignments are'} currently ineffective.</p>` : ''}</section>
+    <section class="ldap-profile-values"><h3>Separate LDAP and API baselines</h3><p>${esc(department.detail)}</p>${userDepartmentDetails(user)}</section>
+  </div>`, '', '', user.username + ' · LDAP', trigger);
 }

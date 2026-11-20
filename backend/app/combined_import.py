@@ -446,7 +446,7 @@ def load(db, actor, batch, storage):
                 document = save_document(db, actor, storage, attachment['file_name'], content,
                     values['regulatory_owner_unit_id'], values['confidentiality_class_id'])
                 values['source_document_id'] = document['id']
-            created = repo.create_instrument(db, actor, InstrumentInput(**values))
+            created = repo.create_instrument(db, actor, InstrumentInput(**values),imported=True)
             instrument_id, version_id = created['id'], created['version_id']
         loaded_document_id = values['source_document_id']
         targets = {record_row['id']: ('instrument', instrument_id)}

@@ -118,6 +118,7 @@ async function loadDemoOptions(revision) {
     const data = await api('/auth/demo-users');
     const container = document.querySelector<HTMLDivElement>('#demo-sign-in');
     if (revision !== loginRevision || !container) return;
+    state.demoDropdown = data.dropdown_presentation;
     demoUsers = data.users;
     container.hidden = false;
     container.setAttribute('aria-busy', 'false');
@@ -187,18 +188,14 @@ export async function loadIdentity() {
   try{state.identity=await api('/auth/me');}catch(error){if(!error.delegationUnavailable)throw error;selectDelegation('');state.identity=await api('/auth/me');message(error.message,true);}
   if(state.identity.acting_for){state.masters=await api('/masters');state.ready=true;return true;}
   let department = null;
-  if (state.identity.user.login_type === 'LDAP' || state.identity.user.emp_dept_managed_flag) {
-    department = await api('/auth/department');
-    const initialProfile = department.status === 'UNVERIFIED' && !department.approved.code &&
-      (state.identity.user.needs_email_confirmation_flag || state.identity.user.needs_department_selection_flag);
+  if (state.identity.user.login_type === 'LDAP' || state.identity.user.employee_profile_required) {
+    department = await api('/auth/employee-profile');
+    const initialProfile = state.identity.user.needs_email_confirmation_flag || state.identity.user.needs_department_selection_flag;
     if (department.blocked && !initialProfile && !state.identity.user.must_change_password_flag) {
       state.masters = null; state.record = null; state.batch = null;
       state.work = []; state.notifications = [];
-      const title = department.managed ? department.status === 'MISMATCH' ? 'Your department has changed' : department.status === 'RECHECK_REQUIRED' ? 'Sign in again to verify your department' : 'Department verification' : department.status === 'MISMATCH' ? 'Your LDAP department details have changed'
-        : department.status === 'UNAVAILABLE' ? 'Your LDAP department details could not be verified'
-        : department.status === 'RECHECK_REQUIRED' ? 'Sign in again to verify your department'
-        : 'Verify your LDAP department';
-      shell(heading(title, department.managed ? 'Your employee department is checked before opening the workspace.' : 'Review your directory department details before opening the workspace.') + departmentGate(department), '');
+      const title=department.status==='RECHECK_REQUIRED'?'Sign in again after profile approval':department.approved_version_id?'Your employee details have changed':'Employee profile verification';
+      shell(heading(title,'Review the separate LDAP department and API employee details before opening the workspace.')+departmentGate(department),'');
       return false;
     }
   }
@@ -298,8 +295,8 @@ export function authHandlers({ render, loadIdentity, loginView }) {
       },
     },
     forms: {
-      'ldap-department-request': async (form) => {
-        const result = await api('/auth/department/request', 'POST', Object.fromEntries(new FormData(form)));
+      'employee-profile-request': async (form) => {
+        const result = await api('/auth/employee-profile/request', 'POST', Object.fromEntries(new FormData(form)));
         message(result.message);
         if (await loadIdentity()) await render();
       },
