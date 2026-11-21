@@ -111,13 +111,11 @@ def parse_response(raw,pf):
 
 
 async def _request(cfg,pf,transport=None):
-    context=ssl.create_default_context()
-    if cfg.get('ca_certificate_pem'):context.load_verify_locations(cadata=cfg['ca_certificate_pem'])
     headers={'Accept':'application/json'}
     if cfg['auth_type']=='BEARER':headers['Authorization']='Bearer '+cfg['secret']
     if cfg['auth_type']=='API_KEY':headers[cfg['api_key_header']]=cfg['secret']
-    # No redirects, proxy credentials or unverified TLS, including admin connection tests.
-    async with httpx.AsyncClient(verify=context,follow_redirects=False,trust_env=False,
+    # All environments use unverified HTTPS for this integration.
+    async with httpx.AsyncClient(verify=False,follow_redirects=False,trust_env=False,
             timeout=cfg['timeout_seconds'],transport=transport) as client:
         async with client.stream('GET',cfg['endpoint'],params={'pf_no':pf},headers=headers) as response:
             if response.status_code!=200:return {},[],('HTTP_'+str(response.status_code))
@@ -135,7 +133,8 @@ def lookup(cfg,pf,settings,transport=None):
     try:
         validate_config(cfg,settings)
         # Total deadline covers DNS, TLS, headers and the complete bounded response.
-        values,missing,error=asyncio.run(asyncio.wait_for(_request(cfg,pf,transport),timeout=cfg['timeout_seconds']))
+        request = _request(cfg,pf,transport)
+        values,missing,error=asyncio.run(asyncio.wait_for(request,timeout=cfg['timeout_seconds']))
     except (TimeoutError,httpx.TimeoutException):error='TIMEOUT'
     except httpx.TransportError as exc:error=transport_error_code(exc)
     except HTTPException:error='CONFIGURATION_INVALID'
@@ -154,7 +153,6 @@ def transport_error_code(exc):
         pending.extend(x for x in [cause.__cause__,cause.__context__] if x is not None)
         pending.extend(getattr(cause,'exceptions',()))
     if any(isinstance(c,socket.gaierror) for c in causes):return 'DNS_RESOLUTION_FAILED'
-    if any(isinstance(c,ssl.SSLCertVerificationError) for c in causes):return 'TLS_CERTIFICATE_FAILED'
     if any(isinstance(c,ConnectionRefusedError) for c in causes):return 'CONNECTION_REFUSED'
     if any(isinstance(c,ssl.SSLError) for c in causes):return 'TLS_HANDSHAKE_FAILED'
     return 'CONNECTION_FAILED'
@@ -163,7 +161,6 @@ def transport_error_code(exc):
 def failure_guidance(code):
     return {
         'DNS_RESOLUTION_FAILED':'The backend cannot resolve the employee API hostname. Connect the backend machine to the bank network/VPN and bank internal DNS, then retry.',
-        'TLS_CERTIFICATE_FAILED':'The API certificate could not be verified. Check the hostname and configure the bank-approved CA bundle; certificate validation remains enabled.',
         'TLS_HANDSHAKE_FAILED':'The secure connection could not be established. Ask the API owner to check TLS requirements.',
         'CONNECTION_REFUSED':'The host refused the connection. Check that the API service is listening on HTTPS port 443 and permits this backend server.',
         'CONNECTION_FAILED':'Check bank-network routing, firewall access and API availability from the backend server.',

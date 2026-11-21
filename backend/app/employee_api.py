@@ -6,7 +6,6 @@ from pydantic import BaseModel,ConfigDict,Field,StrictBool
 from fastapi import Depends,HTTPException
 from . import employee_profiles as ep,models as m
 from .events import audit,now
-from .ldap_ca_certificates import normalize_base64_certificate_bundle,CertificateValidationError
 
 
 class Configuration(BaseModel):
@@ -21,8 +20,9 @@ class Configuration(BaseModel):
     api_key_header:str=Field(default='X-API-Key',max_length=80)
     secret:str=Field(default='',max_length=4000)
     clear_secret:StrictBool=False
-    ca_action:Literal['keep','replace','remove']='keep'
-    ca_data:str=Field(default='',max_length=1400000)
+    # Older Admin clients send these fields even when no CA is uploaded.
+    ca_action:Literal['keep','remove']='keep'
+    ca_data:Literal['']=''
 
 
 class TestConfiguration(Configuration):
@@ -37,9 +37,6 @@ def candidate(payload,previous,settings):
     if host_changed and data['secret'] and not payload.secret:
         raise HTTPException(422,'Enter a new API credential when changing the endpoint host.')
     data['ca_certificate_pem']=previous.get('ca_certificate_pem','') if payload.ca_action=='keep' else ''
-    if payload.ca_action=='replace':
-        try:data['ca_certificate_pem']=normalize_base64_certificate_bundle(payload.ca_data)[0]
-        except CertificateValidationError as exc:raise HTTPException(422,str(exc)) from None
     data['revision']=previous['revision']
     ep.validate_config(data,settings)
     return data
@@ -52,6 +49,7 @@ def install(app,get_db,current,settings):
         counts={r[0]:r[1] for r in db.execute(sa.select(m.employee_profile.c.sync_status,sa.func.count()).group_by(m.employee_profile.c.sync_status))}
         last=db.execute(sa.select(sa.func.max(m.employee_profile.c.last_attempt_at),sa.func.max(m.employee_profile.c.last_success_at))).one()
         return {**ep.public_config(ep.load_config(db,settings)),
+            'verify_tls':False,
             'allowed_hosts':settings.employee_api_allowed_hosts,'health':{'counts':counts,'last_attempt_at':last[0],'last_success_at':last[1]}}
 
     @app.put('/api/admin/employee-api')
@@ -70,7 +68,7 @@ def install(app,get_db,current,settings):
         audit(db,actor,'system',ep.CODE,'EMPLOYEE_API_TESTED',new={'ok':not result['error'],'code':result['error'],'missing_fields':result['missing']})
         return {'ok':not result['error'],'code':result['error'],'missing_fields':result['missing'],
             'guidance':ep.failure_guidance(result['error']) if result['error'] else None,
-            'message':'Connection and employee identity verified. No employee profile or settings were saved.' if not result['error'] else 'The lookup failed ('+result['error']+'). Existing sign-in and employee details remain available.'}
+            'message':'The API returned the requested PF number. No employee profile or settings were saved.' if not result['error'] else 'The lookup failed ('+result['error']+'). Existing sign-in and employee details remain available.'}
 
     @app.post('/api/admin/employee-api/retry')
     def retry(db=Depends(get_db),actor=Depends(current)):

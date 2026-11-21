@@ -55,9 +55,6 @@
     "features/obligation-setup.ts",
     "features/obligations.ts"
   ],
-  "ca_action": [
-    "features/employee-settings.ts"
-  ],
   "ca_certificate_action": [
     "features/settings.ts"
   ],
