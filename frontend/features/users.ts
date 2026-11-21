@@ -1,3 +1,4 @@
+import {workflowButton, workflowSubmit} from '../ui/workflow-actions.ts';
 import { state } from '../core/state.ts';
 import { dialog } from '../core/dom.ts';
 import { api } from '../core/api.ts';
@@ -48,7 +49,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
       tablePanel(table(['User', 'Previously approved', 'Observed employee changes', 'Home organisation', 'Status', 'Review'],
         requests.map((r) => [person(r.full_name, r.username), requestDepartmentText(r,'previous'),
           requestDepartmentText(r,'proposed'), esc(r.home_organisation || 'Not selected'), badge(r.status),
-          r.user_id === state.identity.user.id ? 'Another administrator must review' : button('department-review', 'Review request', `data-id="${r.id}"`, 'small')]),
+          r.user_id === state.identity.user.id ? 'Another administrator must review' : workflowButton('department-review', 'Review request', 'OPEN', `data-id="${r.id}"`)]),
         { empty: 'No employee profile reviews are pending.' }), 'Pending employee profile reviews');
   }
   const status = query.get('status') || '';
@@ -120,7 +121,9 @@ export async function usersPage(_id, query = new URLSearchParams()) {
           (effective.map((a) => `<span class="scope-line">${esc(ref('role', a.role_id))} · ${a.global_scope_flag ? 'Global' : esc(ref('organisational_unit', a.scope_org_unit_id))}</span>`).join('') || '<span class="small muted">No effective roles assigned</span>') +
             (assignments.length > effective.length ? `<small class="access-account-state">${assignments.length - effective.length} assignment(s) not currently effective</small>` : ''),
           `<span class="access-next-step">${esc(u.access_message)}</span>`,
-          u.id !== state.identity.user.id ? button('user', actionLabel, `data-id="${u.id}"`, 'small')
+          u.id !== state.identity.user.id ? (['PENDING_APPROVAL', 'ROLE_REVIEW_REQUIRED'].includes(u.access_status)
+            ? workflowButton('user', actionLabel, 'OPEN', `data-id="${esc(u.id)}"`)
+            : button('user', actionLabel, `data-id="${esc(u.id)}"`, 'small'))
             : '<span class="small muted">Use another administrator</span>'];
       }), { empty: 'No users match this account type and access status.' }),
       tab === 'ACTION_REQUIRED' ? 'Accounts requiring administrator action' : 'Standard portal accounts', '', 'access-account-table')) +
@@ -211,10 +214,10 @@ async function departmentHistory(id, trigger: HTMLElement) {
     `<p><strong>Home organisation:</strong> ${esc(ref('organisational_unit', user.org_unit_id) || 'Not selected')}</p>` +
     table(['Previously approved', 'Requested department', 'Status', 'Decision / action'], requests.map((r) => [
       requestDepartmentText(r,'previous'), requestDepartmentText(r,'proposed'), badge(r.status),
-      r.status === 'PENDING' && r.user_id !== state.identity.user.id ? button('department-review', 'Review request', `data-id="${r.id}"`, 'small')
+      r.status === 'PENDING' && r.user_id !== state.identity.user.id ? workflowButton('department-review', 'Review request', 'OPEN', `data-id="${r.id}"`)
         : esc(r.decision_reason || 'Awaiting employee refresh or administrator review')]),{empty:'No employee profile reviews have been submitted.'})+`<details><summary>Archived pre-migration evidence (${archived.length})</summary>${archived.map(r=>`<h4>${esc(title(r.record_type))}</h4>${table(['Archived field','Retained value'],Object.entries(JSON.parse(r.payload)).filter(([,v])=>v!=null).map(([k,v])=>[esc(title(k)),esc(typeof v==='object'?JSON.stringify(v):String(v))]),{summary:false})}`).join('')}</details>`);
 }
-function reviewDepartment(id) {
+function reviewDepartment(id, trigger) {
   const request = state.view.departmentRequests.find((r) => r.id === id);
   if (!request || request.status !== 'PENDING') {
     message('This department request is no longer pending. Refresh the account list before reviewing.', true);
@@ -231,7 +234,7 @@ function reviewDepartment(id) {
     <p>Review the Home organisation and existing roles in Edit access separately. This decision approves the complete employee snapshot; roles and scopes remain separately administered.</p>` +
     field('Decision', fixedSelect('decision', ['APPROVE','REJECT'], 'APPROVE', 'required')) +
     field('Decision reason', '<textarea name="reason" rows="3" minlength="3" maxlength="1000" required></textarea>'),
-    'employee-profile-decision', 'Record decision', 'A different administrator must decide. Approval requires a fresh sign-in.');
+    'employee-profile-decision', workflowSubmit('Record decision', 'REVIEW'), 'A different administrator must decide. Approval requires a fresh sign-in.', trigger);
 }
 export function userHandlers({ render, loadIdentity, loginView }) {
   return {
@@ -244,7 +247,7 @@ export function userHandlers({ render, loadIdentity, loginView }) {
       },
       user: ({ id }) => openUser(id),
       'department-history': ({ id }, trigger) => departmentHistory(id, trigger),
-      'department-review': ({ id }) => reviewDepartment(id),
+      'department-review': ({ id }, trigger) => reviewDepartment(id, trigger),
       'refresh-users': async () => { await render(); message('Access statuses refreshed.'); },
       'add-role': () =>
         dialog.querySelector('#role-rows').insertAdjacentHTML('beforeend', roleLine()),

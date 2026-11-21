@@ -6,6 +6,88 @@ The staff flow is **My tasks → outcome and period-specific proof → independe
 
 There are exactly two supported environments: `uat` and `prod`, with Standard/LDAP and no SSO by user direction. UAT uses `COMPLIANCE_PORTAL` on `localhost:1523/FREEPDB1`; Prod has a configuration template only. No passwords or existing user grants are reset by this change.
 
+## Workflow decisions · 20 November 2026
+
+Open **Work and evidence → My tasks → My decisions** to find decisions assigned to you. The portal groups eligible choices under **Decision required** and uses icons and labels with plum for review, green for approval, acceptance or completion, amber for return, and rose for rejection. The same styling appears in source editions, metadata corrections, notification and clause proposals, obligations and ownership changes, checks and obligation links, work and evidence, leave delegation, and employee profile review. Each choice opens its decision form, which collects the existing rationale and any required confirmation.
+
+Notification families show assigned decisions above implementation progress, and a link from My decisions focuses the exact proposal. Family history remains available to users who can view it. Assigned source and metadata links open their respective workflow sections. Work review appears before the supporting details, and assigned target-date reviews open the relevant section automatically.
+
+Rebuild with `node scripts/check_frontend.mjs` and refresh [local UAT](https://localhost:8010/#approvals). This frontend update uses migration head `20261120_0035`. To try it, sign in as a public UAT Reviewer or Approver demo with a named, in-scope assignment.
+
+The production build and 150 frontend tests passed. Chrome verified the final bundle from 320 to 1440 pixels with synthetic decisions, including keyboard focus, required confirmation and the exact record links. An earlier UAT Reviewer session passed the workflow checks and instrument progress regression. The final live rerun stopped at an HTTP 500 from the demo sign-in endpoint. [Workflow decision verification](outputs/workflow-decisions-2026-11-20/verification.json)
+
+## Notification family and implementation progress · 20 November 2026
+
+In [Regulations → Notification families](https://localhost:8010/#notification-families), the compact register shows one row per visible family, including standalone notifications. Search matches any visible notification in the family by title, code or official reference. If a domain is selected, the same matching notification must belong to that domain. The row shows the original or visible branch root, its regulator, domain and materiality, the number of visible notifications, the latest issued amendment and the family obligation count. The count opens the underlying records. The server pages the register, and phones show labelled cards.
+
+Open a family to see **Implementation across the family**, with six clickable stages and counts for obligations, open actions, overdue actions and accepted evidence. A shared obligation counts once across the family, even when several notifications cite it. Open and overdue counts use actions for current or past periods and the current internal due date. The notification list shows the original and amendments, their source and implementation statuses and any inherited regulatory deadline. Select a notification to inspect its source editions, approved linked obligations, applicable business implementation records and deadline history. The **As of date** filter positions the family and its source and deadline history. Aggregate progress uses current records for the notifications visible at that position.
+
+In the [Regulatory Library](https://localhost:8010/#repository), open a full record and select **Overview** to see **Implementation progress** beneath the source summary. The six measures cover recorded source editions awaiting or completing approval, interpreted clauses in the effective approved edition, active obligations, owner acceptances, approved applicability decisions and accepted period evidence. Obligations are counted once per code using the active effective revision when available. Owner assignments, applicability and evidence use the current authorised scope. An empty stage displays its own message.
+
+Select any stage to open the records behind its count. The dialog lists completed and outstanding records with their statuses and opens the corresponding source edition, clause, obligation, owner or applicability view, or evidence record. Longer lists open at 25 records per page. The stage count and rows use the same authorised snapshot from when Overview loaded.
+
+Sign in with an authorised public UAT Author or Reviewer demo to try both views. Deploy with `node scripts/check_frontend.mjs` and restart the API. The family register uses `library=true` and accepts `domain_id`, search and pagination. The optional `include_implementation_progress=true` query on instrument and family detail supplies counts and supporting records using the existing `20261120_0035` schema. The Domain filter uses the authorised records and the Regulatory domain master.
+
+The redesigned register and family detail are live on local HTTPS UAT. The build, 150 frontend tests, 319 default backend tests and six focused rollback-only Oracle tests passed. The UAT Reviewer browser check covered search, domain filtering and drill-down. Synthetic family records exercised multi-notification layouts and populated action and evidence links from 320 to 1440 pixels. The existing instrument progress dialogs also passed the browser recheck. [Notification library verification](outputs/notification-library-2026-11-20/verification.json)
+
+The instrument drill-down update passed the build, 150 frontend tests, 319 default backend tests and three focused rollback-only Oracle tests. Chromium verified all six dialogs with the public Reviewer demo at desktop and phone widths. A synthetic 31-record stage verified pagination, and synthetic records exercised populated stage links. [Instrument drill-down verification](outputs/notification-family-progress-2026-11-20/drilldown-verification.json)
+
+At the initial rollout, the production build and 150 frontend tests passed. The default backend suite passed 319 tests with 268 Oracle cases skipped, and five focused rollback-only Oracle tests passed. A signed-in local UAT Reviewer verified the family selection and all six API-backed measures. Chromium checked the table and progress panel from 320 to 1440 pixels. The multi-amendment layout and mixed progress stages used synthetic records. [Initial rollout verification](outputs/notification-family-progress-2026-11-20/verification.json)
+
+## LDAP work email · 20 November 2026
+
+LDAP sign-in reads the configured work email attribute alongside the canonical account and department code. A usable address prefills a blank **Work email** field for a user awaiting confirmation. The employee can correct it and must still confirm the email and choose Home organisation. If LDAP has no usable email, the user enters it manually. Confirmed addresses are retained on later sign-ins.
+
+In [Administration → LDAP settings](https://localhost:8010/#ldap), **Work email attribute** defaults to `mail`. Set `LDAP_ATTR_EMAIL` for environment bootstrap or save a different mapping in Admin. **Test connection** reports whether the attribute returned a usable address. Build the frontend and restart the API to deploy this change. It uses the existing `20261120_0035` schema. [LDAP setup](docs/ldap-setup.md)
+
+Verified the Admin mapping on local HTTPS UAT. The build and 150 frontend tests passed. The default backend run passed 319 tests with 268 Oracle cases skipped, and 29 focused rollback-only Oracle tests passed. Seven browser journeys with synthetic LDAP verified prefill across reloads, retention of confirmed email, and independent profile approval at widths from 320 to 1440 pixels. The bank directory connection was outside this verification. [Browser verification](outputs/ldap-work-email-2026-11-20/browser-verification.json)
+
+## Organisation units Excel import · 20 November 2026
+
+Sign in as Admin and open [Administration → Organisation hierarchy](https://localhost:8010/#masters?tab=organisation). Select **Download Excel template**, fill the **Organisation units** worksheet, then select **Upload Excel → Preview import**. Use `BANK` as the parent code for a direct child of the bank. Parents can already exist in the hierarchy or appear anywhere in the workbook. The template accepts up to 2,000 rows in a 2 MB `.xlsx` file.
+
+The import adds new units by permanent code. Use **Edit** for existing units. Preview reports Excel row numbers for duplicates, missing or unavailable parents, circular links, invalid dates and dropdown errors. If the Organisation unit form has additional configured dropdown fields, the upload dialog lists the Excel headings and active option codes. After a clean preview, enter a reason and confirm. The import checks the workbook again, creates all units in one transaction and audits each unit.
+
+Deploy with a frontend build and API restart. This feature uses the existing `20261120_0035` schema. The build and 150 frontend tests passed. The default backend suite passed 310 tests with 267 Oracle cases skipped. Another 26 focused rollback-only Oracle tests passed, including the file preview, bulk add, master maintenance and dropdown configuration. A workbook with 501 rows passed validation. Chromium completed the download, preview, correction and confirm flow with rollback-only records and checked the mobile layout at 390 pixels. The public Admin demo verified the deployed download and preview on local HTTPS UAT. [Browser verification](outputs/organisation-excel-import-2026-11-20/browser-verification.json)
+
+## Help & workflow guide · 20 November 2026
+
+Help opens directly to **Step-by-step help** and **Roles & responsibilities**, with **Print guide** in the header. The Weeks 1–3 read and download buttons were removed from Help. The public **User guide** remains available from sign-in.
+
+Refresh [local UAT](https://localhost:8010/#help) to load the rebuilt frontend. The production build, 150 frontend tests and 22 Chromium check groups passed. The UAT Author demo verified the updated Help layout at desktop and mobile widths and opened the roles tab. [Browser verification](outputs/help-cleanup-2026-11-20/browser-verification.json)
+
+## Release baseline retirement · 20 November 2026
+
+Release baseline was retired from the Compliance library, Help and API. Old `#baseline` bookmarks open Home, and old Help release links show **Step-by-step help**. Release planning records remain in [the historical baseline](docs/release-baseline.json).
+
+Rebuild the frontend and restart the API using `sh scripts/run_uat.sh` after stopping the previous worker. This change uses migration head `20261120_0035`. On local HTTPS UAT, the public Author and Admin demos confirmed the updated Help view, bookmark redirect and `404` from `/api/baseline`. The Author demo also verified the Compliance library.
+
+The production build, 150 frontend tests and 22 synthetic Chromium check groups passed. The default backend run passed 306 tests with 266 skipped. [Browser verification](outputs/release-baseline-retirement-2026-11-20/browser-verification.json)
+
+## Sidebar and employee designation · 20 November 2026
+
+The desktop and mobile sidebar uses deep plum (`#3e304b`) with lilac selection (`#e9dcf4`) and distinct hover, pressed and keyboard-focus states. The sidebar profile and wide-screen header show the employee designation alongside the name when `/api/auth/me` supplies it in `user.employee_approved.designation`. The portal role appears separately. Standard accounts without an approved employee profile show their name and portal role. A pending employee update takes effect in the profile after approval and a fresh sign-in. Leave-cover sessions display the represented identity with the profile details permitted by the API.
+
+Refresh [local HTTPS UAT](https://localhost:8010) to load the rebuilt frontend. The public Regulatory Author demo shows the Standard account layout. A user with an approved LDAP employee profile can also see their designation. The migration head remains `20261120_0035`.
+
+The production build and 150 frontend tests passed. Chromium passed 22 browser check groups, including sidebar selection and designation from 320 to 1440 pixels and desktop hover, press and keyboard focus. The local UAT Author demo confirmed the Regulatory library highlight at 390 and 1440 pixels. LDAP designation rendering used synthetic employee profiles. [Browser verification](outputs/sidebar-palette-2026-11-20/browser-verification.json)
+
+### Compliance by Design app icon
+
+The portal uses the audit checklist icon in the browser tab, on the sign-in page, at the top of the sidebar and beside the brand in the footer. The sidebar brand links to Home. The footer also shows **Approved history retained**. The frontend bundles a single 96 × 96 PNG derived from the full-size artwork. [Full-size audit checklist icon](outputs/compliance-by-design-icon-2026-11-20/compliance-by-design-audit-checklist.png)
+
+Build with `node scripts/check_frontend.mjs` and refresh [local HTTPS UAT](https://localhost:8010). Sign in with the public Regulatory Author demo to see the sidebar and footer. The icon runs on the existing `20261120_0035` schema.
+
+The production build and 150 frontend tests passed. Local HTTPS UAT served the exact rebuilt assets, and Chromium verified all four placements at 320, 390 and 1440 pixels. The Home browser suite passed all 22 checks on retry after a dialog focus assertion failed on the first run. The sign-in layout checks passed. The synthetic LDAP work-profile check timed out on both the previous and current builds. [Application icon verification](outputs/compliance-by-design-icon-2026-11-20/application-icon-verification.json)
+
+The workflow variant is a standalone 1254 × 1254 PNG generated with ImageGen. It uses two ivory checkpoints leading to a mint approval checkmark on a plum background. The artwork was inspected at full size and at 24 pixels. [Workflow icon PNG](outputs/compliance-by-design-icon-2026-11-20/compliance-by-design-workflow-icon.png)
+
+The original shield artwork is a 1254 × 1254 PNG with transparent corners. It pairs a deep plum tile with a white shield and a soft lilac checkmark. [Shield artwork PNG](outputs/compliance-by-design-icon-2026-11-20/compliance-by-design-icon.png)
+
+The document variant is a standalone 1254 × 1254 PNG with a plum document, a lilac fold and a white checkmark on an opaque, pale lilac background. The document and checkmark were checked at 16 and 32 pixels. [Document icon PNG](outputs/compliance-by-design-icon-2026-11-20/compliance-by-design-document-icon.png)
+
+The regulatory seal is a standalone 1254 × 1254 PNG generated with ImageGen. It uses white balanced scales and an open ring with a mint approval checkmark on deep plum. The artwork was inspected at full size and at 16 and 32 pixels. [Regulatory seal PNG](outputs/compliance-by-design-icon-2026-11-20/compliance-by-design-regulatory-seal.png)
+
 ## Connected applications · 20 November 2026
 
 Sign in as the public UAT **Admin** demo user and open [Administration → Connected applications](https://localhost:8010/#applications). Use **Add application** to enter a permanent code and display name. **Manage application** edits the name, description, bank-approved HTTPS address and availability. An inactive entry can be completed and enabled later. Portal users launch available links with **Open application**, and each destination manages access independently. Audit Log records adds, edits, enabling and disabling. [Oracle API regression](backend/tests/test_audit_trail.py)
@@ -120,7 +202,7 @@ The TypeScript check, production build and 150 frontend tests passed. Browser ch
 
 Every successful eligible employee login authenticates first, reads the configured LDAP department attribute and calls the employee API. LDAP department and API `deptCode` are stored separately in immutable employee-profile versions; they are never compared or translated across sources. Every validated change to employee name, designation, registered/current branch, zone, API department/name, employee status or LDAP department is compared with the **last approved version**, automatically queued for independent Admin review and restricts business access. Incoming data never silently replaces the approved profile or display name. Repeated responses reuse the same observation and pending request; rejected observations require an explicit new explanation.
 
-New staff confirm work email and select the existing **Home organisation** before Admin approval. The current selection contains department units; API branch metadata does not overwrite it. Approval establishes the full employee snapshot and updates the display name, revokes sessions and requires fresh authentication. Roles, Home organisation and effective scope remain separately administered. Technical Standard accounts outside the employee pattern retain their existing access flow. No employee approval, grant or business data is seeded.
+New staff confirm work email and select the existing **Home organisation** before Admin approval. LDAP can prefill the email during this step. Approval establishes the full employee snapshot and updates the display name, revokes sessions and requires fresh authentication. Roles, Home organisation and effective scope remain separately administered. Technical Standard accounts outside the employee pattern retain their existing access flow. No employee approval, grant or business data is seeded.
 
 If the employee API fails, approved data remains available with a warning and durable retries **only when the LDAP department is unchanged and no pending/rejected restriction applies**. A first-time employee has no approved fallback and can complete profile setup while awaiting full data and approval. A changed LDAP department is still restricted during an API outage. Recovery compares against approved data and can queue review; the worker cannot satisfy the fresh-login requirement after approval. API fields shown in My role are approved values. `branchName` describes `branchCode`; `currBranch` is separate. Only the leading configurable `b0` is removed for PF mapping; failed credentials/inactive accounts never call the API.
 
@@ -901,7 +983,7 @@ This applies the chosen colour combination to the existing labelled navigation a
 
 ## Sidebar simplification — 30 October 2026
 
-The shared sidebar no longer shows **More tools** or its **Release baseline** entry, on desktop or in the mobile navigation drawer. Normal role-scoped navigation remains in place. This removes the navigation entry; the existing authorised `#baseline` route and historical release documentation are retained. No business records, permissions or backend configuration are changed. The user guide has been corrected and regenerated; frontend TypeScript/build and a focused live sidebar check are recorded in [verification](outputs/sidebar-navigation-2026-10-30/validation.json).
+The 30 October checkpoint removed **More tools** and its **Release baseline** entry from the desktop sidebar and mobile drawer. The legacy route remained available until the 20 November retirement. [30 October sidebar verification](outputs/sidebar-navigation-2026-10-30/validation.json)
 
 ## Workspace design review history
 
@@ -949,9 +1031,9 @@ Source inspection supplied the migration, LDAP, encrypted-login and persistent s
 
 | Revision | Responsibility |
 | --- | --- |
-| `20261017_0006` | Consolidated baseline: 73 tables, 920 columns, 251 foreign keys, 40 integrity triggers, reference data and the approved organisation/access seed |
+| `20261017_0006` | Consolidated baseline with reference data, the bank and Compliance Department, and the starter accounts and grants |
 | `20261017_0007` | Remove superseded installation seed records from an existing UAT installation |
-| `20261024_0008` | Seed the 25 supplied departments while retaining the OPERATIONS identity |
+| `20261024_0008` | Historical department catalogue revision. New upgrades record the revision without creating or updating departments. |
 | `20261024_0009` | Server-side sessions, login throttling, LDAP onboarding flags and encrypted directory settings |
 | `20261024_0010` | Insert-only master reconciliation, source/decision retention guards and dependent-trigger recompile |
 | `20261025_0011` | Independently reviewed and approved metadata corrections with retained correction history |
@@ -984,7 +1066,7 @@ Oracle commits DDL independently. The initial revision can resume a partial inst
 
 All entities in the model are represented, including the extension schemas for control execution, testing and samples, observations, remediation, independent closure validation, regulatory changes and impact actions, regulatory returns/submissions and data-quality assessments. Release 1 standalone actions, migration lineage, users/scoped roles, documents, reference dimensions, evidence packages and certification are also included. See [the document-to-table map](docs/data-model.md) and [the complete column dictionary](database/data-dictionary.md).
 
-The reference seed includes 7 regulators, 13 instrument types, 15 obligation categories, 104 status values, frequencies, evidence types, confidentiality classes, risk levels, root causes, retained application placeholders and identifier counters. The installation catalogue defines nine active application roles, ten starter accounts and 32 organisation units, including the 25 department names supplied on 24 October. These are installation definitions; names, hierarchy and supported master records can now be maintained by Admin. Earlier seed-only population results are historical; the current UAT also contains the user-created LDAP demo account. Use current verification reports or the live administration screens for counts. No regulatory/business transactions are fabricated.
+The reference seed includes 7 regulators, 13 instrument types, 15 obligation categories, 104 status values, frequencies, evidence types, confidentiality classes, risk levels, root causes, retained application placeholders and identifier counters. The fresh installation catalogue defines nine active application roles, ten starter accounts and two organisation units. Admins maintain additional units and supported master records in the portal. Use the live administration screens for current counts.
 
 `REGULATORY_DOMAINS` contains only the framework's 15 domains, using `REG-` codes and one `REGULATORY` classification. The current application list is in `backend/app/reference_data.py`; the frozen installation snapshot contains the same definitions. Domains start inactive until approved organisational owners are supplied. Retained application links start inactive until bank-approved URLs are supplied.
 
@@ -1002,20 +1084,14 @@ All implemented Week 1–3 screens follow the prototype's layout, grouped naviga
 
 ## Organisation hierarchy and seed users
 
-`alembic upgrade head` installs this organisation hierarchy. Codes and labels match the screenshot application; parent links were checked against its source. This is the requested starter hierarchy, not a claim to reproduce the bank's complete HR organisation chart.
+On a fresh Oracle schema, `APP_ENV=uat .venv/bin/python scripts/migrate.py` creates the hierarchy below through Alembic. Admins add any further units in **Administration → Organisation hierarchy**. Existing UAT retains its previously seeded and maintained units, account memberships and grants. The Alembic head remains `20261120_0035`.
 
 ```text
-BANK — Bank of Maharashtra
+BANK — Bank Of Maharashtra
   COMPLIANCE — Compliance Department
-  RETAIL — Retail Banking
-  OPERATIONS — Banking Operations
-    PUNE-ZONE — Pune Zone
-      PUNE-BRANCH — Pune Main Branch
-  CREDIT — Credit and Risk
-  IT — Information Technology
 ```
 
-The ten current `STANDARD` account definitions cover the nine roles in the screenshots. Two Business Owners demonstrate department-specific responsibility. The UAT temporary password for newly inserted accounts is **`Password@123`**, matching QA Portal. `SEED_USER_PASSWORD` overrides it for newly created accounts. Existing accounts retain their passwords and password-change flags. Passwords use independently salted bcrypt hashes with cost 12; plaintext is never stored in Oracle. New accounts have `must_change_password_flag=1`; the sign-in service enforces it before opening the workspace. The portal is available at https://localhost:8010.
+The ten fresh `STANDARD` starter accounts cover nine roles. The public UAT demo temporary password is **`Password@123`**. `SEED_USER_PASSWORD` overrides it for newly created accounts. Passwords use independently salted bcrypt hashes with cost 12. New accounts must change their password before opening the workspace. The portal is available at https://localhost:8010.
 
 | Username | Role | Department | Role scope |
 | --- | --- | --- | --- |
@@ -1023,14 +1099,16 @@ The ten current `STANDARD` account definitions cover the nine roles in the scree
 | `author` | Author | Compliance Department | Global |
 | `reviewer` | Reviewer | Compliance Department | Global |
 | `approver` | Approver | Compliance Department | Global |
-| `retail.owner` | Business Owner | Retail Banking | Retail Banking |
-| `operations.owner` | Business Owner | Banking Operations | Banking Operations and descendants |
-| `control.owner` | Control Owner | Retail Banking | Retail Banking |
-| `evidence.owner` | Evidence Owner | Retail Banking | Retail Banking |
+| `retail.owner` | Business Owner | Compliance Department | Compliance and active, effective descendants |
+| `operations.owner` | Business Owner | Compliance Department | Compliance and active, effective descendants |
+| `control.owner` | Check Owner | Compliance Department | Compliance and active, effective descendants |
+| `evidence.owner` | Evidence Owner | Compliance Department | Compliance and active, effective descendants |
 | `cco` | CCO | Compliance Department | Global oversight |
-| `zone.viewer` | Zone Viewer | Pune Zone | Pune Zone and descendants, read-only |
+| `zone.viewer` | Zone Viewer | Compliance Department | Compliance and active, effective descendants, read-only |
 
-Home organisation, role scope and named task ownership are separate mappings. A global Reviewer belongs to Compliance Department and may review eligible assigned work across departments. Business/Control/Evidence Owners retain organisation-specific scope. Pune Zone access includes Pune Main Branch, excluding other departments and the Banking Operations parent. The Week 3 workflow routes source review/approval to explicitly named eligible users. Obligation and action ownership transactions follow in Weeks 4–5. Global scope never authorizes self-approval or technical-administrator approval of business content.
+Home organisation, role scope and named task ownership are separate mappings. Admins can assign scoped roles to the appropriate units after adding the organisation structure. Source and obligation workflows route decisions to eligible named users and enforce independent approval.
+
+**Verified 20 November 2026.** Running the full migration chain in a temporary Oracle schema created exactly two organisation units. All ten starter accounts used Compliance as home and all five scoped grants pointed to Compliance. Five focused Oracle regressions passed, including the master API, grant replay and descendant scope. The default backend suite passed 307 tests with 266 Oracle-only cases skipped. A separate read-only check confirmed the existing local UAT schema remains at `20261120_0035` with 32 units. [Fresh Oracle verification](outputs/minimal-organisation-seed-2026-11-20/oracle-verification.json)
 
 Revision `20261017_0007` physically removes three superseded seed accounts, three application roles, two placeholder departments, ten zero-length seed assignments and three related seed-only audit entries. The migration targets exact UUIDs, checks that the records are inactive and unreferenced by business data, and records removal counts in a new audit event. Current account IDs, passwords, department membership and role scopes are preserved.
 
@@ -1148,11 +1226,11 @@ Implementation references: [Web Crypto API](https://www.w3.org/TR/WebCryptoAPI/)
 
 ### Historical LDAP employee response
 
-The 29 October implementation returned sanitised LDAP employee attributes at login and stored selected department/profile fields. **This behavior is superseded:** current LDAP login reads only the canonical account identifier and returns no LDAP employee profile. Historical saved fields, approval requests/decisions and audit history remain intact; the API and approved-database fallback above govern new sign-ins. The old response-format example and migration prerequisites do not apply to the current build.
+The 29 October implementation returned sanitised directory attributes at login and stored selected profile fields. Current sign-in reads the canonical account, configured department code and work email. The current employee API and approval rules govern the other employee-profile fields. The legacy profile fields and workflow decisions are retained in the archive.
 
 The [29 October verification](outputs/ldap-login-details-2026-10-29/validation.json), [HTTP checks](outputs/ldap-login-details-2026-10-29/fixture-http-validation.json) and [preservation evidence](outputs/ldap-login-details-2026-10-29/preservation-check.json) remain dated historical evidence. Current setup is in [LDAP login setup](docs/ldap-setup.md).
 
-See [Week 1 baseline and traceability](docs/week-1/baseline-and-traceability.md), [Week 2 operations/access](docs/week-2/operations-and-access.md), [Week 3 user guide](docs/week-3/regulatory-master-guide.md) and [implementation validation](docs/week-3/implementation-validation.json). Help provides the current user guidance; Release baseline is no longer a sidebar destination.
+Help provides current user guidance. See [Week 1 baseline and traceability](docs/week-1/baseline-and-traceability.md), [Week 2 operations/access](docs/week-2/operations-and-access.md), [Week 3 user guide](docs/week-3/regulatory-master-guide.md) and [implementation validation](docs/week-3/implementation-validation.json).
 
 The full Oracle API tests use `CBD_RUN_ORACLE_TESTS=1 APP_ENV=uat .venv/bin/python -m pytest backend/tests -q`. They refuse Prod and roll back all business/security fixture rows. Browser QA uses the same app with the explicit rollback-only server in `scripts/browser_fixture.py` on 8011; stop it to roll back all fixtures. Do not run it concurrently with writer tests because its transaction retains counter locks. Regular UAT remains on 8010.
 
@@ -1326,7 +1404,7 @@ Administration → **LDAP settings** follows QA Portal's connection, certificate
 - Enable or disable real directory authentication. Saved database configuration applies immediately and overrides environment bootstrap values as a complete record.
 - Configure service-account search followed by a user bind, or a direct user DN template. Service-account search takes priority when both Base DN and Bind DN are supplied. The selected username pattern must contain `{username}` exactly once.
 - Upload, retain or remove a PEM/DER CA certificate bundle. The limit is 1 MiB and 20 CA certificates. Validation rejects private keys, invalid/expired certificates, non-CA certificates and duplicates. Certificate details include issuer, validity and SHA-256 fingerprint.
-- Map full name/email, department code (`department`), division (`division`) and info (`info`) attributes. LDAP `department` returns the code; a separate department name is not used. Missing or ambiguous code values restrict LDAP workspace access. Home organisation and role scope remain separate.
+- Map the LDAP department code (`department`) and work email (`mail`). Missing or ambiguous department codes restrict workspace access. Email is used to prefill work-profile confirmation.
 - Test the currently displayed values and certificate changes before saving. A connection test uses the real directory, creates no account and stores no test credentials; the mock cannot satisfy it.
 - Keep the existing encrypted bind secret by leaving the password blank. Password whitespace is preserved. After a deployment-secret rotation, re-enter the bind password to restore service-account lookup.
 
@@ -1340,7 +1418,7 @@ Before the first database save, configuration comes from the selected profile. S
 | Search bind | `LDAP_BASE_DN`, `LDAP_BIND_DN`, `LDAP_BIND_PASSWORD`, `LDAP_USER_SEARCH_FILTER` |
 | Direct bind | `LDAP_USER_DN_TEMPLATE` |
 | Server-managed legacy CA path | `LDAP_CA_CERT_FILE` |
-| Profile attributes | `LDAP_ATTR_FULL_NAME`, `LDAP_ATTR_EMAIL`, `LDAP_ATTR_DEPARTMENT_CODE` (`department` by default; legacy `LDAP_ATTR_DEPARTMENT` is a compatibility alias), `LDAP_ATTR_DIVISION`, `LDAP_ATTR_INFO` |
+| Profile attributes | `LDAP_ATTR_EMAIL` (defaults to `mail`), `LDAP_ATTR_DEPARTMENT_CODE` (defaults to `department`, with `LDAP_ATTR_DEPARTMENT` as an alias) |
 
 Use the Admin upload control for certificate files selected on your device. Keep bank bind secrets in ignored environment profiles or the encrypted saved configuration. A bank endpoint, CA trust and service/search configuration still need to be supplied and validated. Keep a Standard administrator available for recovery. Prod has not been connected or deployed.
 

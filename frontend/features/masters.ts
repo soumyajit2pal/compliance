@@ -1,6 +1,7 @@
 import {customFields, captureCustom, formFields} from '../ui/dropdown-fields.ts';
 import { state } from '../core/state.ts';
-import { api } from '../core/api.ts';
+import { api, downloadProtected } from '../core/api.ts';
+import { dialog } from '../core/dom.ts';
 import { childIndex, subtreeIds } from '../core/hierarchy.ts';
 import { esc, title, ref, badge, button, field, select, input, area, fixedSelect, localDate, message } from '../ui/components.ts';
 import { modal, close } from '../ui/dialog.ts';
@@ -10,6 +11,7 @@ import { domainStatus } from '../ui/domains.ts';
 import { panel, table, tablePanel, tabs, note, searchForm, detailFields, pagedCollection } from '../ui/widgets.ts';
 
 const otherLookups = ['frequency', 'evidence_type', 'confidentiality_class', 'process', 'legal_entity', 'product', 'channel', 'customer_segment', 'geography', 'system', 'taxonomy_scheme', 'control_type', 'execution_mode', 'obligation_nature', 'role'];
+const organisationImportPath = '/admin/organisation-import';
 const availableNow = (row) => row.active_flag &&
   (!row.effective_from || row.effective_from <= localDate()) &&
   (!row.effective_to || row.effective_to > localDate());
@@ -26,7 +28,9 @@ function organisationView(query) {
   const all = state.masters.organisational_unit,
     selected =
       all.find((u) => u.id === query.get('unit')) || all.find((u) => u.code === 'BANK') || all[0];
-  if (!selected) return heading('Organisation hierarchy', '', addButton('organisational_unit')) +
+  const actions = button('organisation-import-template', 'Download Excel template') +
+    button('organisation-import-upload', 'Upload Excel') + addButton('organisational_unit');
+  if (!selected) return heading('Organisation hierarchy', '', actions) +
     panel('No organisation units', '<p>Add the first organisation unit to start the hierarchy.</p>');
   const indexed = childIndex(all, 'parent_org_unit_id');
   const children = indexed.get(selected.id) || [];
@@ -53,7 +57,7 @@ function organisationView(query) {
     heading(
       'Organisation hierarchy',
       '',
-      addButton('organisational_unit'),
+      actions,
     ) +
     `<div class="tree-layout">${panel('Organisation units', `<div class="tree">${tree}</div>`, { sub: all.length + ' active and retained units' })}<div class="stack">${panel(
       selected.name,
@@ -80,6 +84,20 @@ function organisationView(query) {
       ),
     )}${note('Role scope applies to the assigned organisation and its active, effective descendants. Home organisation describes membership; a task still needs a named owner.')}</div></div>`
   );
+}
+
+function organisationUploadDialog() {
+  const config = state.masters.dropdown_configuration?.[0];
+  const custom = Object.entries(config?.fields || {}).filter(([, rule]: [string, any]) => rule.form === 'master.organisational_unit' && rule.active);
+  const instructions = custom.length ? `<details class="mt16"><summary>Additional Excel columns</summary>${table(
+    ['Column heading', 'Field', 'Active option codes'], custom.map(([key, rule]: [string, any]) => [
+      esc('Custom: ' + key), esc(rule.label + (rule.required ? ' (required)' : ' (optional)')),
+      esc(config.lists[rule.source].options.filter(option => option.active).map(option => option.code).join(', ')),
+    ]), { caption: 'Additional organisation fields', pageKey: 'org-import-fields', summary: false },
+  )}</details>` : '';
+  modal('Upload organisation units', field('Excel workbook', input('file', '', 'file', 'accept=".xlsx" required'),
+    'Use the organisation template. Maximum 2,000 rows and 2 MB.') + instructions,
+  'organisation-import-upload', 'Preview import', 'The workbook adds new units by code and parent code.');
 }
 export async function renderMasters(_id, query = new URLSearchParams()) {
   const request = state.routeNumber;
@@ -189,8 +207,38 @@ async function masterDialog(key, id = '', parent = '') {
 }
 
 export function masterHandlers({ render }) {
+  type ImportPreview = {
+    total: number;
+    ready: number;
+    imported: number;
+    file_hash: string;
+    errors: { row: number; code: string; message: string }[];
+    rows: { row: number; code: string; name: string; parent_code: string; unit_type: string;
+      active_flag: boolean; effective_from: string; effective_to: string | null }[];
+  };
+  const pending = new WeakMap<HTMLFormElement, { file: File; hash: string }>();
+  function showOrganisationPreview(result: ImportPreview, file: File) {
+    const replace = button('organisation-import-upload', 'Choose another workbook');
+    if (result.errors.length) {
+      const findings = table(['Excel row', 'Code', 'Finding'], result.errors.map(row => [esc(row.row), esc(row.code || '—'), esc(row.message)]),
+        { pageKey: 'org-import-errors', caption: 'Workbook findings' });
+      modal('Organisation import preview', note(`${result.errors.length} of ${result.total} rows need attention. Correct them in Excel and preview the workbook again.`, 'warn') +
+        `<div class="organisation-import-findings">${findings}</div><div class="mt16">${replace}</div>`);
+      return;
+    }
+    const rows = table(['Excel row', 'Unit', 'Type', 'Parent code', 'Effective dates', 'Status'], result.rows.map(row => [
+      esc(row.row), `<strong>${esc(row.name)}</strong><br><span class="small muted">${esc(row.code)}</span>`,
+      esc(title(row.unit_type)), esc(row.parent_code), esc(row.effective_from + ' → ' + (row.effective_to || 'Open-ended')),
+      badge(row.active_flag ? 'ACTIVE' : 'INACTIVE'),
+    ]), { pageKey: 'org-import-preview', caption: 'Organisation units ready to import' });
+    modal('Organisation import preview', `<div class="organisation-import-rows">${rows}</div><div class="mt16">${field('Reason for import', area('reason', '', 'required minlength="5" maxlength="2000"'))}${replace}</div>`,
+      'organisation-import-confirm', `Import ${result.ready} ${result.ready === 1 ? 'unit' : 'units'}`, `${result.ready} ${result.ready === 1 ? 'unit is' : 'units are'} ready to add.`);
+    pending.set(dialog.querySelector<HTMLFormElement>('#organisation-import-confirm')!, { file, hash: result.file_hash });
+  }
   return {
     actions: {
+      'organisation-import-template': () => downloadProtected('/api' + organisationImportPath + '/template'),
+      'organisation-import-upload': organisationUploadDialog,
       'add-master': ({ key, parent }) => masterDialog(key, '', parent),
       'edit-master': ({ key, id }) => masterDialog(key, id),
       domain: ({ id }) => {
@@ -215,6 +263,29 @@ export function masterHandlers({ render }) {
       },
     },
     forms: {
+      'organisation-import-upload': async (form: HTMLFormElement) => {
+        const data = new FormData(form);
+        const file = data.get('file');
+        if (!(file instanceof File) || !file.size) throw new Error('Choose a populated Excel workbook.');
+        const result = await api<ImportPreview>(organisationImportPath + '/preview', 'POST', data);
+        if (form.isConnected && dialog.open) showOrganisationPreview(result, file);
+      },
+      'organisation-import-confirm': async (form: HTMLFormElement) => {
+        const upload = pending.get(form);
+        if (!upload) throw new Error('Preview the workbook again.');
+        const data = new FormData(form);
+        data.set('file', upload.file);
+        data.set('file_hash', upload.hash);
+        const result = await api<ImportPreview>(organisationImportPath, 'POST', data);
+        if (result.errors.length) {
+          if (form.isConnected && dialog.open) showOrganisationPreview(result, upload.file);
+          return;
+        }
+        pending.delete(form);
+        if (form.isConnected && dialog.open) close();
+        message(`${result.imported} organisation ${result.imported === 1 ? 'unit' : 'units'} imported.`);
+        await render();
+      },
       'master-record': async (form) => {
         const { key, id, definition } = state.view.masterEdit;
         const values = {};

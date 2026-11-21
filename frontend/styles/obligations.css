@@ -94,9 +94,6 @@
 .obligation-setup-checks { margin:0 0 22px; border:1px solid var(--line); border-radius:10px; padding:14px 18px; }
 .obligation-setup-checks>summary { font-size:14px; font-weight:600; color:var(--primary-dark); cursor:pointer; }
 .obligation-setup-checks .obligation-readiness { margin-top:16px; margin-bottom:0; }
-.obligation-other-decisions { position:relative; min-width:150px; }
-.obligation-other-decisions>summary { cursor:pointer; color:var(--primary-dark); font-size:13px; padding:11px 5px; }
-.obligation-other-decisions>div { display:flex; flex-wrap:wrap; gap:8px; padding:8px 0; }
 @media(max-width:700px) {
   .obligation-guided-review-row { grid-template-columns:90px minmax(0,1fr); gap:12px; }
   .obligation-guided-review-row>.btn { grid-column:2; justify-self:start; }

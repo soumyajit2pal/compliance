@@ -181,11 +181,12 @@ class DirectoryInput(Input):
     ca_certificate_data:str|None=Field(default=None,max_length=1398104,repr=False)
     ca_certificate_name:str|None=Field(default=None,max_length=255)
     attr_department_code:str=Field(default='department',min_length=1,max_length=100)
+    attr_email:str|None=Field(default=None,min_length=1,max_length=100)
 
     @field_validator('server_uri','base_dn','bind_dn','user_dn_template','user_search_filter',
-                     'ca_cert_file','attr_department_code')
+                     'ca_cert_file','attr_department_code','attr_email')
     @classmethod
-    def strip_directory_values(cls,value):return value.strip()
+    def strip_directory_values(cls,value):return value.strip() if value is not None else None
 
 class DirectoryTest(DirectoryInput):
     test_username:str=Field(min_length=1,max_length=100)

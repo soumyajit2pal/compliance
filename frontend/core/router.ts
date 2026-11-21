@@ -12,7 +12,6 @@ import { tasksPage, notificationsPage } from '../features/work.ts';
 import { usersPage } from '../features/users.ts';
 import { renderMasters } from '../features/masters.ts';
 import { ldapPage, applicationsPage } from '../features/settings.ts';
-import { baselinePage } from '../features/baseline.ts';
 import { auditTrailPage } from '../features/audit-trail.ts';
 import { renderHelp } from '../features/help.ts';
 import { canNavigate, shell } from '../ui/layout.ts';
@@ -55,7 +54,6 @@ const pages = {
   users: usersPage,
   ldap: ldapPage,
   applications: applicationsPage,
-  baseline: baselinePage,
   help: renderHelp,
 };
 
@@ -71,6 +69,10 @@ export async function render() {
   if (!state.ready) return;
   const request = ++state.routeNumber;
   let { page, id, query } = route();
+  if (page === 'baseline') {
+    history.replaceState(history.state, '', '#home');
+    ({ page, id, query } = route());
+  }
   const alias = workspaceAlias(page, query);
   if(alias && !id) {
     history.replaceState(history.state, '', '#' + alias);

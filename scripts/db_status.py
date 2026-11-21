@@ -54,13 +54,16 @@ def main():
                 "FROM cbd_organisational_unit u LEFT JOIN cbd_organisational_unit parent ON parent.id = u.parent_org_unit_id "
                 "ORDER BY u.level_number, u.code")).mappings().all()
             expected_hierarchy = {row[0]: row[1:] for row in ORGANISATION_HIERARCHY}
-            hierarchy_match = all(
-                (row["name"], row["unit_type"], row["parent_code"], row["level_number"]) == expected_hierarchy[row["code"]]
-                and row["active_flag"] == 1
-                for row in organisation_rows if row["code"] in expected_hierarchy
-            ) and set(expected_hierarchy) == {row["code"] for row in organisation_rows}
+            organisation_by_code = {row["code"]: row for row in organisation_rows}
+            required_hierarchy = all(
+                code in organisation_by_code and
+                tuple(organisation_by_code[code][key] for key in ("unit_type", "parent_code", "level_number", "active_flag"))
+                == (unit_type, parent, level, 1)
+                for code, (_, unit_type, parent, level) in expected_hierarchy.items())
+            hierarchy_match = required_hierarchy and set(organisation_by_code) == set(expected_hierarchy) and all(
+                row["name"] == expected_hierarchy[row["code"]][0] for row in organisation_rows)
             active_roles = dict(conn.execute(text("SELECT code, name FROM cbd_role WHERE active_flag = 1")).all())
-            roles_match = active_roles == dict(APPLICATION_ROLES) and access_counts["role"] == len(APPLICATION_ROLES)
+            roles_match = active_roles.keys() == {code for code, _ in APPLICATION_ROLES} and access_counts["role"] == len(APPLICATION_ROLES)
             usernames = {f"seed_{index}": user[0] for index, user in enumerate(ROLE_SEED_USERS)}
             user_rows = conn.execute(text(
                 "SELECT u.username, r.code role_code, u.login_type, u.active_flag, "
@@ -85,7 +88,7 @@ def main():
             account_states = {row["username"]: row for row in user_rows}
             user_summary = {"expected_count": len(ROLE_SEED_USERS), "present_users": len(account_states),
                 "role_assignments": len(user_rows), "covers_all_roles": user_coverage,
-                "matches_scope_policy": scope_match,
+                "matches_fresh_seed_assignments": scope_match,
                 "standard_users": sum(row["login_type"] == "STANDARD" for row in account_states.values()),
                 "active_users": sum(bool(row["active_flag"]) for row in account_states.values()),
                 "users_with_password_hash": sum(bool(row["has_password"]) for row in account_states.values()),
@@ -110,6 +113,7 @@ def main():
                     "matches_reference": domain_match, "schemes": domain_schemes, "codes": sorted(domains)},
                 "role_user_seeds": user_summary,
                 "organisation_hierarchy": {"expected_count": len(ORGANISATION_HIERARCHY),
+                    "contains_required_units": required_hierarchy,
                     "matches_reference": hierarchy_match,
                     "units": [dict(row) for row in organisation_rows]},
                 "application_roles": {"expected_active_count": len(APPLICATION_ROLES),
@@ -117,8 +121,8 @@ def main():
                 "access_counts": access_counts,
                 "seed_cleanup": json.loads(cleanup_event) if cleanup_event else None,
                 "enabled_triggers": conn.execute(text("SELECT COUNT(*) FROM user_triggers WHERE table_name LIKE 'CBD_%' AND status = 'ENABLED'")).scalar_one()}
-            result["ok"] = (current == heads and domain_match and user_coverage and scope_match
-                and hierarchy_match and roles_match and not any([result["missing_tables"], missing_columns,
+            result["ok"] = (current == heads and domain_match and user_coverage
+                and required_hierarchy and roles_match and not any([result["missing_tables"], missing_columns,
                 missing_fks, invalid, disabled, enabled_constraints, errors]))
             print(json.dumps(result, indent=2))
             return 0 if result["ok"] else 1

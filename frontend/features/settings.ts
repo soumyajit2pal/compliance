@@ -44,7 +44,7 @@ export async function ldapPage() {
       </div>
       ${certificateDetails ? `<details><summary>View certificate details (${data.ca_certificate_count})</summary>${certificateDetails}</details>` : ''}
     `)}</div>
-    <div class="mt24">${panel('LDAP department',field('Department code attribute',input('attr_department_code',data.attr_department_code,'text','required maxlength="100"'),'Stored separately from the employee API department. Every login checks it against its own approved LDAP baseline.')+note('Only the authenticated account and this department attribute are requested. Other employee details come from the employee API.'))}</div>
+    <div class="mt24">${panel('LDAP attributes', `<div class="form-grid">${field('Department code attribute',input('attr_department_code',data.attr_department_code,'text','required maxlength="100"'),'Checked against the approved LDAP department code.')}${field('Work email attribute',input('attr_email',data.attr_email || 'mail','text','required maxlength="100"'),'Usually mail. Used to prefill work email for profile confirmation.')}</div>`)}</div>
     <div class="mt24">${panel('Test before saving', `
       <p class="small muted">Test the values currently shown, including unsaved certificate changes. Test credentials are used once. Testing does not create an account or save the configuration.</p>
       <div class="form-grid">
@@ -134,7 +134,8 @@ export function settingsHandlers({ render }) {
             throw new Error('Enter a test username and test user password.');
           const response = await api('/admin/ldap/test', 'POST', { ...values,
             test_username: fields.test_username.value, test_password: fields.test_password.value });
-          result.textContent = response.message;
+          result.textContent = response.message + (response.email_available === undefined ? '' : response.email_available
+            ? ' The mapped email attribute returned a work email.' : ' The mapped email attribute returned no usable work email.');
         } catch (error) {
           result.textContent = error.message;
         } finally {

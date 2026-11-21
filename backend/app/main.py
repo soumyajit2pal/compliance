@@ -35,7 +35,7 @@ from .user_access import account_catalogue, current_access, notify_administrator
 from . import clause_carry,notification_families as families
 from .source_documents import file_transaction, save_document, MAX_SOURCE_BYTES
 from . import employee_identity as employees
-from . import applications as connected_apps, master_data, dropdowns
+from . import applications as connected_apps, master_data, dropdowns, organisation_import
 from .api_docs import install_uat_docs
 
 logger=logging.getLogger('cbd.portal')
@@ -64,7 +64,7 @@ def menu(actor):
     if actor.roles & READ_ROLES:common.extend([('controls','Checks and procedures'),('control-mappings','Obligation links'),('actions','Assigned actions'),('evidence','Evidence vault'),('delegations','Delegation'),('team','Team overview'),('library','Compliance library')])
     common.append(('approval-workflow-log','Approval Workflow Log'))
     if 'ADMIN' in actor.roles:common.append(('audit-trail','Audit Log'))
-    common.extend([('baseline','Release baseline'),('applications','Retained applications')])
+    common.append(('applications','Retained applications'))
     return [{'id':key,'label':label} for key,label in common]
 
 def safe_user(row):
@@ -131,6 +131,7 @@ def create_app(settings=None,engine=None):
             maximum=(101*1024*1024 if request.url.path=='/api/migration' else
                      21*1024*1024 if request.url.path=='/api/obligation-imports' or request.url.path.startswith('/api/actions/') and request.url.path.endswith('/evidence') else
                      25*1024*1024 if request.url.path=='/api/documents' else
+                     organisation_import.MAX_FILE_BYTES+128*1024 if request.url.path in {organisation_import.IMPORT_PATH, organisation_import.IMPORT_PATH+'/preview'} else
                      2*1024*1024 if request.url.path in {'/api/admin/ldap','/api/admin/ldap/test','/api/admin/employee-api','/api/admin/employee-api/test'} else 1024*1024)
             length=request.headers.get('Content-Length')
             try:valid=length is not None and 0<=int(length)<=maximum
@@ -274,6 +275,7 @@ def create_app(settings=None,engine=None):
         return {'ok':True,'message':'Profile confirmed. '+access['access_message']}
 
     dropdowns.install(app,get_db,current)
+    organisation_import.install(app,get_db,current)
 
     @app.get('/api/masters')
     def masters(db=Depends(get_db),actor=Depends(current)):
@@ -420,7 +422,8 @@ def create_app(settings=None,engine=None):
         audit(db,actor,'system','LDAP','LDAP_TESTED',new={'ok':bool(profile)})
         if not profile:
             db.commit();raise HTTPException(400,'The directory rejected the test username or password.')
-        return {'ok':True,'message':'LDAP connection and test-user authentication succeeded. Configuration has not been saved.'}
+        return {'ok':True,'email_available':bool(profile.get('email')),
+            'message':'LDAP connection and test-user authentication succeeded. Configuration has not been saved.'}
 
     @app.post('/api/documents')
     async def upload(request:Request,file:UploadFile=File(...),owner_unit_id:str=Form(...),confidentiality_class_id:str=Form(...),db=Depends(get_db),actor=Depends(current)):
@@ -459,14 +462,15 @@ def create_app(settings=None,engine=None):
         rows=[row for stage,row in stages if not selected or stage==selected]
         return {**paginate(rows,**paging),'library_counts':dict(counts)}
     @app.get('/api/notification-families')
-    def family_register(as_of:date|None=None,q:str='',paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+    def family_register(as_of:date|None=None,q:str='',library:bool=False,domain_id:str='',paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+        if library:return families.library(db,actor,as_of,q,domain_id,paging)
         data=families.view(db,actor,when=as_of,search=q)
         paged=paginate(data['families'],**paging)
         if isinstance(paged,dict):data.update(families=paged['items'],pagination=paged['pagination'])
         return data
     @app.get('/api/notification-families/{identifier}')
-    def family_detail(identifier:str,as_of:date|None=None,db=Depends(get_db),actor=Depends(current)):
-        return families.view(db,actor,identifier,as_of)
+    def family_detail(identifier:str,as_of:date|None=None,include_implementation_progress:bool=False,db=Depends(get_db),actor=Depends(current)):
+        return families.view(db,actor,identifier,as_of,include_implementation_progress=include_implementation_progress)
     @app.post('/api/notification-families/{identifier}/links')
     def family_link(identifier:str,payload:s.FamilyLinkInput,db=Depends(get_db),actor=Depends(current)):
         return families.propose_link(db,actor,identifier,payload)
@@ -530,7 +534,8 @@ def create_app(settings=None,engine=None):
     @app.put('/api/instruments/{identifier}')
     def edit_instrument(identifier:str,payload:s.InstrumentInput,db=Depends(get_db),actor=Depends(current)):return repo.edit_instrument(db,actor,identifier,payload)
     @app.get('/api/instruments/{identifier}')
-    def instrument(identifier:str,db=Depends(get_db),actor=Depends(current)):return repo.detail(db,actor,identifier)
+    def instrument(identifier:str,include_implementation_progress:bool=False,db=Depends(get_db),actor=Depends(current)):
+        return repo.detail(db,actor,identifier,include_implementation_progress)
     @app.post('/api/instruments/{identifier}/metadata-corrections')
     def metadata_correction(identifier:str,payload:s.MetadataCorrectionInput,db=Depends(get_db),actor=Depends(current)):
         return repo.request_metadata_correction(db,actor,identifier,payload)
@@ -758,10 +763,6 @@ def create_app(settings=None,engine=None):
     @app.patch('/api/applications/{identifier}')
     def update_application(identifier:str,payload:s.LinkInput,db=Depends(get_db),actor=Depends(current)):
         return connected_apps.update(db, actor, identifier, payload)
-
-    @app.get('/api/baseline')
-    def baseline(actor=Depends(current)):
-        return json.loads((ROOT/'docs/release-baseline.json').read_text())
 
     from .employee_api import install as install_employee_api
     install_employee_api(app,get_db,current,cfg)

@@ -9,7 +9,10 @@ export { repositoryHandlers } from './repository/mutations.ts';
 export async function repositoryPage(id, query) {
   if (id === 'new') return instrumentWizard(query);
   const request = state.routeNumber;
-  const data = await api(id ? '/instruments/' + id : '/instruments?' + apiPageQuery(query, 'instruments'));
+  const overview = !query.get('tab') || query.get('tab') === 'overview';
+  const data = await api(id
+    ? '/instruments/' + id + (overview ? '?include_implementation_progress=true' : '')
+    : '/instruments?' + apiPageQuery(query, 'instruments'));
   if (request !== state.routeNumber || !state.identity) return '';
   if (!id) return renderRegister(Array.isArray(data) ? data : data.items, query, data.pagination, data.library_counts);
   state.record = data;

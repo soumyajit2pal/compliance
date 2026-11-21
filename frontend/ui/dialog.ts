@@ -11,11 +11,15 @@ function restoreFocus() {
   if (target?.isConnected) target.focus();
 }
 dialog.addEventListener('close', restoreFocus);
-export function modal(name, contents, form = '', save = 'Save', sub = '', trigger?: HTMLElement) {
+type SubmitAppearance = {label: string; className: string; icon: string};
+
+export function modal(name, contents, form = '', save: string | SubmitAppearance = 'Save', sub = '', trigger?: HTMLElement) {
   clearMessage();
   if (!dialog.open) lastFocus = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
   dialog.className = 'modal wide runtime-dialog';
-  const footer = `<div class="modal-footer"><span class="keyboard-hint">Esc to close</span><div class="row">${button('close', 'Cancel')}<button class="btn primary" type="submit">${esc(save)}</button></div></div>`;
+  const submit = typeof save === 'string' ? `<button class="btn primary" type="submit">${esc(save)}</button>`
+    : `<button class="btn ${esc(save.className)}" type="submit">${icon(save.icon)}<span>${esc(save.label)}</span></button>`;
+  const footer = `<div class="modal-footer"><span class="keyboard-hint">Esc to close</span><div class="row">${button('close', 'Cancel')}${submit}</div></div>`;
   const body = form
     ? `<form id="${esc(form)}" class="dialog-form"><div class="modal-body"><p class="inline-error dialog-feedback" id="form-error" role="alert" aria-atomic="true" tabindex="-1"></p>${contents}</div>${footer}</form>`
     : `<div class="modal-body">${contents}</div>`;

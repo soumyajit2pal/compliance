@@ -148,6 +148,7 @@
     "features/obligations.ts"
   ],
   "domain_id": [
+    "features/notification-families.ts",
     "features/repository/register.ts"
   ],
   "domain_owner_unit_id": [

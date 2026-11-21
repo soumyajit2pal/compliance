@@ -25,6 +25,8 @@ import { instrumentForm } from './dialogs.ts';
 import { secondaryDomainPicker } from '../../ui/domains.ts';
 import { covered } from '../../core/access.ts';
 import { clausePayload, openClauseDialog } from '../clause-dialog.ts';
+import { openImplementationStage } from './implementation-progress.ts';
+import { workflowSubmit } from '../../ui/workflow-actions.ts';
 
 function nextSourceVersion(versions) {
   const highestMajor = versions.reduce((highest, version) => {
@@ -95,6 +97,7 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
   return {
     actions: {
       ...wizardActions(),
+      'implementation-stage': openImplementationStage,
       'clear-repository-filters': async () => {
         if (location.hash === '#repository') await render();
         else location.hash = 'repository';
@@ -231,14 +234,15 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
               area('comments', '', 'required minlength="3"'),
             )}${isReview || isApproval ? `<label class="check-label mt24"><input type="checkbox" required>I confirm I am independent of the maker${isApproval ? ' and reviewer' : ''} and have reviewed the source and Clauses / Para.</label>` : ''}`,
           'decision',
-          isReview || isApproval ? actionLabel : 'Record ' + title(decision),
+          workflowSubmit(isReview || isApproval ? actionLabel : 'Record ' + title(decision), decision),
           isReview ? 'Recording this review sends final approval to the named approver’s My decisions queue.' : '',
+          trigger,
         );
         const form = document.querySelector<HTMLFormElement>('#decision');
         form.dataset.versionId = v.id;
         form.dataset.decision = decision;
       },
-      'correction-decision': async ({ decision, id }) => {
+      'correction-decision': async ({ decision, id }, trigger) => {
         const correction = state.record.metadata_corrections.find((row) => row.id === id);
         if (!correction) throw new Error('This metadata correction is no longer available. Refresh the record.');
         state.view.correctionDecision = decision;
@@ -251,11 +255,14 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
             ...state.record.tasks.filter((row) => row.instance_id === task.instance_id && row.id !== task.id).map((row) => row.assignee_user_id)];
           extra = field('Eligible delegate', select('delegate_user_id', await choosePeople(role, state.record.instrument.regulatory_owner_unit_id, exclude), '', 'full_name', 'required'));
         }
+        if (!trigger.isConnected) return;
         modal(
           title(decision) + ' metadata correction',
           `<p><strong>Requester</strong> ${esc(ref('user', correction.created_by))}</p>${correctionSummaryForDialog(correction)}<p><strong>Reason for correction</strong><br>${esc(correction.reason)}</p>${extra}${field('Decision and rationale', area('comments', '', 'required minlength="3" maxlength="10000"'), '', 'full')}${['REVIEW', 'APPROVE'].includes(decision) ? '<label class="check-label mt24"><input type="checkbox" required>I confirm that I am independent of the requester and reviewed the proposed register changes.</label>' : ''}`,
           'correction-decision',
-          'Record ' + title(decision),
+          workflowSubmit('Record ' + title(decision), decision),
+          '',
+          trigger,
         );
         const form = document.querySelector<HTMLFormElement>('#correction-decision');
         if (form) form.dataset.correctionId = id;

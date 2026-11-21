@@ -23,6 +23,8 @@ import {
 import { icon } from '../../ui/icons.ts';
 import { recordClauseRows, renderClauseWorkingView } from '../clause-workspace.ts';
 import { editionNextStep, renderEditionNextStep } from './workflow.ts';
+import { renderImplementationProgress } from './implementation-progress.ts';
+import { workflowActionGroup, workflowButton, workflowLink } from '../../ui/workflow-actions.ts';
 import {
   panel,
   pagedCollection,
@@ -184,7 +186,7 @@ export function renderRecord(q) {
   const workflowPath = recordPath(i, v, 'workflow');
   const nextStep = editionNextStep(state.record, v, active, editable, recordPath(i, v, 'clauses'));
   const workflowShortcut = tab !== 'workflow' && nextStep.shortcut
-    ? link(workflowPath, nextStep.shortcut, nextStep.tone === 'action' ? 'btn primary' : 'btn soft')
+    ? nextStep.tone === 'action' ? workflowLink(workflowPath, nextStep.shortcut) : link(workflowPath, nextStep.shortcut, 'btn soft')
     : '';
   const obligationRegisterPath = 'obligations?' + new URLSearchParams({ instrument: i.id });
   let actions = workflowShortcut + (editable ? button('edit-version', 'Edit draft version') : '');
@@ -289,9 +291,12 @@ export function renderRecord(q) {
       ['IN_REVIEW', 'REVIEWED'].includes(correction.correction_status) && covered(i.regulatory_owner_unit_id, ['AUTHOR']);
     const canDecide = correctionTask?.assignee_user_id === state.identity.user.id && covered(i.regulatory_owner_unit_id,
       [correctionTask.stage === 'COMPLIANCE_REVIEW' ? 'REVIEWER' : 'APPROVER']);
-    const correctionActions = (canWithdraw ? button('correction-decision', 'Withdraw request', `data-id="${esc(correction.id)}" data-decision="WITHDRAW"`) : '') +
-      (canDecide ? `<div class="row gap8">${button('correction-decision', correctionTask.stage === 'COMPLIANCE_REVIEW' ? 'Record review' : 'Approve correction', `data-id="${esc(correction.id)}" data-decision="${correctionTask.stage === 'COMPLIANCE_REVIEW' ? 'REVIEW' : 'APPROVE'}"`, 'primary')}${button('correction-decision', 'Return for correction', `data-id="${esc(correction.id)}" data-decision="RETURN"`)}${button('correction-decision', 'Reject', `data-id="${esc(correction.id)}" data-decision="REJECT"`, 'danger')}${button('correction-decision', 'Delegate task', `data-id="${esc(correction.id)}" data-decision="DELEGATE"`)}</div>` : '');
-    body += `<div class="mt24">${panel('Metadata correction · ' + title(correction.correction_status),
+    const decide = (decision,label) => workflowButton('correction-decision',label,decision,`data-id="${esc(correction.id)}" data-decision="${decision}"`);
+    const review = correctionTask?.stage === 'COMPLIANCE_REVIEW';
+    const correctionActions = (canWithdraw ? decide('WITHDRAW','Withdraw request') : '') +
+      (canDecide ? workflowActionGroup(decide(review?'REVIEW':'APPROVE',review?'Record review':'Approve correction')+
+        decide('RETURN','Return for correction')+decide('REJECT','Reject')+decide('DELEGATE','Delegate task')) : '');
+    body += `<div class="mt24" id="metadata-correction-panel" tabindex="-1">${panel('Metadata correction · ' + title(correction.correction_status),
       `<p><strong>Requested by</strong> ${esc(ref('user', correction.created_by))} · ${date(correction.created_at)}</p>${correctionSummary(correction)}<p><strong>Reason</strong><br>${esc(correction.reason)}</p>${correction.reviewer_id ? `<p class="small muted">Reviewer: ${esc(ref('user', correction.reviewer_id))}${correction.reviewed_by ? ' · Review recorded by ' + esc(ref('user', correction.reviewed_by)) : ''}${correction.approved_by ? ' · Approved by ' + esc(ref('user', correction.approved_by)) : ''}</p>` : ''}<div class="record-actions actions">${correctionActions || '<span class="small muted">This request is retained here with its review history.</span>'}</div>`,
       { action: metadata_corrections.length > 1 ? link(correctionPath(i, v, correction.id, 'history'), 'View request history', 'btn small') : '' })}</div>`;
   }
@@ -329,6 +334,7 @@ export function renderRecord(q) {
   return (
     hero +
     `<div id="record-sections" class="record-sections">` +
+      (tab === 'overview' ? renderImplementationProgress(state.record.implementation_progress) : '') +
       tabs(
       [
         ['overview', 'Overview'],

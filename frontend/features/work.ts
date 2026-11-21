@@ -1,3 +1,4 @@
+import {workflowLink} from '../ui/workflow-actions.ts';
 import { rbiWorkflowPath, showRbiWorkflowGuide, taskQueue } from '../core/task-queues.ts';
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
@@ -56,13 +57,15 @@ export async function tasksPage(page, query = new URLSearchParams()) {
     ? 'repository/' + task.instrument_id + '?tab=workflow&correction=' + task.correction_id
     : 'repository/' + task.instrument_id + '?version=' + task.version_id + '&tab=workflow';
   const nextAction = (task) => {
-    if (page !== 'approvals') return link(taskPath(task), 'Open assigned work', 'btn small');
+    if (page !== 'approvals') return task.kind === 'DECISION'
+      ? workflowLink(taskPath(task), 'Open assigned work')
+      : link(taskPath(task), 'Open assigned work', 'btn small');
     const editionDecision = !task.workflow_kind && task.version_id;
     if (editionDecision && task.stage === 'COMPLIANCE_REVIEW')
-      return link(taskPath(task), 'Open Compliance review', 'btn primary');
+      return workflowLink(taskPath(task), 'Open Compliance review');
     if (editionDecision && task.stage === 'FINAL_APPROVAL')
-      return link(taskPath(task), 'Open final approval', 'btn primary');
-    return link(taskPath(task), 'Open decision', 'btn small');
+      return workflowLink(taskPath(task), 'Open final approval');
+    return workflowLink(taskPath(task), 'Open decision');
   };
   return (
     pageHelp(
@@ -72,7 +75,7 @@ export async function tasksPage(page, query = new URLSearchParams()) {
     heading(
       rbi?(page==='approvals'?'My RBI decisions':'My RBI assignments'):page === 'approvals' ? 'My decisions' : 'My tasks',
       rbi?'Your named assignments linked to RBI instruments you can access.':page === 'approvals'
-        ? 'Open your assigned stage, then record your review or approval on the record’s Workflow tab.'
+        ? 'Open your assigned record to review it and record your decision.'
         : 'Personal assignments that your role and organisation scope permit you to perform.',
       `<div class="actions">${rbi?link(rbiWorkflowPath,'RBI workflow guide','btn'):''}${link('tasks','All my tasks','btn '+(page==='tasks'&&!rbi?'primary':''))}${link('approvals','My decisions','btn '+(page==='approvals'&&!rbi?'primary':''))}${state.identity.menu.some(i=>i.id==='actions')?link('actions','Compliance work tracker','btn'):''}</div>`,
     ) +

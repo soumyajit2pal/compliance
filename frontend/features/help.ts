@@ -1,4 +1,3 @@
-import { assetUrl } from '../core/assets.ts';
 import { state } from '../core/state.ts';
 import { esc, link, title } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
@@ -50,7 +49,7 @@ export const ROLE_HELP = [
   [
     'CCO',
     'Compliance oversight',
-    'Read the authorised regulatory population, source versions and governed review history. Follow ownership and escalation responsibilities described in the baseline.',
+    'Read the authorised regulatory population, source versions and governed review history. Follow the bank’s ownership and escalation procedures.',
     'Oversight does not replace the named Reviewer or Approver and does not grant every business transaction. Team overview provides scoped current counts, exact records, department/domain breakdowns and matching exports.',
   ],
   [
@@ -141,7 +140,7 @@ const topics = [
   ],
 ];
 export function renderHelp(_id, query = new URLSearchParams()) {
-  const tab = query.get('tab') || 'guide',
+  const tab = query.get('tab') === 'roles' ? 'roles' : 'guide',
     q = (query.get('q') || '').toLowerCase();
   let body = '';
   if (tab === 'roles')
@@ -156,8 +155,6 @@ export function renderHelp(_id, query = new URLSearchParams()) {
       .join(
         '',
       )}</div><div class="mt24">${note('Home department, role scope and personal task assignment are separate mappings. Global technical administration does not grant global business approval.')}</div>`;
-  else if (tab === 'release')
-    body = `<div class="grid-equal">${panel('Available now', '<p>Weeks 1–5 cover scoped Standard/LDAP sign-in, masters, source registration/versioning, Clauses / Para, obligations, ownership acceptance, applicability, independent review/approval, history, exceptions and Draft-only imports.</p>')}${panel('Operational work', '<p>My tasks contains your named assignments and decisions. Follow each action through outcome, proof and independent review. Open Team overview from Home for scoped counts and exact records. Source and obligation governance stays under Regulations. Checks and procedures contains obligation links; Work and evidence includes Compliance work tracker, Evidence and Delegation. Manual mapped results are implemented; automatic execution scheduling and broader assurance redevelopment remain deferred. Required retained bank-process results still gate task completion.</p>')}</div><div class="mt24">${link('baseline', 'Open release baseline', 'btn')}</div>`;
   else
     body = `<div class="grid-equal">${topics
       .filter((r) => r.join(' ').toLowerCase().includes(q))
@@ -169,11 +166,10 @@ export function renderHelp(_id, query = new URLSearchParams()) {
         ),
       )
       .join('')}</div>`;
-  return `<div class="runtime-help">${heading('Help & workflow guide', 'Role-specific steps, expected outcomes and approval rules.', '<button type="button" class="btn" data-action="print-guide">' + icon('file') + 'Print guide</button>')}<div class="guide-downloads"><a class="btn primary" href="${assetUrl('guides/week-1-3-navigation.html')}" target="_blank" rel="noopener">Read source / sign-in reference (Weeks 1–3)</a><a class="btn" href="${assetUrl('guides/week-1-3-navigation.html')}" download>Download source reference (HTML)</a></div>${tabs(
+  return `<div class="runtime-help">${heading('Help & workflow guide', 'Role-specific steps, expected outcomes and approval rules.', '<button type="button" class="btn" data-action="print-guide">' + icon('file') + 'Print guide</button>')}${tabs(
     [
       ['guide', 'Step-by-step help'],
       ['roles', 'Roles & responsibilities', ROLE_HELP.length],
-      ['release', 'Release scope'],
     ],
     tab,
     'help',

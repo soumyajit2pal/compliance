@@ -1,5 +1,6 @@
 import {selectDelegation} from '../core/delegation-context.ts';
 import { assetUrl } from '../core/assets.ts';
+import brandIconUrl from '../assets/compliance-by-design-audit-checklist.png';
 import { state } from '../core/state.ts';
 import { root } from '../core/dom.ts';
 import { api, signIn } from '../core/api.ts';
@@ -27,7 +28,7 @@ export function loginView() {
       <header class="auth-masthead">
         <img class="auth-bank-logo" src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}" alt="Bank of Maharashtra" />
         <div class="auth-brand">
-          <span class="auth-brand-icon">${icon('shield')}</span>
+          <img class="auth-brand-icon" src="${brandIconUrl}" width="38" height="38" alt="" />
           <span class="auth-brand-name">Compliance <span>by Design</span></span>
         </div>
       </header>

@@ -1,3 +1,4 @@
+import {workflowActionGroup, workflowButton} from '../ui/workflow-actions.ts';
 /** Navigation entry points reuse the existing source-link and obligation workflows. */
 import { api } from '../core/api.ts';
 import { state } from '../core/state.ts';
@@ -40,8 +41,12 @@ function clauseCell(source){return link('clauses?'+new URLSearchParams({instrume
 function relationActions(row,tasks){
   const task=tasks.find(t=>t.entity_id===row.id);const args=`data-id="${esc(row.id)}" data-kind="clause"`;
   let result='';
-  if(task){const choice=task.stage==='COMPLIANCE_REVIEW'?'REVIEW':'APPROVE';result+=button('family-decision',choice==='REVIEW'?'Record review':'Approve',args+` data-decision="${choice}"`,'small primary')+['RETURN','REJECT'].map(decision=>button('family-decision',title(decision),args+` data-decision="${decision}"`,'small')).join('');}
-  if(row.created_by===state.identity.user.id&&['IN_REVIEW','REVIEWED'].includes(row.approval_status)&&covered(row.regulatory_owner_unit_id,['AUTHOR']))result+=button('family-decision','Withdraw proposal',args+' data-decision="WITHDRAW"','small');
+  if(task){
+    const choice=task.stage==='COMPLIANCE_REVIEW'?'REVIEW':'APPROVE';
+    const decide=(label,decision)=>workflowButton('family-decision',label,decision,args+` data-decision="${decision}"`);
+    result+=workflowActionGroup(decide(choice==='REVIEW'?'Record review':'Approve',choice)+decide('Return for changes','RETURN')+decide('Reject','REJECT'),'Decision required',true);
+  }
+  if(row.created_by===state.identity.user.id&&['IN_REVIEW','REVIEWED'].includes(row.approval_status)&&covered(row.regulatory_owner_unit_id,['AUTHOR']))result+=workflowButton('family-decision','Withdraw proposal','WITHDRAW',args+' data-decision="WITHDRAW"');
   return result||'No decision required from you';
 }
 export async function regulationRegistersPage(kind,query=new URLSearchParams()){

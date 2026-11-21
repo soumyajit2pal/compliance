@@ -12,7 +12,7 @@ export function workProfilePage(user, department, units, roles = []) {
     <header class="profile-setup-heading">
       <p class="profile-setup-eyebrow">Account setup</p>
       <h1 id="work-profile-title">Confirm your work profile</h1>
-      <p>Add your work email and Home organisation to continue setting up your access.</p>
+      <p>Confirm your work email and Home organisation to continue setting up your access.</p>
     </header>
     <ol class="profile-setup-steps" aria-label="Account setup progress">
       <li aria-current="step"><span class="profile-step-number">1</span><span><strong>Your profile</strong><small>Complete your details</small></span></li>
@@ -29,7 +29,7 @@ export function workProfilePage(user, department, units, roles = []) {
         <form id="onboard" class="profile-confirmation-form">
           <header><h2 id="profile-form-title">Complete your profile</h2><p>Both fields are required.</p></header>
           ${field('Work email', input('email', user.email || '', 'email', 'required autocomplete="email" maxlength="254" placeholder="Enter your work email"'),
-            'Use your bank work email address.')}
+            'Check or enter your bank work email address.')}
           ${field('Home organisation', select('org_unit_id', units, user.org_unit_id, 'name', 'required', 'Choose your department…'),
             'Choose your department in the portal. Roles and organisation scope are assigned separately.')}
           <div class="profile-next-step">${icon(readyAfterConfirmation ? 'checkSquare' : 'clock')}<div><strong>${readyAfterConfirmation ? 'Ready after confirmation' : 'What happens next'}</strong><p>${readyAfterConfirmation

@@ -292,16 +292,59 @@ def linked_obligations(db,actor,instrument,visible_ids,when):
             'actions':actions,'control_mappings':mappings,'applicability':applicability})
     return result
 
-def view(db,actor,identifier=None,when=None,search=''):
-    when=when or date.today()
+def visible_family_chains(db,actor,when):
     visible={row['id']:row for row in repo.listing(db,actor,{})}
+    parents=parent_map(link_rows(db),when)
+    chains={}
+    for item in visible:
+        lineage=[item]
+        while item in parents and parents[item]['parent_id'] in visible and parents[item]['parent_id'] not in lineage:
+            item=parents[item]['parent_id']
+            lineage.append(item)
+        chains[lineage[0]]=lineage
+    return visible,parents,chains
+
+
+def library(db,actor,when,search,domain_id,paging):
+    from . import delivery,implementation_progress,obligations
+    from .pagination import paginate
+    when=when or date.today()
+    visible,parents,chains=visible_family_chains(db,actor,when)
+    groups={}
+    for key,lineage in chains.items():
+        groups.setdefault(lineage[-1],[]).append(key)
+    domain_ids=sorted({domain for row in visible.values() for domain in row['domain_ids']})
+    needle=search.strip().casefold()
+    results=[]
+    for root,ids in sorted(groups.items(),key=lambda entry:(visible[entry[0]]['title'].casefold(),entry[0])):
+        members=[visible[key] for key in ids]
+        if not any((not domain_id or domain_id in member['domain_ids']) and needle in (
+            ' '.join(str(member.get(field) or '') for field in ['code','title','short_title','official_reference_number'])
+            +' '+' '.join(member['legacy_codes'])).casefold() for member in members):
+            continue
+        latest=max((row for row in members if row['id']!=root),key=lambda row:(row['issue_date'],row['code']),default=None)
+        results.append({
+            'root':{**visible[root],'restricted_parent':root in parents and parents[root]['parent_id'] not in visible},
+            'notification_count':len(ids),
+            'latest_issued':{'code':latest['code'],'issue_date':latest['issue_date']} if latest else None,
+            '_members':ids,
+        })
+    paged=paginate(results,**paging)
+    families=paged['items'] if isinstance(paged,dict) else paged
+    links=obligations.instrument_links_by_source(db,actor,[key for family in families for key in family['_members']])
+    day=delivery.today()
+    for family in families:
+        linked=(row for key in family.pop('_members') for row in links.get(key,[]))
+        family['obligation_count']=len(implementation_progress.obligation_population(linked,day))
+    return {'as_of':when,'families':families,'domain_ids':domain_ids,'authorised_instruments':len(visible),
+            **({'pagination':paged['pagination']} if isinstance(paged,dict) else {})}
+
+
+def view(db,actor,identifier=None,when=None,search='',include_implementation_progress=False):
+    when=when or date.today()
+    visible,parents,chains=visible_family_chains(db,actor,when)
     if identifier and identifier not in visible:raise HTTPException(404,'Notification family is outside your authorised scope.')
-    links=link_rows(db);parents=parent_map(links,when)
-    def visible_chain(item):
-        result=[item];seen={item}
-        while item in parents and parents[item]['parent_id'] in visible and parents[item]['parent_id'] not in seen:
-            item=parents[item]['parent_id'];seen.add(item);result.append(item)
-        return result
+    visible_chain=chains.__getitem__
     roots={key:visible_chain(key)[-1] for key in visible}
     all_versions=[dict(r) for r in db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.instrument_id.in_(list(visible)))).mappings()] if visible else []
     version_by_id={r['id']:r for r in all_versions}
@@ -388,7 +431,20 @@ def view(db,actor,identifier=None,when=None,search=''):
                 proposals.append({**row,**labels,'kind':kind,'instrument_id':target['id'],'instrument_code':target['code']})
     proposal_ids={r['id'] for r in proposals}
     tasks=proposal_tasks(db,actor,proposal_ids)
-    return {'as_of':when,'root_id':root,'selected_id':identifier,'members':members,
+    result={'as_of':when,'root_id':root,'selected_id':identifier,'members':members,
         'proposals':proposals,'decision_tasks':tasks,'deadlines':[r for r in deadline_rows if r['instrument_id'] in keys],
         'obligations':{key:linked_obligations(db,actor,visible[key],visible,when) for key in keys},
         'assurance':'NOT_ASSESSED'}
+    if include_implementation_progress:
+        from . import delivery,implementation_progress,obligations
+        from .regulation_registers import selected
+        day=delivery.today()
+        links=obligations.instrument_links_by_source(db,actor,keys)
+        population=implementation_progress.obligation_population((row for group in links.values() for row in group),day)
+        versions=[version for member in members for version in member['versions']]
+        clauses=list(selected(db,m.regulatory_clause,m.regulatory_clause.c.instrument_version_id,[row['id'] for row in versions]))
+        result.update(implementation_progress.build_for_sources(db,actor,members,versions,clauses,population,day,family=True))
+        result['member_obligation_counts']={
+            key:len(implementation_progress.obligation_population(links.get(key,[]),day)) for key in keys
+        }
+    return result

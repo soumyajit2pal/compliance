@@ -33,6 +33,7 @@
 @import './styles/action-tracker.css';
 
 @import './styles/controls.css';
+@import './styles/workflow-actions.css';
 
 .leave-acting-banner{position:relative;display:flex;gap:14px;align-items:center;border:1px solid #bfa9d2;background:#f2e9fa;color:#412e51;padding:16px;flex-wrap:wrap}.leave-acting-banner>span{flex:1;min-width:180px}.leave-acting-banner .btn{flex-shrink:0}
 

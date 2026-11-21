@@ -955,9 +955,6 @@ pre {
   background: var(--selection) !important;
   color: var(--primary-dark) !important;
 }
-.runtime-baseline .panel {
-  margin-bottom: 24px;
-}
 .runtime-help .panel {
   margin-bottom: 0;
 }

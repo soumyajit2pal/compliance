@@ -11,6 +11,7 @@ import { renderObligationApplicability } from './obligation-applicability.ts';
 import { partitionOwnerAssignments } from '../core/obligation-ownership.ts';
 import { renderLinkedRegulatoryClauses } from './obligation-sources.ts';
 import { obligationExportButton } from '../ui/obligation-export.ts';
+import { workflowActionGroup, workflowButton, workflowLink } from '../ui/workflow-actions.ts';
 
 const sectionNames={owners:'owners',applicability:'where it applies',sources:'sources & processes',history:'history & decisions',evidence:'evidence requirement',requirement:'requirement'};
 const compactEmpty=(text)=>`<p class="obligation-empty-state">${esc(text)}</p>`;
@@ -44,14 +45,15 @@ function nextStep(d,p,today){
 function workflowActions(d,p){
   const o=d.obligation;
   let result=p.canEdit?editLink(d,'source','Edit Draft')+button('obl-submit','Submit for review','','primary'):'';
-  if(p.ownerChangeTasks?.length)result+=viewLink(d,'owners','View ownership request');
+  if(p.ownerChangeTasks?.length)result+=workflowLink('obligations/'+o.id+'?tab=owners','View ownership request');
   if(p.canActivate)result+=button('obl-activate','Activate approved obligation',activationChecklistItems(d,p,localDate()).length?'disabled aria-describedby="obligation-readiness-title"':'','primary');
   for(const task of p.mine){
     const choices=task.stage==='COMPLIANCE_REVIEW'?['REVIEW','RETURN','REJECT','DELEGATE']:task.stage==='BUSINESS_VALIDATION'?['ACCEPT','OBJECT']:['APPROVE','RETURN','REJECT','DELEGATE'];
-    const action=choice=>button('obl-decision',choice==='ACCEPT'?(p.mine.length>1?'Review and accept · '+(ownerRoles[task.owner_role]||'owner'):'Review and accept'):({REVIEW:'Complete Compliance review',OBJECT:'Request changes',APPROVE:'Approve obligation',RETURN:'Return to author',REJECT:'Reject proposal',DELEGATE:'Delegate review'})[choice],`data-decision="${choice}" data-task="${esc(task.id)}"`,['REVIEW','ACCEPT','APPROVE'].includes(choice)?'primary':'');
-    result+=choices.filter(choice=>['REVIEW','ACCEPT','OBJECT','APPROVE'].includes(choice)).map(action).join('');
-    const other=choices.filter(choice=>!['REVIEW','ACCEPT','OBJECT','APPROVE'].includes(choice));
-    if(other.length)result+=`<details class="obligation-other-decisions"><summary>Other decisions</summary><div>${other.map(action).join('')}</div></details>`;
+    const suffix=p.mine.length>1?' · '+(ownerRoles[task.owner_role]||'Owner'):'';
+    const decide=choice=>workflowButton('obl-decision',
+      ({ACCEPT:'Review and accept',REVIEW:'Complete Compliance review',OBJECT:'Request changes',APPROVE:'Approve obligation',RETURN:'Return to author',REJECT:'Reject proposal',DELEGATE:'Delegate review'})[choice]+suffix,
+      choice,`data-decision="${choice}" data-task="${esc(task.id)}"`);
+    result+=workflowActionGroup(choices.map(decide).join(''));
   }
   return result;
 }
@@ -71,7 +73,8 @@ function readiness(d,p){
   const rows=items.map(item=>{
     const task=item.task,mine=task&&p.mine.some(t=>t.id===task.id);
     const decision=task?.stage==='COMPLIANCE_REVIEW'?'REVIEW':task?.stage==='FINAL_APPROVAL'?'APPROVE':'ACCEPT';
-    let action=mine?button('obl-decision',({ACCEPT:'Review and accept',REVIEW:'Complete Compliance review',APPROVE:'Approve obligation'})[decision],`data-decision="${decision}" data-task="${esc(task.id)}"`,'small'):'';
+    let action=mine?workflowButton('obl-decision',({ACCEPT:'Review and accept',REVIEW:'Complete Compliance review',APPROVE:'Approve obligation'})[decision],
+      decision,`data-decision="${decision}" data-task="${esc(task.id)}"`):'';
     if(!action&&p.canAssignOwners&&item.kind==='attention'&&item.section==='owners')action=button('obl-assign-owner','Assign / reassign owner','','small');
     if(!action&&p.canEdit&&item.key==='MISSING_PROCESS_MAPPING')action=editLink(d,'applicability','Add process');
     if(!action&&p.canEdit&&item.kind==='attention')action=item.section==='owners'?button('obl-assign-owner','Assign / reassign owner','','small'):editLink(d,item.section==='sources'?'source':item.section==='history'?'requirement':item.section,item.section==='applicability'?'Add or edit assessment':item.section==='sources'?'Check sources & processes':'Edit '+sectionNames[item.section]);
@@ -121,9 +124,10 @@ function ownershipRequest(change,d,p,history=false){
       const choices=task.stage==='COMPLIANCE_REVIEW'?['REVIEW','RETURN','REJECT']:task.stage==='BUSINESS_VALIDATION'?['ACCEPT','OBJECT']:['APPROVE','RETURN','REJECT'];
       const assignment=change.assignments.find(item=>item.task_id===task.id);
       const suffix=mine.length>1&&assignment?' · '+ownerRoles[assignment.owner_role]+' · '+ref('organisational_unit',assignment.org_unit_id):'';
-      actions+=choices.map(decision=>button('obl-ownership-decision',({REVIEW:'Complete Compliance review',ACCEPT:'Accept ownership change',OBJECT:'Request changes',APPROVE:'Approve ownership change',RETURN:'Return for changes',REJECT:'Reject request'})[decision]+suffix,`data-change="${esc(change.id)}" data-task="${esc(task.id)}" data-decision="${decision}"`,['REVIEW','ACCEPT','APPROVE'].includes(decision)?'primary':'')).join('');
+      actions+=workflowActionGroup(choices.map(decision=>workflowButton('obl-ownership-decision',({REVIEW:'Complete Compliance review',ACCEPT:'Accept ownership change',OBJECT:'Request changes',APPROVE:'Approve ownership change',RETURN:'Return for changes',REJECT:'Reject request'})[decision]+suffix,
+        decision,`data-change="${esc(change.id)}" data-task="${esc(task.id)}" data-decision="${decision}"`)).join(''));
     }
-    if(change.created_by===p.userId&&p.canManageOwnershipRequests)actions+=button('obl-ownership-decision','Withdraw ownership request',`data-change="${esc(change.id)}" data-decision="WITHDRAW"`);
+    if(change.created_by===p.userId&&p.canManageOwnershipRequests)actions+=workflowButton('obl-ownership-decision','Withdraw ownership request','WITHDRAW',`data-change="${esc(change.id)}" data-decision="WITHDRAW"`);
   }
   const context=fields([
     ['Status',statusTag(label,change.approval_status==='APPROVED'?'green':change.workflow_status==='OPEN'?'amber':'neutral')],
@@ -179,7 +183,7 @@ function history(d){
 }
 export function renderObligationDetail(d,p,query,returnPath='obligations'){
   const o=d.obligation,today=localDate(),status=statusLabel(o,p.stage,today),guidance=nextStep(d,p,today),tab=detailTab(query.get('tab'));
-  const recordActions=obligationExportButton(o.id)+(state.identity?.menu.some(i=>i.id==='control-mappings')?link('control-mappings?obligation='+o.id,'Checks and coverage','btn'):'')+(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?button('obl-decision','Withdraw to Draft','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
+  const recordActions=obligationExportButton(o.id)+(state.identity?.menu.some(i=>i.id==='control-mappings')?link('control-mappings?obligation='+o.id,'Checks and coverage','btn'):'')+(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?workflowButton('obl-decision','Withdraw to draft','WITHDRAW','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
   const contents=tab==='overview'?renderObligationOverview(d)+customDetails(d.obligation.custom_answers):tab==='owners'?owners(d,p):tab==='applicability'?applicability(d,p):tab==='sources'?sources(d,p):history(d);
   const checks=readiness(d,p),foldChecks=o.approval_status!=='APPROVED'&&checks;
   const checklist=foldChecks?`<details class="obligation-setup-checks"><summary>Setup and activation checks · ${activationChecklistItems(d,p,today).length} outstanding</summary>${checks}</details>`:checks;

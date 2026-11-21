@@ -3,6 +3,7 @@ import { isPendingEdition, sourceEditionStatus } from '../../core/source-edition
 import { state } from '../../core/state.ts';
 import { button, date, esc, link, localDate, ref, versionLabel } from '../../ui/components.ts';
 import { domainReadiness } from '../../ui/domains.ts';
+import { workflowActionGroup, workflowButton } from '../../ui/workflow-actions.ts';
 
 function draftSubmission(record, version, editable, clausesPath) {
   if (!editable) {
@@ -71,11 +72,9 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
       ? `<p>After review, ${esc(ref('user', approver.assignee_user_id))} receives final approval in My decisions.</p>`
       : '';
     const secondary = (canDecide
-      ? button('decision', 'Return for correction', 'data-decision="RETURN"') +
-        button('decision', 'Reject', 'data-decision="REJECT"', 'danger') +
-        button('decision', 'Delegate task', 'data-decision="DELEGATE"')
+      ? workflowButton('decision', 'Delegate task', 'DELEGATE', 'data-decision="DELEGATE"')
       : '') + (version.created_by === actor && covered(unit, ['AUTHOR'])
-        ? button('decision', 'Withdraw to Draft', 'data-decision="WITHDRAW"')
+        ? workflowButton('decision', 'Withdraw to Draft', 'WITHDRAW', 'data-decision="WITHDRAW"')
         : '');
     return {
       tone: canDecide ? 'action' : 'waiting',
@@ -87,8 +86,10 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
           'The named recipient opens this edition from My decisions to record the decision.'),
       details: assignment + handoff,
       action: canDecide
-        ? button('decision', isReview ? 'Record Compliance review' : 'Approve source edition',
-          isReview ? 'data-decision="REVIEW"' : 'data-decision="APPROVE"', 'primary') +
+        ? workflowActionGroup(workflowButton('decision', isReview ? 'Record Compliance review' : 'Approve source edition',
+          isReview ? 'REVIEW' : 'APPROVE', isReview ? 'data-decision="REVIEW"' : 'data-decision="APPROVE"') +
+          workflowButton('decision', 'Return for correction', 'RETURN', 'data-decision="RETURN"') +
+          workflowButton('decision', 'Reject', 'REJECT', 'data-decision="REJECT"')) +
           link(clausesPath, 'View source clauses', 'btn')
         : '',
       secondary,

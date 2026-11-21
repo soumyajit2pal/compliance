@@ -1,6 +1,6 @@
 """Approved organisation hierarchy and ten STANDARD seed accounts.
 
-Frozen installation snapshot. MERGE preserves existing credentials, profiles,
+Fresh-install seed. MERGE preserves existing credentials, profiles,
 activation state and role scope. Reserved identities are checked before DML.
 """
 from datetime import date
@@ -15,14 +15,8 @@ from sqlalchemy.dialects import oracle
 NAMESPACE = UUID("54db3707-2125-5f98-af13-cafbe8bfc9a4")
 START = date(2026, 10, 17)
 
-ORGANISATION_HIERARCHY = [('BANK', 'Bank of Maharashtra', 'BANK', None, 0),
- ('COMPLIANCE', 'Compliance Department', 'DEPARTMENT', 'BANK', 1),
- ('RETAIL', 'Retail Banking', 'DEPARTMENT', 'BANK', 1),
- ('OPERATIONS', 'Banking Operations', 'DEPARTMENT', 'BANK', 1),
- ('CREDIT', 'Credit and Risk', 'DEPARTMENT', 'BANK', 1),
- ('IT', 'Information Technology', 'DEPARTMENT', 'BANK', 1),
- ('PUNE-ZONE', 'Pune Zone', 'ZONE', 'OPERATIONS', 2),
- ('PUNE-BRANCH', 'Pune Main Branch', 'BRANCH', 'PUNE-ZONE', 3)]
+ORGANISATION_HIERARCHY = [('BANK', 'Bank Of Maharashtra', 'BANK', None, 0),
+ ('COMPLIANCE', 'Compliance Department', 'DEPARTMENT', 'BANK', 1)]
 
 APPLICATION_ROLES = [('ADMIN', 'Admin'),
  ('AUTHOR', 'Author'),
@@ -38,12 +32,12 @@ SEED_USERS = [('admin', 'System Administrator', 'ADMIN', 'COMPLIANCE', True),
  ('author', 'Regulatory Author', 'AUTHOR', 'COMPLIANCE', True),
  ('reviewer', 'Compliance Reviewer', 'REVIEWER', 'COMPLIANCE', True),
  ('approver', 'Final Approver', 'APPROVER', 'COMPLIANCE', True),
- ('retail.owner', 'Retail Business Owner', 'BUSINESS_OWNER', 'RETAIL', False),
- ('operations.owner', 'Operations Business Owner', 'BUSINESS_OWNER', 'OPERATIONS', False),
- ('control.owner', 'Control Owner', 'CONTROL_OWNER', 'RETAIL', False),
- ('evidence.owner', 'Evidence Owner', 'EVIDENCE_OWNER', 'RETAIL', False),
+ ('retail.owner', 'Retail Business Owner', 'BUSINESS_OWNER', 'COMPLIANCE', False),
+ ('operations.owner', 'Operations Business Owner', 'BUSINESS_OWNER', 'COMPLIANCE', False),
+ ('control.owner', 'Control Owner', 'CONTROL_OWNER', 'COMPLIANCE', False),
+ ('evidence.owner', 'Evidence Owner', 'EVIDENCE_OWNER', 'COMPLIANCE', False),
  ('cco', 'Chief Compliance Office', 'CCO', 'COMPLIANCE', True),
- ('zone.viewer', 'Zone Viewer', 'ZONE_VIEWER', 'PUNE-ZONE', False)]
+ ('zone.viewer', 'Zone Viewer', 'ZONE_VIEWER', 'COMPLIANCE', False)]
 
 USER_IDS = {'admin': '0ebb3ca1-baee-5c0e-ae56-2cfc78e67158',
  'approver': 'ffc67859-bdb7-5644-a21f-986d5e5412e6',

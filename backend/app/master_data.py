@@ -205,6 +205,18 @@ def _tree_values(rows, identifier, values, parent_field, level_field):
     return nodes, levels
 
 
+def master_rows(db, table, *, lock=False):
+    # Acquire graph locks in the same order in both individual and bulk edits.
+    query = sa.select(table).order_by(table.c.id)
+    return [dict(row) for row in db.execute(query.with_for_update() if lock else query).mappings()]
+
+
+def refresh_dropdown_options(db, key):
+    if key in BUSINESS_MASTERS:
+        db.execute(m.dropdown_config.update().where(m.dropdown_config.c.id=='portal')
+                   .values(revision=m.dropdown_config.c.revision+1))
+
+
 def save(db, actor, key, payload, identifier=None):
     actor.require({'ADMIN'})
     if key not in DEFINITIONS:
@@ -212,7 +224,7 @@ def save(db, actor, key, payload, identifier=None):
     _label, model, parent_field, level_field = DEFINITIONS[key]
     table = getattr(m, key)
     # Lock the existing graph in a consistent order before any parent mutation.
-    rows = [dict(r) for r in db.execute(sa.select(table).order_by(table.c.id).with_for_update()).mappings()]
+    rows = master_rows(db, table, lock=True)
     old = next((r for r in rows if r['id'] == identifier), None) if identifier else None
     if identifier and not old:
         raise HTTPException(404, 'Record not found.')
@@ -291,10 +303,7 @@ def save(db, actor, key, payload, identifier=None):
     if old and key in {'process','product'} and any(old.get(k)!=v for k,v in values.items()):
         from .obligations import notify_reassessment
         notify_reassessment(db,actor,key,identifier)
-    if key in BUSINESS_MASTERS:
-        # Existing sessions refresh their shared option cache on the next navigation.
-        db.execute(m.dropdown_config.update().where(m.dropdown_config.c.id=='portal')
-                   .values(revision=m.dropdown_config.c.revision+1))
+    refresh_dropdown_options(db, key)
     from .dropdowns import save_answers
     save_answers(db,actor,'master.'+key,identifier,payload.custom_fields,payload.reason)
     return {'id': identifier, 'records': [dict(row) for row in db.execute(

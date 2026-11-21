@@ -14,6 +14,7 @@ import { esc,title,ref,badge,button,field,input,select,fixedSelect,area,link,loc
 import { heading } from '../ui/layout.ts';
 import { panel,table,tablePanel,detailFields,note,recordCell } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
+import { workflowSubmit } from '../ui/workflow-actions.ts';
 import { dashboardInfo } from '../ui/dashboard-info.ts';
 import { showWizardStep, validateWizardStep } from '../ui/wizard.ts';
 import { modal,close } from '../ui/dialog.ts';
@@ -475,19 +476,19 @@ export function obligationHandlers(context){
     },
     'obl-remove-row':(_data,trigger)=>{const form=trigger.closest('form'),kind=trigger.closest('[data-obl-row]')?.dataset.oblRow;(trigger.closest('.obligation-owner-edit,.obligation-department-edit')||trigger.closest('[data-obl-row]'))?.remove();if(form){if(kind==='owners')invalidateSetupReview(form);validateBusinessAccountability(form);updatePopupOwnerSummaries(form);updateOwnershipApprovers(form);refreshDepartmentFields(form);refreshScopeProcessLimits(form);}},
     'obl-setup-retry-approvers':(_data,trigger)=>refreshSetupApprovers(trigger.closest('form')),
-    'obl-ownership-decision':({change,task,decision})=>{
+    'obl-ownership-decision':({change,task,decision},trigger)=>{
       const proposal=current().owner_changes?.find(row=>row.id===change);if(!proposal)throw new Error('Refresh the ownership request before deciding.');
       const assignment=proposal.assignments.find(row=>row.task_id===task);
       const label=({REVIEW:'Complete ownership Compliance review',ACCEPT:'Accept ownership change',OBJECT:'Request ownership changes',APPROVE:'Approve ownership change',RETURN:'Return ownership request',REJECT:'Reject ownership request',WITHDRAW:'Withdraw ownership request'})[decision];
       modal(label,recordContext()+input('change_id',change,'hidden')+input('task_id',task||'','hidden')+input('decision',decision,'hidden')+
         note(decision==='ACCEPT'?'You accept the '+esc(assignment?ownerRoles[assignment.owner_role]+' assignment for '+ref('organisational_unit',assignment.org_unit_id):'proposed ownership responsibility')+' and acknowledge the obligation’s current approved applicability. This does not give final approval.':'This decision applies to the ownership request. The obligation revision and wording remain unchanged.')+
-        field('Decision basis',area('comments','','required minlength="5" maxlength="10000"')),'obl-ownership-decision-form',label);
+        field('Decision basis',area('comments','','required minlength="5" maxlength="10000"')),'obl-ownership-decision-form',workflowSubmit(label,decision),'',trigger);
     },
     'obl-submit':()=>openObligationSubmission(),
     'obl-wizard-next':(_data,trigger)=>{const form=trigger.closest('form');moveObligationStep(form,Number(form.dataset.wizard)+1);},
     'obl-wizard-back':(_data,trigger)=>{const form=trigger.closest('form');moveObligationStep(form,Math.max(0,Number(form.dataset.wizard)-1));},
     'obl-wizard-go':({stepTarget})=>{const form=document.querySelector<HTMLFormElement>('#obligation-editor');if(form)moveObligationStep(form,Number(stepTarget));},
-    'obl-decision':async({decision,task})=>{
+    'obl-decision':async({decision,task},trigger)=>{
       const contextId=current().obligation.id;
       let delegate='';
       if(decision==='DELEGATE'){
@@ -496,10 +497,11 @@ export function obligationHandlers(context){
         delegate=field('Eligible delegate',select('delegate_user_id',(await people(role,o.regulatory_owner_unit_id)).filter(r=>!excluded.has(r.id)),'','full_name','required'));
       }
       current(contextId);
+      if (!trigger.isConnected) return;
       const assignment=current().tasks.find(r=>r.id===task),owner=current().owners.find(r=>r.id===assignment?.owner_id);
       const confirmation=decision==='ACCEPT'?note('You are accepting this '+esc(ownerRoles[assignment?.owner_role]||'owner')+' assignment'+(owner?' for '+esc(ref('organisational_unit',owner.org_unit_id)):'')+' and confirming the proposed applicability assessments for this obligation. This does not grant final approval.')+button('obl-review-applicability','Review where it applies','','small'):'';
       const label=({ACCEPT:'Accept ownership and applicability',OBJECT:'Request changes',REVIEW:'Complete Compliance review',APPROVE:'Approve obligation',WITHDRAW:'Withdraw to Draft',RETURN:'Return to author',REJECT:'Reject proposal',DELEGATE:'Delegate review'})[decision]||title(decision);
-      modal(label,recordContext()+confirmation+input('decision',decision,'hidden')+input('task_id',task||'','hidden')+delegate+field('Decision basis',area('comments','','required minlength="5" maxlength="10000"')),'obl-decision-form',label);
+      modal(label,recordContext()+confirmation+input('decision',decision,'hidden')+input('task_id',task||'','hidden')+delegate+field('Decision basis',area('comments','','required minlength="5" maxlength="10000"')),'obl-decision-form',workflowSubmit(label,decision),'',trigger);
     },
     'obl-revise':({section})=>modal('Create governed revision',recordContext()+input('edit_section',Object.hasOwn(sectionSteps,section)?section:'','hidden')+field('Reason for revision / ownership change',area('reason','','required minlength="10" maxlength="2000"')),'obl-revision-form','Create Draft revision'),
     'obl-cancel':()=>modal('Cancel unapproved Draft',recordContext()+field('Cancellation reason',area('reason','','required minlength="10" maxlength="2000"')),'obl-cancel-form','Cancel Draft'),

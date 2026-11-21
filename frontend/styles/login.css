@@ -18,8 +18,7 @@
 .auth-masthead { width: min(1320px, 100%); margin: 0 auto; padding: 22px 48px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid #cdbedb99; background: linear-gradient(90deg, #ffffff30, #ffffff96, #ffffff30); }
 .auth-bank-logo { display: block; width: 228px; max-width: 48%; height: auto; }
 .auth-brand { display: flex; align-items: center; gap: 10px; }
-.auth-brand-icon { display: grid; place-items: center; width: 38px; height: 42px; color: var(--primary); }
-.auth-brand-icon .icon { width: 32px; height: 32px; stroke-width: 1.3; }
+.auth-brand-icon { display: block; flex-shrink: 0; border-radius: 9px; }
 .auth-brand-name { color: var(--ink); font-family: var(--heading); font-size: 15px; font-weight: 750; line-height: 1.35; }
 .auth-brand-name > span { display: block; color: var(--primary); font-size: 14px; font-weight: 500; }
 .auth-shell { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); width: min(1320px, 100%); margin: 0 auto; align-self: center; }
@@ -150,8 +149,8 @@
 @media (max-width: 480px) {
   .auth-masthead { padding: 20px 24px; gap: 16px; }
   .auth-bank-logo { width: 175px; max-width: 53%; }
-  .auth-brand { gap: 0; }
-  .auth-brand-icon { display: none; }
+  .auth-brand { gap: 8px; }
+  .auth-brand-icon { width: 28px; height: 28px; border-radius: 7px; }
   .auth-brand-name { font-size: 12px; }
   .auth-brand-name > span { font-size: 12px; }
   .auth-card { padding: 38px 28px 32px; }

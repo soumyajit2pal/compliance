@@ -7,7 +7,7 @@ from . import models as m
 from .access import actor_for
 from .security import hash_password, verify_password
 from .events import now,new_id,audit
-from .directory import authenticate_directory
+from .directory import authenticate_directory, directory_email
 from .user_access import notify_administrators
 from . import employee_identity, employee_profiles
 
@@ -87,16 +87,19 @@ def login(db,request,response,payload,settings):
     # Enrichment follows credential verification, before acquiring the user lock.
     # It neither replaces authentication nor changes approved LDAP/access fields.
     employee_lookup=employee_profiles.prepare_login(db,settings,username,profile)
+    suggested_email = directory_email((profile or {}).get('email'))
     if not user:
         identifier=new_id()
         db.execute(m.user.insert().values(id=identifier,username=username,full_name=username[:250],
-            email=None,login_type='LDAP',password_hash=None,active_flag=1,must_change_password_flag=0,
+            email=suggested_email,login_type='LDAP',password_hash=None,active_flag=1,must_change_password_flag=0,
             needs_email_confirmation_flag=1,needs_department_selection_flag=1))
         user=db.execute(sa.select(m.user).where(m.user.c.id==identifier)).mappings().one()
         audit(db,None,'user',identifier,'LDAP_ACCOUNT_REQUESTED',new={'username':username,'roles':[]})
         notify_administrators(db,identifier,'LDAP_PROFILE_CONFIRMATION_PENDING')
     user=employee_identity.locked_user(db,user['id'])
     if not user['active_flag']:raise HTTPException(401,'The username or password could not be verified.')
+    if suggested_email and user['login_type']=='LDAP' and user['needs_email_confirmation_flag'] and not user['email']:
+        db.execute(m.user.update().where(m.user.c.id==user['id']).values(email=suggested_email))
     employee_profiles.complete_login(db,settings,user,employee_lookup,profile)
     user=employee_identity.decorate(db,employee_identity.locked_user(db,user['id']))
     result=establish(db,user,settings,response,request)

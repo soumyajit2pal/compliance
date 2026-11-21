@@ -731,7 +731,7 @@ def clause_listing(db,actor):
     return [{**dict(row),'legacy_codes':legacy.get(row['id'],[])} for row in rows]
 
 
-def detail(db,actor,identifier):
+def detail(db,actor,identifier,include_implementation_progress=False):
     from .obligations import instrument_links
     row=read_instrument(db,actor,identifier)
     versions=[dict(v) for v in db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.instrument_id==identifier).order_by(m.instrument_version.c.effective_from.desc())).mappings()]
@@ -778,7 +778,12 @@ def detail(db,actor,identifier):
     carried=[dict(r) for r in db.execute(sa.select(m.clause_carry_forward).where(m.clause_carry_forward.c.target_version_id.in_(version_ids))).mappings()] if version_ids else []
     from .dropdowns import read_answers
     row={**row,'custom_answers':read_answers(db,'instrument',identifier)}
-    return {'instrument':row,'versions':versions,'secondary_domains':secondary_domains,'source_documents':source_documents,'clause_carry_forward':carried,
+    links=instrument_links(db,actor,identifier,clause_ids)
+    result={'instrument':row,'versions':versions,'secondary_domains':secondary_domains,'source_documents':source_documents,'clause_carry_forward':carried,
         'clauses':clauses,'clause_relationships':clause_relationships,'tasks':tasks,
-        'linked_obligations':instrument_links(db,actor,identifier,clause_ids),
+        'linked_obligations':links,
         'metadata_corrections':metadata_corrections,'audit':audit_rows,'history':statuses,'comments':comments}
+    if include_implementation_progress:
+        from .implementation_progress import build
+        result.update(build(db,actor,row,versions,clauses,links))
+    return result

@@ -42,6 +42,35 @@ export function App() {
     if (page === 'team' && query.has('metric')) {
       document.getElementById('dashboard-records')?.focus();
     }
+    if (page === 'notification-families' && id) {
+      const obligations = document.getElementById('family-obligations');
+      if (obligations && query.get('show') === 'obligations') {
+        query.delete('show');
+        history.replaceState(history.state, '', '#' + path + (query.size ? '?' + query : ''));
+        obligations.click();
+        return;
+      }
+      if (query.has('proposal')) {
+        const proposal = Array.from(document.querySelectorAll<HTMLElement>('[data-family-proposal]'))
+          .find(element => element.dataset.familyProposal === query.get('proposal'));
+        if (proposal) {
+          proposal.focus({ preventScroll: true });
+          proposal.scrollIntoView({ block: 'start' });
+          return;
+        }
+      }
+      if (query.has('notification')) {
+        const selected = document.getElementById('family-selected-notification');
+        selected?.focus({ preventScroll: true });
+        selected?.scrollIntoView({ block: 'start' });
+      }
+    }
+    if (page === 'actions' && query.has('extension')) {
+      const request = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-action="delivery-extension-review"]'))
+        .find(element => element.dataset.id === query.get('extension'));
+      request?.focus({ preventScroll: true });
+      request?.scrollIntoView({ block: 'center' });
+    }
     if (['obligations','accountability','applicability'].includes(page) && !id) restoreObligationLocation();
     if (page === 'obligations' && id && !['new','imports'].includes(id)) retainObligationLocation(id);
     if (page === 'repository' && !id) { restoreLibraryLocation(); return; }
@@ -62,6 +91,14 @@ export function App() {
     if (!query.has('tab')) return;
 
     requestAnimationFrame(() => {
+      const correction = query.get('tab') === 'workflow' && query.has('correction')
+        ? document.getElementById('metadata-correction-panel')
+        : null;
+      if (correction) {
+        correction.focus({ preventScroll: true });
+        correction.scrollIntoView({ block: 'start' });
+        return;
+      }
       const nextStep = query.get('tab') === 'workflow' && !query.has('correction')
         ? document.getElementById('edition-next-step-heading')
         : null;

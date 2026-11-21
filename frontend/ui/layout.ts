@@ -1,4 +1,5 @@
 import { assetUrl } from '../core/assets.ts';
+import brandIconUrl from '../assets/compliance-by-design-audit-checklist.png';
 import { state } from '../core/state.ts';
 import { root } from '../core/dom.ts';
 import { esc, title, ref } from './components.ts';
@@ -25,7 +26,6 @@ const names = {
   users: 'Users & access',
   ldap: 'LDAP settings',
   applications: 'Connected applications',
-  baseline: 'Release baseline',
   notifications: 'Notifications',
   help: 'Help & workflow guide',
 };
@@ -46,7 +46,6 @@ const icons = {
   masters: 'settings',
   users: 'users',
   ldap: 'lock',
-  baseline: 'file',
   applications: 'external',
   help: 'book',
 };
@@ -70,8 +69,7 @@ function scopeBanner() {
   return `<div class="scope-banner">${icon('lock')}<span>${scoped.map((g) => esc(title(g.role_code)) + ': ' + esc(ref('organisational_unit', g.scope_org_unit_id)) + ' and authorised descendants').join(' · ')}${state.identity.roles.includes('ZONE_VIEWER') ? ' · Read-only access' : ''}</span></div>`;
 }
 export function shell(contents, key) {
-  const user = state.identity.user,
-    environment = state.identity.environment === 'prod' ? 'Production' : 'UAT';
+  const user = state.identity.user;
   const label =
     key === 'repository' && location.hash.includes('/new')
       ? 'New instrument'
@@ -82,19 +80,26 @@ export function shell(contents, key) {
     .slice(0, 2)
     .join('')
     .toUpperCase();
+  const approvedDesignation = user.employee_approved?.designation;
+  const designation = typeof approvedDesignation === 'string' ? approvedDesignation.trim() : '';
+  const profileDetails = `<span class="shell-profile-details">
+    <strong class="profile-name" title="${esc(user.full_name)}">${esc(user.full_name)}</strong>
+    ${designation ? `<span class="shell-profile-designation" title="${esc(designation)}">${esc(designation)}</span>` : ''}
+    <small>${esc(state.identity.roles.map(title).join(' · ') || 'Awaiting access')}</small>
+  </span>`;
   const unread = state.notifications?.filter((n) => !n.read_at).length || 0;
   document.body.classList.add('portal-mode');
   root.innerHTML = `<div class="app-shell${key === 'home' ? ' home-mode' : ''}" data-workspace="${esc(key)}"><aside id="portal-sidebar" class="sidebar" aria-label="Main navigation">
-    <a class="brand" href="#home"><span class="brand-mark">${icon('shield')}</span><span class="brand-name">Compliance<span>by Design</span></span></a>
+    <a class="brand" href="#home"><img class="brand-mark" src="${brandIconUrl}" width="42" height="42" alt=""><span class="brand-name">Compliance<span>by Design</span></span></a>
     <button class="icon-button portal-nav-close" type="button" data-action="menu" aria-label="Close navigation">${icon('x')}</button>
     <div class="portal-bank"><img src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}" alt="Bank of Maharashtra"><span>Your compliance workspace</span></div>
     ${navigation(key)}
     <div class="nav-bottom">${state.ready ? `<a class="portal-help" href="#help">${icon('book')}<span>Need a hand?<small>Step-by-step help</small></span>${icon('arrow')}</a><div class="portal-footer-links"><button type="button" data-action="profile">My role</button><span>·</span><a href="#applications">Other applications</a></div>` : ''}
-    <div class="profile"><span class="avatar">${esc(initials)}</span><div class="grow"><strong class="profile-name">${esc(user.full_name)}</strong><small>${esc(state.identity.roles.map(title).join(' · ') || 'Awaiting access')}</small></div></div></div>
+    <div class="profile"><span class="avatar">${esc(initials)}</span>${profileDetails}</div></div>
   </aside><button class="portal-nav-scrim" type="button" data-action="menu" aria-label="Close navigation"></button>
   <div class="main-shell"><header class="topbar"><div class="portal-location"><button class="icon-button mobile-menu" type="button" data-action="menu" aria-label="Open navigation" aria-controls="portal-sidebar" aria-expanded="false">${icon('menu')}</button><div class="breadcrumb"><a href="#home">My workspace</a><span>/</span><strong>${esc(label)}</strong></div></div>
-  <div class="topbar-right">${state.ready ? `<button class="global-search" type="button" data-action="workspace-search" aria-label="Search the workspace">${icon('search')}<span>${canNavigate('repository') ? 'Find a notification or task' : 'Find a person or setting'}</span><span class="kbd">⌘ K</span></button><a class="portal-help-top" href="#help">${icon('book')}Help</a><a class="icon-button portal-notifications" href="#notifications" aria-label="Notifications">${icon('bell')}${unread ? '<i class="notification-dot"></i>' : ''}</a>` : ''}<button class="portal-person" type="button" data-action="profile"><span class="avatar">${esc(initials)}</span><span>${esc(user.full_name)}<small>${esc(state.identity.roles.map(title).join(' · ') || 'Awaiting access')}</small></span></button><button type="button" class="icon-button" data-action="logout" aria-label="Sign out" title="Sign out">${icon('logout')}</button></div></header>
-  <main class="content" id="main-content">${employeeWarning(state.identity.user.employee_warning?{...state.identity.employee_profile,warning:state.identity.user.employee_warning}:state.identity.employee_profile)}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main><footer class="page-footer"><span class="footer-brand">${icon('shield')}COMPLIANCE BY DESIGN</span><span>Oracle connected · ${environment} · Approved history retained</span></footer></div></div>`;
+  <div class="topbar-right">${state.ready ? `<button class="global-search" type="button" data-action="workspace-search" aria-label="Search the workspace">${icon('search')}<span>${canNavigate('repository') ? 'Find a notification or task' : 'Find a person or setting'}</span><span class="kbd">⌘ K</span></button><a class="portal-help-top" href="#help">${icon('book')}Help</a><a class="icon-button portal-notifications" href="#notifications" aria-label="Notifications">${icon('bell')}${unread ? '<i class="notification-dot"></i>' : ''}</a>` : ''}<button class="portal-person" type="button" data-action="profile"><span class="avatar">${esc(initials)}</span>${profileDetails}</button><button type="button" class="icon-button" data-action="logout" aria-label="Sign out" title="Sign out">${icon('logout')}</button></div></header>
+  <main class="content" id="main-content">${employeeWarning(state.identity.user.employee_warning?{...state.identity.employee_profile,warning:state.identity.user.employee_warning}:state.identity.employee_profile)}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main><footer class="page-footer"><span class="footer-brand"><img src="${brandIconUrl}" width="22" height="22" alt="">COMPLIANCE BY DESIGN</span><span>Approved history retained</span></footer></div></div>`;
 }
 function adminAccessNotice() {
   const summary = state.identity?.roles.includes('ADMIN') ? state.adminAccess : null;

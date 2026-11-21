@@ -26,7 +26,7 @@ DEFAULTS = {
     'base_dn': '', 'bind_dn': '', 'bind_password': '',
     'user_dn_template': '', 'user_search_filter': '(sAMAccountName={username})',
     'ca_cert_file': '', 'ca_certificate_pem': '', 'ca_certificate_name': '',
-    'ca_certificate_metadata': [], 'attr_department_code': 'department',
+    'ca_certificate_metadata': [], 'attr_department_code': 'department', 'attr_email': 'mail',
 }
 
 
@@ -58,6 +58,7 @@ def normalized(cfg):
     # The bank's legacy department attribute contains a code, not a name.
     # Retain explicit code mappings; upgrade older saved/bootstrap mappings.
     result['attr_department_code'] = cfg.get('attr_department_code') or cfg.get('attr_department') or 'department'
+    result['attr_email'] = cfg.get('attr_email') or DEFAULTS['attr_email']
     if 'enabled' not in cfg:
         result['enabled'] = bool(result['server_uri'])
     # Existing saved ldap:// rows always used StartTLS. Preserve their behavior.
@@ -137,14 +138,14 @@ def validate_directory(cfg):
         raise HTTPException(422, 'Configure a base DN and read-only bind account, or a direct user DN template.')
     if template.count('{username}') != 1 or re.search(r'[{}]', template.replace('{username}', '')):
         raise HTTPException(422, 'The selected username pattern must include {username} exactly once, with no other placeholders.')
-    for name in ('attr_department_code',):
+    for name in ('attr_department_code', 'attr_email'):
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9;-]*', cfg.get(name, DEFAULTS[name])):
             raise HTTPException(422, 'Enter valid directory profile attribute names.')
 
 
 def prepare_directory(values, previous):
     """Resolve unsaved input without accepting client-side filesystem paths."""
-    candidate = normalized(values)
+    candidate = normalized({**values, 'attr_email': values.get('attr_email') or previous.get('attr_email')})
     candidate['bind_password'] = values.get('bind_password') or previous.get('bind_password', '')
     for name in ('ca_cert_file', 'ca_certificate_pem', 'ca_certificate_name', 'ca_certificate_metadata'):
         candidate[name] = previous.get(name, DEFAULTS[name])
@@ -190,6 +191,21 @@ def mock_profile(settings, username, password):
     return {'username':username,'source':'uat_mock','ldap_department_code':'DEMO-LDAP-001'}, True
 
 
+def single_directory_text(value, max_length):
+    if isinstance(value, (list, tuple)):
+        value = value[0] if len(value) == 1 else None
+    if isinstance(value, str) and value.strip() and len(value) <= max_length and all(ord(c) >= 32 and ord(c) != 127 for c in value):
+        return value
+    return None
+
+
+def directory_email(value):
+    value = single_directory_text(value, 254)
+    if value and re.fullmatch(r'[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+', value.strip()):
+        return value.strip()
+    return None
+
+
 def authenticate_directory(db, settings, username, password, *, config_override=None, allow_mock=True):
     if not username or not password: return None
     if allow_mock:
@@ -230,19 +246,29 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                 c.unbind()
                 raise
 
-        # Resolve the authenticated identity and separate LDAP department only.
-        attributes=list(dict.fromkeys(['sAMAccountName',cfg['attr_department_code']]))
+        identity_attributes = list(dict.fromkeys(['sAMAccountName', cfg['attr_department_code']]))
+        email_attribute = cfg.get('attr_email') or DEFAULTS['attr_email']
+        attributes = list(dict.fromkeys([*identity_attributes, email_attribute]))
         profile={'username':username,'source':'ldap'}
+
+        def lookup(c, base, query, scope, **options):
+            found = c.search(base, query, scope, attributes=attributes, **options)
+            if len(attributes) > len(identity_attributes) and (c.result or {}).get('result') in {17, 50}:
+                # The optional email mapping may be undefined or unreadable.
+                return c.search(base, query, scope, attributes=identity_attributes, **options)
+            return found
 
         def identify(entry):
             values={k.casefold():v for k,v in entry.entry_attributes_as_dict.items()}
-            code=values.get(cfg['attr_department_code'].casefold())
-            if isinstance(code,(list,tuple)):code=code[0] if len(code)==1 else None
-            if isinstance(code,str) and code.strip() and len(code)<=100 and not any(ord(c)<32 or ord(c)==127 for c in code):profile['ldap_department_code']=code
-            value=values.get('samaccountname')
-            if isinstance(value,(list,tuple)):value=value[0] if len(value)==1 else None
-            if isinstance(value,str) and value.strip() and len(value)<=100 and not any(ord(c)<32 or ord(c)==127 for c in value):
-                profile['username']=value
+            code = single_directory_text(values.get(cfg['attr_department_code'].casefold()), 100)
+            account = single_directory_text(values.get('samaccountname'), 100)
+            email = directory_email(values.get(email_attribute.casefold()))
+            if code:
+                profile['ldap_department_code'] = code
+            if account:
+                profile['username'] = account
+            if email:
+                profile['email'] = email
 
         if cfg.get('bind_dn') and cfg.get('base_dn'):
             stage = 'service_bind'
@@ -252,7 +278,7 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                                      'Ask the administrator to check the read-only bind account.')
             stage = 'search'
             search = cfg['user_search_filter'].replace('{username}', escape_filter_chars(username))
-            searched = service.search(cfg['base_dn'], search, SUBTREE, attributes=attributes, size_limit=2)
+            searched = lookup(service, cfg['base_dn'], search, SUBTREE, size_limit=2)
             if service.result.get('result') not in (0,):
                 raise DirectoryError('LDAP_SEARCH_FAILED', 'LDAP directory lookup failed.',
                                      'Ask the administrator to check the base DN and search permissions.')
@@ -272,7 +298,7 @@ def authenticate_directory(db, settings, username, password, *, config_override=
                                  'Ask the administrator to test the directory connection.')
         if not service:
             try:
-                if conn.search(dn, '(objectClass=*)', BASE, attributes=attributes) and conn.entries:
+                if lookup(conn, dn, '(objectClass=*)', BASE) and conn.entries:
                     identify(conn.entries[0])
             except LDAPException:
                 pass  # Identity already authenticated; no employee-profile lookup is required.

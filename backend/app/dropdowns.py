@@ -139,14 +139,10 @@ def read_answers(db, form, identifier):
     return json.loads(value) if value else {}
 
 
-def save_answers(db, actor, form, identifier, submitted, reason=None, copy_from=None, *, require_complete=True):
-    """Call only after the parent action has authorised the operation and locked or inserted its row."""
-    _, config = configuration(db)
+def validate_answers(config, form, submitted, retained=None, *, require_complete=True):
     definitions = {k:f for k,f in config['fields'].items() if f['form']==form}
     submitted = submitted or {}
-    if not definitions and not submitted: return
-    original = read_answers(db, form, identifier)
-    answers = dict(read_answers(db, form, copy_from) if copy_from else original)
+    answers = dict(retained or {})
     if set(submitted) - set(definitions): reject('Unknown custom field on this form.')
     for key, field in definitions.items():
         previous = answers.get(key, {})
@@ -159,6 +155,16 @@ def save_answers(db, actor, form, identifier, submitted, reason=None, copy_from=
                 if not option: reject('Choose an active option for '+field['label']+'.')
                 answers[key] = {'code':code,'label':option['label'],'field_label':field['label']}
         if require_complete and field['active'] and field['required'] and key not in answers: reject('Choose a value for '+field['label']+'.')
+    return answers
+
+
+def save_answers(db, actor, form, identifier, submitted, reason=None, copy_from=None, *, require_complete=True):
+    """Call only after the parent action has authorised the operation and locked or inserted its row."""
+    _, config = configuration(db)
+    if not submitted and not any(field['form']==form for field in config['fields'].values()): return
+    original = read_answers(db, form, identifier)
+    answers = validate_answers(config, form, submitted, read_answers(db, form, copy_from) if copy_from else original,
+        require_complete=require_complete)
     if answers == original: return
     t = m.dropdown_answer
     params = dict(form_key=form,record_id=identifier)

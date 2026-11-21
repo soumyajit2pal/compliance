@@ -1,0 +1,66 @@
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 9px 12px;
+  font-weight: 700;
+  text-align: center;
+  white-space: normal;
+}
+.workflow-control .icon { flex: 0 0 16px; width: 16px; height: 16px; }
+.workflow-control > span { min-width: 0; overflow-wrap: anywhere; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-review { color: #fff; background: #624075; border-color: #624075; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-review:hover { color: #fff; background: #4c2e5e; border-color: #4c2e5e; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-confirm { color: #fff; background: #27664a; border-color: #27664a; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-confirm:hover { color: #fff; background: #1e513a; border-color: #1e513a; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-return { color: #744713; background: #fff2d9; border-color: #d7b885; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-return:hover { color: #633a0c; background: #ffe7bc; border-color: #c69d62; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-reject { color: #932d42; background: #fff0f3; border-color: #d997a6; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-reject:hover { color: #772235; background: #ffe2e9; border-color: #b96a7d; }
+.portal-mode :is(.app-shell, .runtime-dialog) .btn.workflow-control:focus-visible {
+  outline: 2px solid var(--primary-dark);
+  outline-offset: 2px;
+}
+
+.workflow-action-group {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--plum-line);
+  border-left: 3px solid var(--primary-accent);
+  border-radius: 8px;
+  background: var(--soft);
+}
+.workflow-action-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 700;
+}
+.workflow-action-label .icon { flex: 0 0 14px; width: 14px; height: 14px; }
+.workflow-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.workflow-action-group-compact .workflow-control { flex: 1 1 6rem; }
+.workflow-action-group-compact .workflow-return { flex-basis: 120px; }
+.workflow-action-group-compact :is(.workflow-review, .workflow-confirm) { flex-basis: 100%; }
+.obligation-workflow-actions > .workflow-action-group,
+.edition-next-step-actions > .workflow-action-group { flex: 1 1 100%; }
+#metadata-correction-panel { scroll-margin-top: 88px; }
+.delivery-work-review { margin-bottom: 22px; }
+
+.family-review-panel { margin-block: 20px; scroll-margin-top: 88px; }
+.family-review-panel .data-table { table-layout: fixed; }
+.portal-mode .family-review-panel :is(th, td) { padding-inline: clamp(8px, 1vw, 16px); overflow-wrap: anywhere; }
+.portal-mode .family-review-panel th { white-space: normal; }
+.portal-mode .family-review-panel td .badge { max-width: 100%; margin: 0; padding-inline: 6px; white-space: normal; }
+.family-review-panel th:first-child { width: 12%; }
+.family-review-panel th:nth-child(2) { width: 17%; }
+.family-review-panel th:nth-child(3) { width: 25%; }
+.family-review-panel th:nth-child(4) { width: 13%; }
+.family-review-panel th:last-child { width: 23%; }
+.family-review-panel tr:has([aria-current="true"]) { background: var(--soft); }
+.family-review-panel [data-family-proposal] { scroll-margin-top: 90px; }
