@@ -189,14 +189,14 @@ export async function loadIdentity() {
   try{state.identity=await api('/auth/me');}catch(error){if(!error.delegationUnavailable)throw error;selectDelegation('');state.identity=await api('/auth/me');message(error.message,true);}
   if(state.identity.acting_for){state.masters=await api('/masters');state.ready=true;return true;}
   let department = null;
-  if (state.identity.user.login_type === 'LDAP' || state.identity.user.employee_profile_required) {
-    department = await api('/auth/employee-profile');
+  if (!state.identity.user.must_change_password_flag && (state.identity.user.login_type === 'LDAP' || state.identity.user.employee_profile_required)) {
+    department = 'employee_review' in state.identity ? state.identity.employee_review : await api('/auth/employee-profile');
     const initialProfile = state.identity.user.needs_email_confirmation_flag || state.identity.user.needs_department_selection_flag;
-    if (department.blocked && !initialProfile && !state.identity.user.must_change_password_flag) {
+    if (department?.blocked && !initialProfile) {
       state.masters = null; state.record = null; state.batch = null;
       state.work = []; state.notifications = [];
-      const title=department.status==='RECHECK_REQUIRED'?'Sign in again after profile approval':department.approved_version_id?'Your employee details have changed':'Employee profile verification';
-      shell(heading(title,'Review the separate LDAP department and API employee details before opening the workspace.')+departmentGate(department),'');
+      document.title='Employee profile review · Compliance by Design';
+      shell(departmentGate(department,state.identity.employee_profile),'',{showEmployeeWarning:false});
       return false;
     }
   }

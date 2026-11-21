@@ -84,3 +84,44 @@
   .profile-form-actions > .primary { padding-inline: 10px; }
   .profile-directory-values { grid-template-columns: 1fr; }
 }
+
+/* Employee review, from the staff waiting screen to the administrator's decision. */
+.review-page { max-width: 880px; margin: 12px auto 36px; }
+.review-status, .review-record { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.review-status { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 20px; padding: clamp(20px,4vw,40px); }
+.review-status-icon { display: grid; place-items: center; width: 48px; height: 48px; background: var(--selection); border-radius: 14px; color: var(--primary); }
+.review-status-icon svg { width: 24px; height: 24px; }
+.review-status .review-context { margin: 0 0 6px; font-size: 12px; font-weight: 650; color: var(--primary); }
+.review-status h1 { margin: 0; font-size: clamp(23px,3vw,34px); line-height: 1.2; letter-spacing: -.035em; }
+.review-status p, .review-decision p { max-width: 62ch; line-height: 1.6; }
+.review-page .review-status h1 + p { margin: 10px 0 0; font-size: 15px; line-height: 1.6; color: var(--ink); }
+.review-status .actions { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+.review-followup { margin: 14px 4px; color: var(--muted); }
+.review-record { margin-top: 14px; padding: 4px 20px; }
+.review-disclosure { min-width: 0; overflow-wrap: anywhere; }
+.review-disclosure > summary { cursor: pointer; padding: 12px 0; color: var(--primary); font-weight: 650; }
+.review-disclosure > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.review-values { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 16px; margin: 0; }
+.review-values > div { border-top: 1px solid var(--line); padding: 9px 0; overflow-wrap: anywhere; }
+.review-values dt { font-size: 12px; color: var(--muted); }
+.review-values dd { margin: 2px 0 0; font-weight: 600; }
+.review-dialog, .review-history { display: grid; gap: 16px; min-width: 0; }
+.review-dialog h3, .review-history h3 { margin: 0 0 6px; }
+.review-callout { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 16px; border: 1px solid var(--plum-line); background: var(--soft); border-radius: 10px; }
+.review-callout p { margin: 0; }
+.review-columns { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); align-items: start; gap: 20px; }
+.review-columns > section { min-width: 0; }
+.review-decision { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+.review-decision > :is(h3,p) { margin: 0; }
+.review-reason { overflow-wrap: anywhere; }
+.review-reason strong { display: block; }
+.review-row-actions { display: grid; justify-items: start; gap: 6px; min-width: 0; }
+.review-history > .review-disclosure, .review-dialog > .review-disclosure { border-top: 1px solid var(--line); }
+.review-history .data-table details { min-width: 0; }
+@media (max-width: 640px) {
+  .review-page { margin: 0 0 20px; }
+  .review-status { grid-template-columns: 1fr; gap: 12px; }
+  .review-status-icon { width: 38px; height: 38px; }
+  .review-columns { grid-template-columns: 1fr; }
+  .review-columns > .review-decision { grid-row: 1; }
+}

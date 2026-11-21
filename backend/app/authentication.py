@@ -103,7 +103,7 @@ def login(db,request,response,payload,settings):
     employee_profiles.complete_login(db,settings,user,employee_lookup,profile)
     user=employee_identity.decorate(db,employee_identity.locked_user(db,user['id']))
     result=establish(db,user,settings,response,request)
-    if user.get('employee_profile_required'):
+    if user.get('employee_profile_required') and request.headers.get('prefer','').lower() != 'return=minimal':
         result['employee_profile']=employee_profiles.public_profile(db,user['id'],settings)
         result['employee_review']=employee_identity.public_status(db,user)
     return result

@@ -49,7 +49,7 @@ export function showLdapAccount(user, assignments, request, currentUserId, trigg
     <div class="ldap-detail-status">${accessTag(user, ready)}${departmentStatusBadge(user)}</div>
     <p><strong>Next step</strong><br>${esc(next)}</p>
     <div class="ldap-account-actions">
-      ${request && !ownAccount ? workflowButton('department-review', 'Review employee profile request', 'OPEN', `data-id="${esc(request.id)}"`) : ''}
+      ${request && !ownAccount && user.active_flag && !profilePending ? workflowButton('department-review', 'Review employee profile request', 'OPEN', `data-id="${esc(request.id)}"`) : ''}
       ${button('department-history', 'Employee profile history', userId, 'small')}
       ${ownAccount ? '<span class="small muted">Another administrator must review or edit your access.</span>' : button('user', 'Manage profile & roles', userId, 'small')}
     </div>

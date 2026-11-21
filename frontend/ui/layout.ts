@@ -68,7 +68,7 @@ function scopeBanner() {
   if (!scoped.length) return '';
   return `<div class="scope-banner">${icon('lock')}<span>${scoped.map((g) => esc(title(g.role_code)) + ': ' + esc(ref('organisational_unit', g.scope_org_unit_id)) + ' and authorised descendants').join(' · ')}${state.identity.roles.includes('ZONE_VIEWER') ? ' · Read-only access' : ''}</span></div>`;
 }
-export function shell(contents, key) {
+export function shell(contents, key, {showEmployeeWarning = true} = {}) {
   const user = state.identity.user;
   const label =
     key === 'repository' && location.hash.includes('/new')
@@ -99,7 +99,7 @@ export function shell(contents, key) {
   </aside><button class="portal-nav-scrim" type="button" data-action="menu" aria-label="Close navigation"></button>
   <div class="main-shell"><header class="topbar"><div class="portal-location"><button class="icon-button mobile-menu" type="button" data-action="menu" aria-label="Open navigation" aria-controls="portal-sidebar" aria-expanded="false">${icon('menu')}</button><div class="breadcrumb"><a href="#home">My workspace</a><span>/</span><strong>${esc(label)}</strong></div></div>
   <div class="topbar-right">${state.ready ? `<button class="global-search" type="button" data-action="workspace-search" aria-label="Search the workspace">${icon('search')}<span>${canNavigate('repository') ? 'Find a notification or task' : 'Find a person or setting'}</span><span class="kbd">⌘ K</span></button><a class="portal-help-top" href="#help">${icon('book')}Help</a><a class="icon-button portal-notifications" href="#notifications" aria-label="Notifications">${icon('bell')}${unread ? '<i class="notification-dot"></i>' : ''}</a>` : ''}<button class="portal-person" type="button" data-action="profile"><span class="avatar">${esc(initials)}</span>${profileDetails}</button><button type="button" class="icon-button" data-action="logout" aria-label="Sign out" title="Sign out">${icon('logout')}</button></div></header>
-  <main class="content" id="main-content">${employeeWarning(state.identity.user.employee_warning?{...state.identity.employee_profile,warning:state.identity.user.employee_warning}:state.identity.employee_profile)}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main><footer class="page-footer"><span class="footer-brand"><img src="${brandIconUrl}" width="22" height="22" alt="">COMPLIANCE BY DESIGN</span><span>Approved history retained</span></footer></div></div>`;
+  <main class="content" id="main-content">${showEmployeeWarning ? employeeWarning(state.identity.user.employee_warning?{...state.identity.employee_profile,warning:state.identity.user.employee_warning}:state.identity.employee_profile) : ''}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main><footer class="page-footer"><span class="footer-brand"><img src="${brandIconUrl}" width="22" height="22" alt="">COMPLIANCE BY DESIGN</span><span>Approved history retained</span></footer></div></div>`;
 }
 function adminAccessNotice() {
   const summary = state.identity?.roles.includes('ADMIN') ? state.adminAccess : null;

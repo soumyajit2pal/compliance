@@ -41,6 +41,7 @@ export async function signIn(username: string, password: string) {
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
   return withActivity(requestLabel(path, method), async () => {
     const headers: Record<string, string> = apiHeaders(path);
+    if (path === '/auth/login') headers.Prefer = 'return=minimal';
     if (state.identity?.csrf_token) headers['X-CSRF-Token'] = state.identity.csrf_token;
     let requestBody: BodyInit | undefined;
     if (body instanceof FormData) {

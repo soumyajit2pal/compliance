@@ -222,6 +222,10 @@ def create_app(settings=None,engine=None):
         result['dropdown_presentation']=presentation if actor.roles else {
             k:v for k,v in presentation.items() if k=='org_unit_id'}
         result['employee_profile']=public_profile(db,actual.id,cfg)
+        user=actual.user
+        needs_review_screen=employees.blocked(user) or user['needs_email_confirmation_flag'] or user['needs_department_selection_flag']
+        result['employee_review']=(employees.public_status(db,user,current_review_only=True)
+            if not actor.delegation and user['employee_profile_required'] and not user['must_change_password_flag'] and needs_review_screen else None)
         if actor.delegation:
             # Represented employee metadata must not be disclosed in session annotations.
             for key in ('employee_approved','employee_observed','employee_warning'):result['user'].pop(key,None)

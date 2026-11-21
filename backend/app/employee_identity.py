@@ -154,13 +154,23 @@ def review_rows(db,user_id=None):
     return rows
 
 
-def public_status(db,user):
+def public_status(db,user,*,current_review_only=False):
     row=profile(db,user['id']);approved=version(db,row['approved_version_id']) if row else None;latest=version(db,row['latest_version_id']) if row else None
     state=row['status'] if row else 'UNVERIFIED'
     messages={'VERIFIED':'Your employee profile is approved.','RECHECK_REQUIRED':'Your employee profile was approved. Sign out and sign in again.',
         'PENDING':'Your employee details require administrator approval.','REJECTED':'Your employee profile change was rejected. Existing access restrictions remain.',
         'UNAVAILABLE':'LDAP department details are unavailable. Business access remains restricted.','UNVERIFIED':'Complete employee details are awaited before independent approval.'}
-    requests=review_rows(db,user['id'])
+    if current_review_only:
+        requests=[]
+        if row and state in {'PENDING','REJECTED'}:
+            review=m.employee_profile_review
+            record=db.execute(sa.select(review.c.id,review.c.status,review.c.requested_at,review.c.decision_reason).where(
+                review.c.profile_id==row['id'],review.c.version_id==row['latest_version_id'],
+                review.c.previous_version_id==row['approved_version_id'],review.c.status==state
+            ).order_by(review.c.requested_at.desc()).limit(1)).mappings().first()
+            if record:requests.append(dict(record))
+    else:
+        requests=review_rows(db,user['id'])
     home=db.execute(sa.select(m.organisational_unit.c.name).where(m.organisational_unit.c.id==user.get('org_unit_id'))).scalar_one_or_none() if user.get('org_unit_id') else None
     return {'managed':True,'status':state,'blocked':state!='VERIFIED','message':messages[state],'approved':payload(approved),'current':payload(latest),
         'warning':row['warning'] if row else None,'checked_at':row['last_attempt_at'] if row else None,'home_organisation':home,
