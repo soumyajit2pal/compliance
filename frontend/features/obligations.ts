@@ -4,13 +4,13 @@ import { api } from '../core/api.ts';
 import { has,covered } from '../core/access.ts';
 import { detailPolicy,sectionSteps,ownerRoles,stageLabel,statusLabel,obligationReturnPath,processRelationshipChoices } from '../core/obligation-detail.ts';
 import { renderObligationDetail } from './obligation-detail.ts';
-import { splitBusinessAccountability } from '../core/obligation-accountability.ts';
+import { accountableUnits, splitBusinessAccountability } from '../core/obligation-accountability.ts';
 import { obligationSetupSteps,assessmentChoices } from '../core/obligation-setup.ts';
 import { renderSetupQuestions,renderSetupReview,refreshScopeProcessLimits,refreshDepartmentFields,setupDepartmentCard } from './obligation-setup.ts';
 import { primaryBusinessOwnerFields,refreshPrimaryBusinessOwner,primaryBusinessSelectionChanged,syncAdditionalOwnerRole,validateBusinessAccountability } from './obligation-accountability.ts';
 import { copyText } from '../ui/clipboard.ts';
 import { apiPageQuery,withoutPaging } from '../core/pagination.ts';
-import { esc,title,ref,badge,button,field,input,select,fixedSelect,area,link,localDate,date,message,options,statusTag } from '../ui/components.ts';
+import { esc,title,ref,badge,button,field,input,select,fixedSelect,area,link,localDate,date,message,options,statusTag,organisationScopeLabel } from '../ui/components.ts';
 import { heading } from '../ui/layout.ts';
 import { panel,table,tablePanel,detailFields,note,recordCell } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
@@ -173,7 +173,7 @@ function rowControls(kind,value:any={}){
   }
   if(kind==='applicability'){
     fields=ctl('legal_entity_id',select(key('legal_entity_id'),active('legal_entity'),value.legal_entity_id,'name','required'),'Which bank / legal entity?')+
-      ctl('org_unit_id',select(key('org_unit_id'),active('organisational_unit'),value.org_unit_id,'name','required'),'Department')+
+      ctl('org_unit_id',select(key('org_unit_id'),active('organisational_unit').map(unit=>({...unit,name:organisationScopeLabel(unit.id)})),value.org_unit_id,'name','required'),'Department or sub-department')+
       ctl('applicability_status',select(key('applicability_status'),assessmentChoices,value.applicability_status||'APPLICABLE','name','required'),'Does this department need to follow the requirement?')+
       ctl('basis',area(key('basis'),value.basis,'required minlength="10" maxlength="10000"'),'Why have you made this decision?')+
       ctl('conditions',area(key('conditions'),value.conditions,'maxlength="10000"'),'Which activities are included, and which are excluded?')+
@@ -226,7 +226,7 @@ async function openOwnerAssignment(){
   const additional=accountability.additional.map((owner,i)=>popupOwnerRow({...owner,people:savedChoices(ownerPeople[i],owner.user_id)})).join('');
   const guidance=policy.canEdit?'Save the owner changes to this Draft. Owner acceptance and final approval follow the existing review process.':'Submit a separate ownership change for Compliance review, owner acceptance and independent final approval. The obligation revision stays unchanged. Current owners remain assigned until final approval. Changes take effect on approval, or from the obligation’s future start date.';
   modal('Assign / reassign owner',input('obligation_id',id,'hidden')+input('expected_revision',d.obligation.edit_revision,'hidden')+note(guidance)+
-    `<div class="obligation-business-accountability"><div class="form-grid">${field('Accountable business department',select('business_owner_unit_id',active('organisational_unit'),value.business_owner_unit_id,'name','required'),'The primary Business owner below is assigned to this department.','full')}</div>${primaryBusinessOwnerFields(value.business_owner_unit_id,accountability.primary,primaryPeople,!policy.canEdit)}</div>`+
+    `<div class="obligation-business-accountability"><div class="form-grid">${field('Accountable business department',select('business_owner_unit_id',accountableUnits(active('organisational_unit'),value.business_owner_unit_id),value.business_owner_unit_id,'name','required'),'The primary Business owner below is assigned to this department.','full')}</div>${primaryBusinessOwnerFields(value.business_owner_unit_id,accountability.primary,primaryPeople,!policy.canEdit)}</div>`+
     `<section class="obligation-editor-group"><div class="obligation-group-heading"><h3>Additional owner assignments (<span data-additional-owner-count>${accountability.additional.length}</span>)</h3>${button('obl-add-row','Add additional owner','data-kind="owners"','small')}</div><p class="obligation-additional-hint">Expand a person to change their role, department or assignment. Keep the primary Regulatory owner and at least one Check owner here.</p><div data-obl-list="owners">${additional}</div><p class="obligation-empty muted">No additional owner assignments added.</p></section>`+
     `<section class="obligation-editor-group"><h3>Compliance reviewer</h3><p class="obligation-additional-hint">Reviews this ${policy.canEdit?'obligation':'ownership change'} for ${esc(ref('organisational_unit',value.regulatory_owner_unit_id))} before named owner responses.</p>${field('Named Compliance reviewer',select('compliance_reviewer_user_id',reviewers,value.compliance_reviewer_user_id,'full_name','required'))}</section>`+
     (policy.canEdit?'':field('Independent final Approver',select('approver_id',[],'','full_name','required'),'Must be independent of the request author, Compliance reviewer and current/proposed owners.'))+

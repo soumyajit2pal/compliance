@@ -43,8 +43,8 @@ def source_version_label(value):
     try: return normalize_source_version_number(value)
     except HTTPException: return str(value)
 
-def active(db,table,identifier):
-    row=one(db,table,identifier)
+def active(db,table,identifier,*,lock=False):
+    row=one(db,table,identifier,lock=lock)
     if 'active_flag' in row and not row['active_flag']: raise HTTPException(422,'Choose an active reference record.')
     if row.get('effective_from') and row['effective_from']>date.today() or row.get('effective_to') and row['effective_to']<=date.today():
         raise HTTPException(422,'Choose a reference record effective on the current date.')

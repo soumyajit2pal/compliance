@@ -118,7 +118,10 @@ def validate(db,actor,payload,retained=None):
     if payload.category_id != retained.get('category_id'):
         repo.active(db,m.obligation_category,payload.category_id)
     for table,key in [(m.frequency,payload.frequency_id),(m.organisational_unit,payload.regulatory_owner_unit_id),
-                      (m.regulatory_domain,payload.primary_domain_id),(m.organisational_unit,payload.business_owner_unit_id)]:repo.active(db,table,key)
+                      (m.regulatory_domain,payload.primary_domain_id)]:repo.active(db,table,key)
+    accountable=repo.active(db,m.organisational_unit,payload.business_owner_unit_id)
+    if accountable['unit_type']=='SUB_DEPARTMENT' and accountable['id']!=retained.get('business_owner_unit_id'):
+        raise HTTPException(422,'Choose the parent Department for business accountability and record the Sub-department in Applicability.')
     domains={instrument['primary_domain_id'],*db.execute(sa.select(m.instrument_domain_map.c.domain_id).where(
         m.instrument_domain_map.c.instrument_id==instrument['id'],m.instrument_domain_map.c.effective_to.is_(None))).scalars()}
     if payload.primary_domain_id not in domains:raise HTTPException(422,'Choose an affected regulatory domain from the primary instrument.')

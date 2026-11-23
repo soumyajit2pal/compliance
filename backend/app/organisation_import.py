@@ -163,6 +163,11 @@ def plan_import(existing_rows, source_rows, config):
             if not parent_row or not current_master(parent_row):
                 errors.append({'row': number, 'code': code, 'message': f'Parent {parent!r} must exist and be active and effective today.'})
                 continue
+            try:
+                master_data.validate_organisation_parent(values['unit_type'], parent_row)
+            except HTTPException as exc:
+                errors.append({'row': number, 'code': code, 'message': exc.detail})
+                continue
             record = dict(values, id=new_id(), parent_org_unit_id=parent_row['id'], level_number=parent_row['level_number'] + 1)
             resolved[code] = record
             planned.append((number, record, parent, answers))

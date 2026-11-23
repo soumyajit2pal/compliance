@@ -181,6 +181,8 @@ async function masterDialog(key, id = '', parent = '') {
   const excluded = definition.parent_field ? subtreeIds(state.masters[key], definition.parent_field, id) : new Set();
   const fields = definition.fields.map((f) => {
     let value = row?.[f.name] ?? (f.name === definition.parent_field ? parent : f.default) ?? '';
+    if (!row && key === 'organisational_unit' && f.name === 'unit_type' && f.choices.includes('SUB_DEPARTMENT') &&
+        state.masters.organisational_unit.some(unit => unit.id === parent && unit.unit_type === 'DEPARTMENT')) value = 'SUB_DEPARTMENT';
     if (!row && f.kind === 'date' && f.name === 'effective_from') value = localDate();
     if (!row && f.name === 'scheme_id') value = state.masters.taxonomy_scheme.find((s) => s.code === 'REGULATORY')?.id || '';
     const required = f.required ? 'required' : '';
@@ -199,7 +201,9 @@ async function masterDialog(key, id = '', parent = '') {
     else if (f.kind === 'textarea') control = area(f.name, value, `${required} maxlength="${f.max_length || 10000}"`);
     else control = input(f.name, value, f.kind === 'number' ? 'number' : f.kind === 'date' ? 'date' : 'text',
       `${required} ${immutable ? 'readonly' : ''} ${f.max_length ? `maxlength="${f.max_length}"` : ''} ${f.minimum !== null ? `min="${f.minimum}"` : ''} ${f.maximum !== null ? `max="${f.maximum}"` : ''} ${f.kind === 'number' ? 'step="1"' : ''}`);
-    return field(f.label, control, immutable ? 'Permanent code.' : '', f.kind === 'textarea' ? 'full' : '');
+    const hint = immutable ? 'Permanent code.' : key === 'organisational_unit' && f.name === 'unit_type'
+      ? 'A Sub-department belongs under a Department and can be selected for applicability and work.' : '';
+    return field(f.label, control, hint, f.kind === 'textarea' ? 'full' : '');
   }).join('');
   modal((row ? 'Edit ' : 'Add ') + definition.label.toLowerCase(),
     `<div class="form-grid">${fields}${customFields(formKey,answers)}${field('Reason for change', area('reason', '', 'required minlength="5" maxlength="2000"'), '', 'full')}</div>`,

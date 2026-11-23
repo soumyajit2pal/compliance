@@ -92,7 +92,9 @@ def master(name, code_length=40, *extra):
 
 # Supporting masters and access control (§§1, 3, 5, 7 and requirements week 2).
 organisational_unit = master("organisational_unit", 30,
-    *enum("unit_type", "BANK", "HO", "VERTICAL", "DEPARTMENT", "ZONE", "REGION", "BRANCH"),
+    string("unit_type", 40),
+    check("org_unit_type", "unit_type IN ('BANK','HO','VERTICAL','DEPARTMENT','SUB_DEPARTMENT','ZONE','REGION','BRANCH')"),
+    check("sub_department_parent", "unit_type <> 'SUB_DEPARTMENT' OR parent_org_unit_id IS NOT NULL"),
     fk("parent_org_unit_id", "organisational_unit", True), col("level_number", sa.Integer()), *effective(),
     check("org_level", "level_number >= 0"))
 legal_entity = master("legal_entity")

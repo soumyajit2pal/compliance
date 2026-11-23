@@ -43,7 +43,7 @@ class DatedRecord(Record):
 
 class Organisation(DatedRecord):
     code: str = Field(min_length=1, max_length=30)
-    unit_type: Literal['BANK', 'HO', 'VERTICAL', 'DEPARTMENT', 'ZONE', 'REGION', 'BRANCH']
+    unit_type: Literal['BANK', 'HO', 'VERTICAL', 'DEPARTMENT', 'SUB_DEPARTMENT', 'ZONE', 'REGION', 'BRANCH']
     parent_org_unit_id: str | None = None
 
 
@@ -211,6 +211,26 @@ def master_rows(db, table, *, lock=False):
     return [dict(row) for row in db.execute(query.with_for_update() if lock else query).mappings()]
 
 
+def validate_organisation_parent(unit_type, parent):
+    if unit_type == 'SUB_DEPARTMENT' and (not parent or parent['unit_type'] != 'DEPARTMENT'):
+        raise HTTPException(422, 'Select a Department as the parent of a Sub-department.')
+
+
+def validate_sub_department_conversion(db, identifier):
+    roles = m.user_role.c
+    references = (
+        (m.user.c.org_unit_id == identifier, 'Move users’ home departments before converting this unit to a Sub-department.'),
+        (sa.and_(roles.scope_org_unit_id == identifier,
+                 sa.or_(roles.effective_to.is_(None), roles.effective_to > date.today())),
+         'Move current and scheduled role assignments before converting this unit to a Sub-department.'),
+        (m.regulatory_domain.c.domain_owner_unit_id == identifier,
+         'Assign another owning department to the linked regulatory domains before converting this unit.'),
+    )
+    for condition, message in references:
+        if db.execute(sa.select(sa.literal(1)).where(condition).limit(1)).first():
+            raise HTTPException(409, message)
+
+
 PORTAL_REFERENCE_MASTERS = (
     'organisational_unit', 'regulator', 'regulatory_domain', 'instrument_type',
     'confidentiality_class', 'frequency', 'evidence_type', 'obligation_category',
@@ -289,9 +309,15 @@ def save(db, actor, key, payload, identifier=None):
     levels = {}
     if parent_field:
         nodes, levels = _tree_values(rows, identifier, values, parent_field, level_field)
-        if key == 'organisational_unit' and not values['active_flag'] and any(
-            r.get(parent_field) == identifier and r['active_flag'] for r in nodes.values()):
-            raise HTTPException(422, 'Deactivate or move active child units before deactivating their parent.')
+        if key == 'organisational_unit':
+            validate_organisation_parent(values['unit_type'], nodes.get(values[parent_field]))
+            children = [node for node in nodes.values() if node[parent_field] == identifier]
+            for child in children:
+                validate_organisation_parent(child['unit_type'], nodes[identifier])
+            if not values['active_flag'] and any(child['active_flag'] for child in children):
+                raise HTTPException(422, 'Deactivate or move active child units before deactivating their parent.')
+            if old and old['unit_type'] != 'SUB_DEPARTMENT' and values['unit_type'] == 'SUB_DEPARTMENT':
+                validate_sub_department_conversion(db, identifier)
         if key == 'regulatory_domain' and any(r.get(parent_field) and nodes[r[parent_field]]['scheme_id'] != r['scheme_id'] for r in nodes.values()):
             raise HTTPException(422, 'Parent and child domains must use the same taxonomy scheme.')
         if level_field:

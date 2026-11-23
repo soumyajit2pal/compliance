@@ -13,6 +13,7 @@ import {
   input,
   select,
   fixedSelect,
+  localDate,
   message,
 } from '../ui/components.ts';
 import { modal, close } from '../ui/dialog.ts';
@@ -146,6 +147,11 @@ export async function usersPage(_id, query = new URLSearchParams()) {
 async function openUser(id) {
   const user: Record<string, any> = state.view.users.users.find((u) => u.id === id) || {};
   const assignments = state.view.users.assignments.filter((a) => a.user_id === id);
+  const today = localDate();
+  const homeDepartments = state.masters.organisational_unit.filter((unit) => unit.unit_type !== 'SUB_DEPARTMENT' && (unit.id === user.org_unit_id || (
+    unit.unit_type === 'DEPARTMENT' && unit.active_flag && (!unit.effective_from || unit.effective_from <= today) &&
+    (!unit.effective_to || unit.effective_to > today)
+  )));
   state.view.editUser = id;
   modal(
     id ? user.login_type === 'LDAP' ? 'Manage LDAP profile & roles' : 'Edit user access' : 'Create user account',
@@ -159,8 +165,8 @@ async function openUser(id) {
           'Display name',
           input('full_name', user.full_name || '', 'text', 'required'),
         )}${field('Email', input('email', user.email || '', 'email'))}${field(
-          'Home organisation',
-          select('org_unit_id', state.masters.organisational_unit, user.org_unit_id),
+          'Home department',
+          select('org_unit_id', homeDepartments, user.org_unit_id),
         )}${field(
           'Login type',
           fixedSelect(
@@ -204,7 +210,8 @@ async function openUser(id) {
   dialog.querySelector<HTMLFormElement>('#user')!.dataset.existing = id || '';
 }
 function roleLine(r: Record<string, any> = {}) {
-  return `<div class="role-line role-assignment"><div class="role-field">${field('Role', select('role_id', state.masters.role, r.role_id, 'name', 'required'))}</div><label class="check-label"><input type="checkbox" name="global_scope_flag" ${r.global_scope_flag ? 'checked' : ''}> Global scope</label>${button('remove-role', 'Remove', '', 'small')}<div class="scope-field" ${r.global_scope_flag ? 'hidden' : ''}>${field('Organisation scope', select('scope_org_unit_id', state.masters.organisational_unit, r.scope_org_unit_id, 'name', r.global_scope_flag ? 'disabled' : 'required'), 'This unit and its authorised descendants.')}</div></div>`;
+  const roleUnits = state.masters.organisational_unit.filter(unit => unit.unit_type !== 'SUB_DEPARTMENT');
+  return `<div class="role-line role-assignment"><div class="role-field">${field('Role', select('role_id', state.masters.role, r.role_id, 'name', 'required'))}</div><label class="check-label"><input type="checkbox" name="global_scope_flag" ${r.global_scope_flag ? 'checked' : ''}> Global scope</label>${button('remove-role', 'Remove', '', 'small')}<div class="scope-field" ${r.global_scope_flag ? 'hidden' : ''}>${field('Organisation scope', select('scope_org_unit_id', roleUnits, r.scope_org_unit_id, 'name', r.global_scope_flag ? 'disabled' : 'required'), 'This unit and its authorised descendants, including its Sub-departments.')}</div></div>`;
 }
 async function departmentHistory(id, trigger: HTMLElement) {
   const route = state.routeNumber;

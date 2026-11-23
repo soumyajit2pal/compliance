@@ -1,5 +1,6 @@
 /** A single explicit primary Business assignment; other owner roles remain independent. */
 export const isPrimaryBusinessOwner=(row)=>row.owner_role==='BUSINESS'&&Boolean(row.primary_owner_flag);
+export const accountableUnits=(units,currentId)=>units.filter(unit=>unit.unit_type!=='SUB_DEPARTMENT'||unit.id===currentId);
 export function splitBusinessAccountability(owners){
   const primary=owners.find(isPrimaryBusinessOwner)||null;
   return {primary,additional:owners.filter(row=>row!==primary&&row.owner_role!=='COMPLIANCE_REVIEWER')};

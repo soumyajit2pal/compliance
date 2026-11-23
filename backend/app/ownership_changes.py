@@ -51,7 +51,7 @@ def validators(assignments,maker):
 
 def validate(db,row,proposal,assignments):
     maker=actor_for(db,proposal['created_by'])
-    obl.validate(db,maker,proposal_input(db,row,proposal,assignments))
+    obl.validate(db,maker,proposal_input(db,row,proposal,assignments),retained=row)
     for role in ['REGULATORY','BUSINESS','CONTROL']:
         if not any(item['owner_role']==role and (role=='CONTROL' or item['primary_owner_flag']) for item in assignments):
             raise HTTPException(422,'The proposed assignments require primary Regulatory and Business owners and at least one Check owner.')

@@ -281,7 +281,10 @@ def create_app(settings=None,engine=None):
     @app.get('/api/auth/departments')
     def onboarding_departments(db=Depends(get_db),identity=Depends(limited)):
         if not employees.can_onboard(identity[0].user):raise HTTPException(403,'Complete employee profile setup before opening the workspace.')
-        return [dict(r) for r in db.execute(sa.select(m.organisational_unit).where(m.organisational_unit.c.active_flag==1,m.organisational_unit.c.unit_type=='DEPARTMENT').order_by(m.organisational_unit.c.name)).mappings()]
+        unit=m.organisational_unit.c;today=date.today()
+        return [dict(r) for r in db.execute(sa.select(m.organisational_unit).where(
+            unit.active_flag==1,unit.unit_type=='DEPARTMENT',unit.effective_from<=today,
+            sa.or_(unit.effective_to.is_(None),unit.effective_to>today)).order_by(unit.name)).mappings()]
 
     @app.post('/api/auth/onboarding')
     def onboard(payload:s.Onboard,db=Depends(get_db),identity=Depends(limited)):
@@ -289,8 +292,8 @@ def create_app(settings=None,engine=None):
         if not employees.can_onboard(actor.user):raise HTTPException(403,'Complete employee profile setup before opening the workspace.')
         if actor.user['login_type']!='LDAP' or not (actor.user['needs_email_confirmation_flag'] or actor.user['needs_department_selection_flag']):raise HTTPException(403,'Profile onboarding is already complete. Contact an administrator for access changes.')
         if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',payload.email):raise HTTPException(422,'Enter a valid work email address.')
-        unit=repo.active(db,m.organisational_unit,payload.org_unit_id)
-        if unit['unit_type']!='DEPARTMENT':raise HTTPException(422,'Select a department.')
+        unit=repo.active(db,m.organisational_unit,payload.org_unit_id,lock=True)
+        if unit['unit_type']!='DEPARTMENT':raise HTTPException(422,'Select a Department for your home organisation.')
         db.execute(m.user.update().where(m.user.c.id==actor.id).values(email=payload.email,org_unit_id=unit['id'],needs_email_confirmation_flag=0,needs_department_selection_flag=0))
         audit(db,actor,'user',actor.id,'LDAP_ACCESS_REQUESTED',new={'email':payload.email,'department':unit['code'],'roles':[]})
         access=current_access(db,actor.id)
@@ -369,10 +372,18 @@ def create_app(settings=None,engine=None):
 
     def save_user(db,actor,payload,identifier=None):
         actor.require({'ADMIN'});values=payload.model_dump(exclude={'roles','password'});values['username']=values['username'].lower()
-        if values['org_unit_id']:repo.active(db,m.organisational_unit,values['org_unit_id'])
         if payload.email and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',payload.email):raise HTTPException(422,'Enter a valid email address.')
         if identifier==actor.id:raise HTTPException(403,'Use another authorised administrator to change your own access.')
+        home_id=values['org_unit_id']
+        selected_units={home_id,*(item.scope_org_unit_id for item in payload.roles if not item.global_scope_flag)}
+        # Coordinate with hierarchy edits before saving any home or role scope reference.
+        units={key:repo.active(db,m.organisational_unit,key,lock=True) for key in sorted(filter(None,selected_units))}
         old=repo.one(db,m.user,identifier,lock=True) if identifier else None
+        if home_id:
+            unit_type=units[home_id]['unit_type']
+            retained=old and old['org_unit_id']==home_id and unit_type!='SUB_DEPARTMENT'
+            if unit_type!='DEPARTMENT' and not retained:
+                raise HTTPException(422,'Select a Department as the home organisation.')
         if old and (old['username']!=values['username'] or old['login_type']!=values['login_type']):raise HTTPException(422,'Username and login type are fixed. Create a separate identity for a changed authentication method.')
         if not old and db.execute(sa.select(m.user.c.id).where(sa.func.lower(m.user.c.username)==values['username'])).first():raise HTTPException(409,'This username already exists.')
         assignments=[];seen=set()
@@ -381,7 +392,8 @@ def create_app(settings=None,engine=None):
             if item.global_scope_flag:
                 if item.scope_org_unit_id:raise HTTPException(422,'Global roles must not also specify a department.')
             elif not item.scope_org_unit_id:raise HTTPException(422,'Select the role scope department.')
-            else:repo.active(db,m.organisational_unit,item.scope_org_unit_id)
+            elif units[item.scope_org_unit_id]['unit_type']=='SUB_DEPARTMENT':
+                raise HTTPException(422,'Select the parent Department to grant access to its Sub-departments.')
             if role['code'] in {'BUSINESS_OWNER','CONTROL_OWNER','EVIDENCE_OWNER','ZONE_VIEWER'} and item.global_scope_flag:raise HTTPException(422,'Owner and Zone Viewer roles require an explicit organisational scope.')
             signature=(item.role_id,item.scope_org_unit_id,item.global_scope_flag)
             if signature in seen:raise HTTPException(422,'Remove duplicate role assignments.')
