@@ -1,6 +1,15 @@
 name: compliance-portal
 
+x-podman:
+  in_pod: false
+
+x-portal-user: &portal-user
+  # deploy/start.sh supplies the deployment account and runtime-specific mapping.
+  user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
+  userns_mode: "${PORTAL_USERNS_MODE:-}"
+
 x-backend-release: &backend-release
+  <<: *portal-user
   image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
   build:
     context: .
@@ -10,12 +19,12 @@ x-backend-release: &backend-release
 
 services:
   frontend:
+    <<: *portal-user
     image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
     build:
       context: .
       target: frontend
       args: *release-args
-    user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
     restart: unless-stopped
     read_only: true
     tmpfs: ["/tmp:mode=1777"]
@@ -51,7 +60,6 @@ services:
   migrate:
     <<: *backend-release
     init: true
-    user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
     restart: "no"
     read_only: true
     tmpfs: ["/tmp:mode=1777"]
@@ -79,7 +87,6 @@ services:
   backend:
     <<: *backend-release
     init: true
-    user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
     restart: unless-stopped
     read_only: true
     tmpfs:
