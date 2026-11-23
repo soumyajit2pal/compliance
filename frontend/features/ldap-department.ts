@@ -27,7 +27,7 @@ export function reviewValues(data) {
   const changed = fields.filter(([key]) => data.approved?.[key] !== data.current?.[key]);
   return (changed.length ? table(['Field', 'Approved', 'Submitted for review'], changed.map(([key,label]) =>
     [esc(label), esc(data.approved?.[key] || 'Unavailable'), esc(data.current?.[key] || 'Unavailable')]),
-    {summary:false,paginate:false,cardLayout:true}) : '<p>The submitted fields match the approved profile.</p>') +
+    {summary:false}) : '<p>The submitted fields match the approved profile.</p>') +
     `<details class="review-disclosure"><summary>All submitted fields</summary>${currentValues}</details>`;
 }
 

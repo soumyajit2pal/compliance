@@ -211,6 +211,23 @@ def master_rows(db, table, *, lock=False):
     return [dict(row) for row in db.execute(query.with_for_update() if lock else query).mappings()]
 
 
+PORTAL_REFERENCE_MASTERS = (
+    'organisational_unit', 'regulator', 'regulatory_domain', 'instrument_type',
+    'confidentiality_class', 'frequency', 'evidence_type', 'obligation_category',
+    'role', 'process', 'taxonomy_scheme', 'legal_entity', 'product', 'channel',
+    'customer_segment', 'geography', 'system', 'control_type', 'execution_mode', 'obligation_nature',
+)
+# A write to each of these tables advances the published revision in the same
+# transaction. Organisation, role and taxonomy lookups continue to use Oracle.
+CACHED_REFERENCE_MASTERS = tuple(key for key in PORTAL_REFERENCE_MASTERS if key in BUSINESS_MASTERS)
+LIVE_REFERENCE_MASTERS = tuple(key for key in PORTAL_REFERENCE_MASTERS if key not in BUSINESS_MASTERS)
+
+
+def reference_rows(db, names):
+    return {name: [dict(row) for row in db.execute(sa.select(getattr(m, name))).mappings()]
+            for name in names}
+
+
 def refresh_dropdown_options(db, key):
     if key in BUSINESS_MASTERS:
         db.execute(m.dropdown_config.update().where(m.dropdown_config.c.id=='portal')

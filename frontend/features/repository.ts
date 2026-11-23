@@ -10,11 +10,12 @@ export async function repositoryPage(id, query) {
   if (id === 'new') return instrumentWizard(query);
   const request = state.routeNumber;
   const overview = !query.get('tab') || query.get('tab') === 'overview';
-  const data = await api(id
+  const requestUrl = id
     ? '/instruments/' + id + (overview ? '?include_implementation_progress=true' : '')
-    : '/instruments?' + apiPageQuery(query, 'instruments'));
+    : '/instruments?' + apiPageQuery(query, 'instruments');
+  const data = await api(requestUrl);
   if (request !== state.routeNumber || !state.identity) return '';
-  if (!id) return renderRegister(Array.isArray(data) ? data : data.items, query, data.pagination, data.library_counts);
+  if (!id) return renderRegister(Array.isArray(data) ? data : data.items, query, data.pagination, data.library_counts, requestUrl);
   state.record = data;
   return renderRecord(query);
 }

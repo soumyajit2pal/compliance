@@ -15,6 +15,7 @@ import {reportView} from '../core/navigation.ts';
 import { dashboardTiles } from '../ui/dashboard.ts';
 import { ccoOverview, departmentOverview, reportInsights, reportRecords, reportTiles } from './report-dashboard.ts';
 import { activeObligationOptions } from './action-assignment-options.ts';
+import { domainFilterChoices } from '../ui/domains.ts';
 
 const active=(key)=>(state.masters?.[key]||[]).filter(r=>r.active_flag!==0);
 const choices=(values)=>values.map(id=>({id,name:title(id)}));
@@ -123,7 +124,8 @@ export async function teamPage(_id,query=new URLSearchParams()){
   const additional=metrics.slice(4);
   return `<div class="report-dashboard${audience==='cco'?' cco-dashboard':''}">`+heading(view.label,view.description,button('delivery-refresh','Refresh'))+
     reportTiles(report.metrics,metrics.slice(0,4),metric,query)+
-    `<form id="view-filter" class="delivery-filters form-grid">${query.get('audience')?input('audience',query.get('audience'),'hidden'):''}${filter('domain','Domains',active('regulatory_domain'))}${filter('department','Departments',active('organisational_unit'))}${filter('owner','Owners',active('user'))}${filter('criticality','Criticalities',choices(['CRITICAL','HIGH','MEDIUM','LOW']))}${filter('status','Statuses',choices(['ACTIVE','OPEN','IN_PROGRESS','PENDING_VALIDATION','COMPLETED','DRAFT','ACCEPTED','SUBMITTED']))}${field('Relevant date from',input('from',query.get('from')||'','date'))}${field('Relevant date to',input('to',query.get('to')||'','date'))}<div class="actions"><button type="submit" class="btn primary">Apply filters</button>${link(clearPath,'Clear','text-link')}</div></form>`+
+    `<form id="view-filter" class="delivery-filters form-grid">${query.get('audience')?input('audience',query.get('audience'),'hidden'):''}
+      ${filter('domain','Domains',domainFilterChoices(state.masters.regulatory_domain))}${filter('department','Departments',active('organisational_unit'))}${filter('owner','Owners',active('user'))}${filter('criticality','Criticalities',choices(['CRITICAL','HIGH','MEDIUM','LOW']))}${filter('status','Statuses',choices(['ACTIVE','OPEN','IN_PROGRESS','PENDING_VALIDATION','COMPLETED','DRAFT','ACCEPTED','SUBMITTED']))}${field('Relevant date from',input('from',query.get('from')||'','date'))}${field('Relevant date to',input('to',query.get('to')||'','date'))}<div class="actions"><button type="submit" class="btn primary">Apply filters</button>${link(clearPath,'Clear','text-link')}</div></form>`+
     `<p class="muted delivery-refresh">Refreshed ${esc(new Date(report.generated_at).toLocaleString('en-IN'))} · Business date ${date(report.business_date)} · ${esc(report.timezone)} · ${report.delivery.scheduler_enabled?'In-app reminders enabled':'In-app reminder scheduler disabled'}</p>`+
     (audience==='department'?departmentOverview(report.metrics.portfolio,report.evidence_status):'')+
     (additional.length?`<details class="dashboard-more-measures" open><summary>More measures <span>${additional.length}</span></summary>${

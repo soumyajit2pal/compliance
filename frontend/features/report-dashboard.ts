@@ -186,17 +186,13 @@ function obligationStatusPanel(portfolio:Metric) {
   if(!byStatus.size)return panel(heading,'<p class="muted">No obligations match these filters.</p>',options);
   const label=(status:string)=>status==='BUSINESS_VALIDATION'?'Business validation':stageLabel(status);
   const columns=[...byStatus.keys()].sort((left,right)=>label(left).localeCompare(label(right)));
-  const headers=columns.map(status=>`<th scope="col">${esc(label(status))}</th>`).join('');
-  const rows=criticalityLevels.map(([level,tone])=>`<tr><th scope="row">${statusTag(title(level),tone)}</th>${
-    columns.map(status=>{
-      const count=byStatus.get(status)?.get(level)||0;
-      return count?`<td>${count}</td>`:'<td aria-label="0">·</td>';
-    }).join('')
-  }</tr>`).join('');
-  return panel(heading,
-    `<div class="dashboard-criticality-scroll" role="region" aria-label="${heading}" tabindex="0">
-    <table class="dashboard-criticality-table"><thead><tr><th scope="col">Criticality</th>${headers}</tr></thead><tbody>${rows}</tbody></table></div>`,
-    options);
+  const rows=criticalityLevels.map(([level,tone])=>[statusTag(title(level),tone),...columns.map(status=>{
+    const count=byStatus.get(status)?.get(level)||0;
+    return count ? String(count) : '<span aria-label="0">·</span>';
+  })]);
+  return panel(heading, table(['Criticality',...columns.map(label)],rows,{
+    caption:heading, cardLayout:false, tableClass:'dashboard-criticality-table', rowHeaders:true,
+  }), options);
 }
 
 export function departmentOverview(portfolio:Metric, evidenceCounts?:Record<string,number>) {
@@ -205,12 +201,9 @@ export function departmentOverview(portfolio:Metric, evidenceCounts?:Record<stri
 }
 
 function oversightTable(heading:string, headers:string[], rows:string[][], empty:string, sub:string, explanation:string) {
-  const body=rows.length?`<div class="dashboard-breakdown-scroll" role="region" aria-label="${esc(heading)}" tabindex="0">
-    <table class="dashboard-breakdown-table">
-    <thead><tr>${headers.map(label=>`<th scope="col">${esc(label)}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map(([name,...cells])=>`<tr><th scope="row">${name}</th>${
-      cells.map(cell=>`<td>${cell}</td>`).join('')
-    }</tr>`).join('')}</tbody></table></div>`:`<p class="muted">${esc(empty)}</p>`;
+  const body=table(headers,rows,{
+    caption:heading, empty, cardLayout:false, tableClass:'dashboard-breakdown-table', rowHeaders:true,
+  });
   return panel(heading,body,{sub,cls:'dashboard-panel',explanation});
 }
 
@@ -286,7 +279,7 @@ export function reportInsights(metrics:Record<string,Metric>, selection:string, 
     if(due.length){
       for(const record of due)used.add(identity(record));
       work=panel('Upcoming and overdue work',
-        table(['Work','Accountable owner','Current target','Status'],workRows(due),{paginate:false,summary:false}),
+        table(['Work','Accountable owner','Current target','Status'],workRows(due),{caption:'Upcoming and overdue work'}),
         {sub:'Earliest current internal targets.',action:link(metricPath(query,'open'),'View open work','btn small'),cls:'dashboard-panel',
           explanation:'Shows up to four authorised work items from open and future periods, ordered by their current due dates.'});
     }

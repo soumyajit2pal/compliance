@@ -11,7 +11,7 @@ from .logging_config import client_ip, database_error_code, request_id
 request_context = ContextVar('cbd_audit_request', default=None)
 SIGN_IN = '/api/auth/login'
 SIGN_OUT = '/api/auth/logout'
-IGNORED = {'/api/health', '/api/auth/login-key', '/api/auth/demo-users'}
+IGNORED = {'/api/health', '/api/ready', '/api/auth/login-key', '/api/auth/demo-users'}
 logger = logging.getLogger('cbd.portal')
 
 

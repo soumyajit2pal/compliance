@@ -53,8 +53,9 @@ export async function regulationRegistersPage(kind,query=new URLSearchParams()){
   const request=apiPageQuery(query,kind);
   const grouped=kind!=='clause-relationships';
   if(grouped)request.set('view','obligations');
-  const data=await api('/'+kind+'?'+request);
-  const options={pageKey:kind,pagination:data.pagination,empty:'No '+(kind==='accountability'?'owner assignments':kind==='applicability'?'applicability assessments':'clause relationships')+' match this view.'};
+  const columnOptionsUrl='/'+kind+'?'+request;
+  const data=await api(columnOptionsUrl);
+  const options={pageKey:kind,pagination:data.pagination,columnOptionsUrl,empty:'No '+(kind==='accountability'?'owner assignments':kind==='applicability'?'applicability assessments':'clause relationships')+' match this view.'};
   let content='';
   if(grouped)content=obligationCoverageCards(data.items,options,kind+(query.size?'?'+query:''));
   if(kind==='clause-relationships')content=table(['Source clause / para','Relationship','Related earlier clause / para','Effective period','Basis','Approval','Decision'],data.items.map(row=>[

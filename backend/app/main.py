@@ -1,5 +1,6 @@
 """Weeks 1–5 Oracle portal. Start after Alembic; no startup DDL."""
 import asyncio
+import os
 import csv,io,json,hashlib,re,logging
 import ipaddress
 import time
@@ -15,6 +16,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from .runtime import runtime_settings
 from .pagination import page_query, paginate
+from .table_filters import column_choices, column_query, fields, filter_rows, label, version
 from .config import ROOT
 from .storage import prepare_storage, stored_path, write_private
 from .logging_config import configure_logging, request_id as logging_request_id, client_ip as logging_client_ip, client_ip_from_scope, database_error_code
@@ -36,6 +38,7 @@ from . import clause_carry,notification_families as families
 from .source_documents import file_transaction, save_document, MAX_SOURCE_BYTES
 from . import employee_identity as employees
 from . import applications as connected_apps, master_data, dropdowns, organisation_import
+from .dropdown_cache import DropdownCache
 from .api_docs import install_uat_docs
 
 logger=logging.getLogger('cbd.portal')
@@ -73,6 +76,8 @@ def safe_user(row):
 def create_app(settings=None,engine=None):
     cfg=settings or runtime_settings()
     configure_logging(cfg)
+    dropdown_cache=DropdownCache(cfg.redis_url,cfg.database_url,cfg.environment) if cfg.redis_url else None
+    published_dropdowns=dropdown_cache.configuration if dropdown_cache else dropdowns.configuration
     try:login_material=load_material(cfg.login_private_key_file)
     except Exception:
         logger.exception('Sign-in key initialization failed');raise
@@ -104,6 +109,7 @@ def create_app(settings=None,engine=None):
                 try:await reminder_task
                 except asyncio.CancelledError:pass
             if engine is None and app.state.engine is not None:app.state.engine.dispose()
+            if dropdown_cache:dropdown_cache.close()
             logger.info('Application stopped environment=%s',cfg.environment)
     app=FastAPI(title='Compliance by Design',lifespan=lifespan,docs_url=None,redoc_url=None,
                 openapi_url='/openapi.json' if cfg.environment=='uat' else None)
@@ -191,7 +197,20 @@ def create_app(settings=None,engine=None):
         return JSONResponse({'detail':detail+reference},status_code=409 if conflict else 503)
 
     @app.get('/api/health')
-    def health():return {'status':'ok','environment':cfg.environment,'release':'Weeks 1–5'}
+    def health():
+        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', 'Weeks 1–5')}
+
+    @app.get('/api/ready')
+    def ready(request: Request):
+        try:
+            with request.app.state.engine.connect() as db:
+                oracle_ready = db.execute(sa.text('SELECT 1 FROM DUAL')).scalar_one() == 1
+        except sa.exc.SQLAlchemyError as exc:
+            logger.warning('Oracle readiness probe failed code=%s', database_error_code(exc))
+            oracle_ready = False
+        if not oracle_ready:
+            return JSONResponse({'status': 'degraded', 'database': 'unavailable'}, status_code=503)
+        return {'status': 'ok', 'database': 'ok'}
 
     def require_demo_login():
         if cfg.environment != 'uat' or not cfg.demo_login_enabled:
@@ -199,7 +218,7 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/auth/demo-users', dependencies=[Depends(require_demo_login)])
     def demo_users(db=Depends(get_db)):
-        return {'dropdown_presentation':dropdowns.demo_presentation(db),'users': available_demo_users(db), 'ldap_demo': {
+        return {'dropdown_presentation':dropdowns.demo_presentation(db,published_dropdowns),'users': available_demo_users(db), 'ldap_demo': {
             'enabled': cfg.ldap_mock_enabled, 'username': cfg.ldap_mock_username_prefix+'01'
             if cfg.ldap_mock_enabled else '', 'prefix': cfg.ldap_mock_username_prefix if cfg.ldap_mock_enabled else ''}}
 
@@ -218,7 +237,7 @@ def create_app(settings=None,engine=None):
         result={'user':safe_user(actor.user),'roles':sorted(actor.roles),'grants':actor.grants,
             'csrf_token':session['csrf_token'],'menu':[] if employees.blocked(actor.user) else menu(actor),'environment':cfg.environment}
         from .employee_profiles import public_profile
-        presentation=dropdowns.configuration(db)[1]['presentation']
+        presentation=published_dropdowns(db)[1]['presentation']
         result['dropdown_presentation']=presentation if actor.roles else {
             k:v for k,v in presentation.items() if k=='org_unit_id'}
         result['employee_profile']=public_profile(db,actual.id,cfg)
@@ -278,17 +297,19 @@ def create_app(settings=None,engine=None):
         notify_administrators(db,actor.id,'ACCESS_APPROVAL_REQUIRED' if access['admin_action_required'] else 'LDAP_PROFILE_CONFIRMED')
         return {'ok':True,'message':'Profile confirmed. '+access['access_message']}
 
-    dropdowns.install(app,get_db,current)
+    dropdowns.install(app,get_db,current,published_dropdowns)
     organisation_import.install(app,get_db,current)
 
     @app.get('/api/masters')
     def masters(db=Depends(get_db),actor=Depends(current)):
-        result={}
-        for name in ['organisational_unit','regulator','regulatory_domain','instrument_type','confidentiality_class','frequency','evidence_type','obligation_category','role','process','taxonomy_scheme','legal_entity','product','channel','customer_segment','geography','system','control_type','execution_mode','obligation_nature']:
-            table=getattr(m,name);result[name]=[dict(r) for r in db.execute(sa.select(table)).mappings()]
+        revision,config=published_dropdowns(db)
+        if dropdown_cache:
+            result=dropdown_cache.reference_options(db,revision)
+            result.update(master_data.reference_rows(db,master_data.LIVE_REFERENCE_MASTERS))
+        else:
+            result=master_data.reference_rows(db,master_data.PORTAL_REFERENCE_MASTERS)
         users=db.execute(sa.select(m.user.c.id,m.user.c.username,m.user.c.full_name,m.user.c.org_unit_id).where(m.user.c.active_flag==1)).mappings().all()
         result['user']=[dict(u) for u in users]
-        revision,config=dropdowns.configuration(db)
         result['dropdown_configuration']=[{**config,'revision':revision}]
         return result
 
@@ -455,10 +476,27 @@ def create_app(settings=None,engine=None):
         return FileResponse(path,filename=document['file_name'],media_type=document['content_type'],content_disposition_type='inline' if preview else 'attachment')
 
     @app.get('/api/instruments')
-    def instruments(request:Request,paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+    def instruments(request:Request,paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
         filters=dict(request.query_params)
         rows=repo.listing(db,actor,filters)
+        def instrument_status(row):
+            position = row['regulatory_status']
+            status = position if position in {'CURRENT','SUPERSEDED','WITHDRAWN'} else row['approval_status'] or position
+            return label(status), 'Not current' if status == 'APPROVED' and not row['current_version_id'] else '', 'Open notification family'
+
+        projections={
+            'instrument':lambda row:(row['code'],row['title'],'Quick view'),
+            'official_reference_number':lambda row:row['official_reference_number'] or 'Not provided by regulator',
+            'regulator_domain':fields('regulator_name','regulator_code','domain_name','secondary_domain_names'),
+            'current_version':lambda row:version(row['current_version_number']) if row['current_version_number'] else None,
+            'materiality':lambda row:label(row['materiality']),
+            'status':instrument_status,
+        }
+        rows=filter_rows(rows,columns,projections)
         selected=filters.get('library_stage')
+        if columns.options_for:
+            return column_choices((row for row in rows if not selected or repo.library_stage(row)==selected),
+                                  columns.options_for,projections)
         if not any(paging.values()):
             return [row for row in rows if not selected or repo.library_stage(row)==selected]
         stages=[(repo.library_stage(row),row) for row in rows]
@@ -466,8 +504,8 @@ def create_app(settings=None,engine=None):
         rows=[row for stage,row in stages if not selected or stage==selected]
         return {**paginate(rows,**paging),'library_counts':dict(counts)}
     @app.get('/api/notification-families')
-    def family_register(as_of:date|None=None,q:str='',library:bool=False,domain_id:str='',paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
-        if library:return families.library(db,actor,as_of,q,domain_id,paging)
+    def family_register(as_of:date|None=None,q:str='',library:bool=False,domain_id:str='',paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
+        if library:return families.library(db,actor,as_of,q,domain_id,paging,columns)
         data=families.view(db,actor,when=as_of,search=q)
         paged=paginate(data['families'],**paging)
         if isinstance(paged,dict):data.update(families=paged['items'],pagination=paged['pagination'])
@@ -580,8 +618,7 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/tasks')
     def tasks(response:Response,db=Depends(get_db),actor=Depends(current)):
-        response.headers['X-Dropdown-Revision']=str(db.execute(sa.select(m.dropdown_config.c.revision)
-            .where(m.dropdown_config.c.id=='portal')).scalar_one())
+        response.headers['X-Dropdown-Revision']=str(dropdowns.configuration_revision(db))
         visible={r['id']:r for r in repo.listing(db,actor,{})};result=[]
         for v in db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.created_by==actor.id,m.instrument_version.c.approval_status=='DRAFT')).mappings():
             instrument=visible.get(v['instrument_id'])
@@ -699,13 +736,20 @@ def create_app(settings=None,engine=None):
             attachments.append((source.filename,content))
         return migration.stage(db,actor,Path(file.filename or '').name[:500],data,source_system,cfg.storage,attachments)
     @app.get('/api/migration')
-    def batches(q:str='',paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+    def batches(q:str='',paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
         migration.require_migration(actor)
         rows=[dict(r) for r in db.execute(sa.select(m.migration_batch).where(~m.migration_batch.c.record_status.like('OBL_%')).order_by(m.migration_batch.c.uploaded_at.desc(),m.migration_batch.c.id)).mappings()]
-        if paging['page'] is None and paging['page_size'] is None:return rows
+        if paging['page'] is None and paging['page_size'] is None and not columns.options_for:return rows
         summary={key:sum(row[key] or 0 for row in rows) for key in ('source_count','loaded_count','pending_count')}
         summary['batches']=len(rows)
         matched=[row for row in rows if q.casefold() in json.dumps(jsonable_encoder(row),ensure_ascii=False).casefold()]
+        projections={
+            'source_batch':fields('code'),'source_file':fields('source_file'),'source_rows':fields('source_count'),
+            'loaded':fields('loaded_count'),'pending':fields('pending_count'),'actions':lambda row:'Source profile',
+        }
+        matched=filter_rows(matched,columns,projections)
+        if columns.options_for:
+            return column_choices(matched,columns.options_for,projections)
         return {**paginate(matched,**paging),'summary':summary}
     @app.get('/api/migration/{identifier}')
     def batch(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.batch_detail(db,actor,identifier)
@@ -786,14 +830,15 @@ def create_app(settings=None,engine=None):
     install_audit_trail(app,get_db,current)
     from .workflow_log import install as install_workflow_log
     install_workflow_log(app,get_db,current)
-    frontend_dist=ROOT/'frontend'/'dist'
-    @app.get('/')
-    def index():
-        page=frontend_dist/'index.html'
-        if not page.is_file():
-            return JSONResponse({'detail':'The web frontend has not been built. Run npm --prefix frontend run build.'},status_code=503)
-        return FileResponse(page)
-    app.mount('/assets',StaticFiles(directory=frontend_dist,check_dir=False),name='assets')
+    if os.getenv('PORTAL_SERVE_FRONTEND', 'true').lower() == 'true':
+        frontend_dist=ROOT/'frontend'/'dist'
+        @app.get('/')
+        def index():
+            page=frontend_dist/'index.html'
+            if not page.is_file():
+                return JSONResponse({'detail':'The web frontend has not been built. Run npm --prefix frontend run build.'},status_code=503)
+            return FileResponse(page)
+        app.mount('/assets',StaticFiles(directory=frontend_dist,check_dir=False),name='assets')
     return app
 
 app=create_app()

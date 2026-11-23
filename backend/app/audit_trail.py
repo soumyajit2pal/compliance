@@ -1,8 +1,9 @@
 """Administrator audit report and shared retained-event readers."""
 import json
 import re
+from collections import deque
 from ipaddress import ip_address
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from itertools import islice
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -16,8 +17,9 @@ from . import controls, delegations, delivery, models as m, notification_familie
 from . import obligations, repository as repo
 from .access import READ_ROLES
 from .employee_profiles import CODE as EMPLOYEE_API_CODE
-from .events import audit
+from .events import audit, now
 from .obligation_export import csv_bytes
+from .table_filters import column_choices, column_predicate, column_query, fields
 
 
 RECORD_TYPES = {
@@ -323,23 +325,24 @@ def matches(entry, term):
     return term in ' '.join(value for value in text if value).casefold()
 
 
-def date_range(query, event, from_day, to_day):
+def date_bounds(event, from_day, to_day):
+    conditions = []
     if from_day and from_day > date.min:
         start = datetime.combine(from_day, time.min, BANK_ZONE).astimezone(timezone.utc).replace(tzinfo=None)
-        query = query.where(event.event_at >= start)
+        conditions.append(event.event_at >= start)
     if to_day:
         end = datetime.combine(to_day, time.max, BANK_ZONE).astimezone(timezone.utc).replace(tzinfo=None)
-        query = query.where(event.event_at <= end)
-    return query
+        conditions.append(event.event_at <= end)
+    return conditions
 
 
-def primary_requests(event):
+def primary_requests(event, through=None):
     recorded = m.audit_log.alias('request_result')
-    return ~sa.and_(
-        event.action.in_(sorted(AUTH_ACTIONS)), event.request_id.is_not(None),
-        sa.exists(sa.select(sa.literal(1)).select_from(recorded).where(
-            recorded.c.entity_type == 'portal_access', recorded.c.request_id == event.request_id)),
-    )
+    duplicates = sa.select(sa.literal(1)).select_from(recorded).where(
+        recorded.c.entity_type == 'portal_access', recorded.c.request_id == event.request_id)
+    if through is not None:
+        duplicates = duplicates.where(recorded.c.event_at <= through)
+    return ~sa.and_(event.action.in_(sorted(AUTH_ACTIONS)), event.request_id.is_not(None), sa.exists(duplicates))
 
 
 def event_groups(event):
@@ -354,7 +357,7 @@ def failed_event(event):
     return sa.or_(event.http_status >= 400, event.action == 'LOGIN_FAILED')
 
 
-def stats(db, from_day, to_day):
+def stats(db, from_day, to_day, through):
     event = m.audit_log.c
     groups = event_groups(event)
     query = sa.select(
@@ -362,64 +365,133 @@ def stats(db, from_day, to_day):
         sa.func.count(sa.case((groups['authentication'], 1))).label('authentication'),
         sa.func.count(sa.case((groups['access-changes'], 1))).label('access_changes'),
         sa.func.count(sa.case((failed_event(event), 1))).label('failed'),
-    ).select_from(m.audit_log).where(primary_requests(event))
-    return dict(db.execute(date_range(query, event, from_day, to_day)).mappings().one())
+    ).select_from(m.audit_log).where(primary_requests(event, through), event.event_at <= through, *date_bounds(event, from_day, to_day))
+    return dict(db.execute(query).mappings().one())
+
+
+def compare_event(moment, identifier, newer):
+    event = m.audit_log.c
+    if newer:
+        return sa.or_(event.event_at > moment, sa.and_(event.event_at == moment, event.id > identifier))
+    return sa.or_(event.event_at < moment, sa.and_(event.event_at == moment, event.id < identifier))
 
 
 def chronological(query, cursor, newer):
     event = m.audit_log.c
     if cursor:
-        moment, identifier = cursor_key(cursor)
-        earlier = sa.or_(event.event_at < moment, sa.and_(event.event_at == moment, event.id < identifier))
-        later = sa.or_(event.event_at > moment, sa.and_(event.event_at == moment, event.id > identifier))
-        query = query.where(later if newer else earlier)
+        query = query.where(compare_event(*cursor_key(cursor), newer))
     order = (event.event_at, event.id) if newer else (event.event_at.desc(), event.id.desc())
     return query.order_by(*order)
 
 
-def entries(db, actor, selection, cursor='', newer=False):
+def log_cutoff(value):
+    current = now().replace(microsecond=0)
+    if value == 'latest':
+        # Oracle DATE stores event_at to the second. Exclude the open second
+        # so requests recorded after the page loads cannot change its count.
+        return current - timedelta(seconds=1)
+    if not value:
+        return current
+    try:
+        through = datetime.fromisoformat(value)
+        if through.tzinfo is not None:
+            through = through.astimezone(timezone.utc).replace(tzinfo=None)
+    except (OverflowError, ValueError):
+        raise HTTPException(422, 'Open the newest entries to restart paging.') from None
+    return min(through.replace(microsecond=0), current)
+
+
+def entry_time(item):
+    return item['when'].astimezone(BANK_ZONE).strftime('%d %b %Y, %H:%M')
+
+
+def entry_date(item):
+    return item['when'].astimezone(BANK_ZONE).date()
+
+
+def entry_target(item):
+    return (
+        ' '.join(part for part in (item['request_method'], item['request_route']) if part),
+        fields('record_type', 'record_code', 'record_title', 'record_id')(item),
+        tuple(tuple(change.values()) for change in item['changes']),
+    )
+
+
+AUDIT_COLUMNS = {
+    'when': lambda item: (entry_time(item), entry_date(item)),
+    'actor': fields('actor', 'actor_username', 'represented'),
+    'event': fields('group', 'event'),
+    'outcome': fields('outcome', 'http_status'),
+    'access_record': entry_target,
+    'client_ip': fields('client_ip'),
+    'details': lambda item: ('Details', item['event'], item['record_code']),
+}
+
+
+AUDIT_CHOICES = {
+    **AUDIT_COLUMNS,
+    'when': entry_date,
+    'access_record': lambda item: (
+        ' '.join(part for part in (item['request_method'], item['request_route']) if part),
+        item['record_code'], item['record_title'], item['record_type'],
+    ),
+}
+
+
+def audit_filters(selection, columns, through=None):
     q, record_type, from_day, to_day, event_type, outcome = selection
     event = m.audit_log.c
-    query = date_range(event_query(), event, from_day, to_day).where(primary_requests(event))
+    conditions = [primary_requests(event, through), *date_bounds(event, from_day, to_day)]
+    if through is not None:
+        conditions.append(event.event_at <= through)
     if record_type == 'other':
-        query = query.where(event.entity_type.not_in(list(ENTITY_LABELS)))
+        conditions.append(event.entity_type.not_in(list(ENTITY_LABELS)))
     elif record_type:
-        query = query.where(event.entity_type.in_(list(ALL_RECORD_TYPES[record_type][1])))
+        conditions.append(event.entity_type.in_(list(ALL_RECORD_TYPES[record_type][1])))
     if event_type:
-        query = query.where(event_groups(event)[event_type])
-    if outcome:
-        if outcome == 'failed':
-            query = query.where(failed_event(event))
-        else:
-            query = query.where(sa.or_(event.http_status < 400, event.action.in_(['LOGIN_SUCCESS', 'LOGOUT'])))
+        conditions.append(event_groups(event)[event_type])
+    if outcome == 'failed':
+        conditions.append(failed_event(event))
+    elif outcome == 'success':
+        conditions.append(sa.or_(event.http_status < 400, event.action.in_(['LOGIN_SUCCESS', 'LOGOUT'])))
     try:
         address = str(ip_address(q))
     except ValueError:
         address = None
     if address:
-        query = query.where(event.client_ip == address)
-        q = address
+        conditions.append(event.client_ip == address)
+        q = ''
+    remaining = dict(columns)
+    remaining.pop(getattr(columns, 'options_for', ''), None)
+    ip_filter = remaining.get('client_ip')
+    ip = sa.func.lower(event.client_ip)
+    if isinstance(ip_filter, frozenset):
+        # Keep the SQL IN list within Oracle's supported bound. Mixed
+        # selections such as a missing IP use the shared filter.
+        if len(ip_filter) <= 1000 and all(re.fullmatch(r'[0-9a-f:.]+', term) for term in ip_filter):
+            conditions.append(ip.in_(sorted(ip_filter)))
+            del remaining['client_ip']
+    elif ip_filter and re.fullmatch(r'[0-9a-f:.]+', ip_filter):
+        conditions.append(ip.contains(ip_filter, autoescape=True))
+        del remaining['client_ip']
+    return conditions, q.casefold(), column_predicate(remaining, AUDIT_COLUMNS)
+
+
+def entries(db, actor, conditions, term, included, cursor='', newer=False):
     subjects = {}
-    term = q.casefold()
-    with db.execute(chronological(query, cursor, newer)) as result:
+    query = chronological(event_query().where(*conditions), cursor, newer)
+    with db.execute(query) as result:
         for event in result.yield_per(100).mappings():
             key = event['entity_type'], event['entity_id']
             if key[0] == 'portal_access':
-                item = project(event, (None, None, None, None), True)
-                if matches(item, term):
-                    yield item
-                continue
-            if key not in subjects:
-                try:
+                record = (None, None, None, None)
+            else:
+                if key not in subjects:
                     subjects[key] = report_subject(db, actor, *key)
-                except HTTPException as error:
-                    if error.status_code not in {403, 404}:
-                        raise
-                    subjects[key] = None
-            if subjects[key] is not None:
-                item = project(event, subjects[key], True)
-                if matches(item, term):
-                    yield item
+                record = subjects[key]
+            item = project(event, record, True)
+            if matches(item, term) and (included is None or included(item)):
+                yield item
 
 
 def take_entries(source, size):
@@ -429,16 +501,48 @@ def take_entries(source, size):
         source.close()
 
 
-def page_entries(source, older, newer):
-    rows = take_entries(source, PAGE_SIZE + 1)
-    more = len(rows) > PAGE_SIZE
-    items = rows[:PAGE_SIZE]
-    if newer:
-        items.reverse()
-    return items, {
-        'older': cursor_for(items[-1]) if items and (more if not newer else True) else None,
-        'newer': cursor_for(items[0]) if items and (more if newer else bool(older)) else None,
+def page_metadata(items, total, end, through):
+    return {
+        'total': total, 'end': end, 'through': through,
+        'older': cursor_for(items[-1]) if items and end < total else None,
+        'newer': cursor_for(items[0]) if items and end > len(items) else None,
     }
+
+
+def count_audit_page(db, conditions, items, through):
+    # Admin can see every retained event that passes the SQL filters. The
+    # count and position use the same predicates as the page query.
+    end = sa.literal(0)
+    if items:
+        last = items[-1]
+        before_or_at_last = ~compare_event(last['when'].replace(tzinfo=None), last['id'], False)
+        end = sa.func.count(sa.case((before_or_at_last, 1)))
+    total, position = db.execute(
+        sa.select(sa.func.count(), end).select_from(m.audit_log).where(*conditions)
+    ).one()
+    return page_metadata(items, total, position, through)
+
+
+def page_matching_entries(source, older, newer, size, through):
+    """Count matches after projection and scope checks, retaining one page."""
+    boundary = cursor_key(older or newer) if older or newer else None
+    items = deque(maxlen=size)
+    total = end = 0
+    try:
+        for item in source:
+            total += 1
+            key = item['when'].replace(tzinfo=None), item['id']
+            if newer:
+                if key > boundary:
+                    items.append(item)
+                    end = total
+            elif len(items) < size and (boundary is None or key < boundary):
+                items.append(item)
+                end = total
+    finally:
+        source.close()
+    rows = list(items)
+    return rows, page_metadata(rows, total, end, through)
 
 
 def change_lines(item):
@@ -454,23 +558,41 @@ def install(app, get_db, current):
 
     @app.get('/api/audit-trail')
     def list_audit(actor=Depends(admin), selection=Depends(filters), older: str = Query('', max_length=80),
-                   newer: str = Query('', max_length=80), db=Depends(get_db)):
+                   newer: str = Query('', max_length=80), page_size: int = Query(PAGE_SIZE, ge=1, le=100),
+                   through: str = Query('', max_length=40), columns=Depends(column_query), db=Depends(get_db)):
         if older and newer:
             raise HTTPException(422, 'Open one audit page at a time.')
-        items, cursors = page_entries(entries(db, actor, selection, older or newer, bool(newer)), older, newer)
+        through = log_cutoff(through)
+        conditions, term, included = audit_filters(selection, columns, through)
+        if columns.options_for:
+            if columns.options_for == 'when' and not term and included is None:
+                # The date menu needs only the indexed timestamps, even in a large log.
+                with db.execute(sa.select(m.audit_log.c.event_at).where(*conditions)) as timestamps:
+                    dates = {moment.replace(tzinfo=timezone.utc).astimezone(BANK_ZONE).date()
+                             for moment in timestamps.scalars()}
+                return column_choices(dates, 'when', {'when': lambda day: day})
+            source = entries(db, actor, conditions, term, included)
+            return column_choices(source, columns.options_for, AUDIT_CHOICES)
+        if term or included is not None:
+            items, page = page_matching_entries(entries(db, actor, conditions, term, included), older, newer, page_size, through)
+        else:
+            items = take_entries(entries(db, actor, conditions, term, included, older or newer, bool(newer)), page_size)
+            if newer:
+                items.reverse()
+            page = count_audit_page(db, conditions, items, through)
         return JSONResponse(jsonable_encoder({
             'items': [{key: value for key, value in item.items() if key not in {
                 'reason', 'path', 'user_agent', 'actor_roles', 'channel', 'delegation_id',
             }} for item in items],
             'types': [{'id': key, 'name': value[0]} for key, value in ALL_RECORD_TYPES.items()],
-            'summary': stats(db, selection[2], selection[3]),
+            'summary': stats(db, selection[2], selection[3], through),
             'event_types': [{'id': key, 'name': name} for key, name in REQUEST_TYPES.items()],
-            **cursors,
+            **page,
         }), headers=NO_CACHE)
 
     @app.get('/api/audit-trail/export')
-    def export_audit(actor=Depends(admin), selection=Depends(filters), db=Depends(get_db)):
-        rows = take_entries(entries(db, actor, selection), EXPORT_LIMIT + 1)
+    def export_audit(actor=Depends(admin), selection=Depends(filters), columns=Depends(column_query), db=Depends(get_db)):
+        rows = take_entries(entries(db, actor, *audit_filters(selection, columns)), EXPORT_LIMIT + 1)
         if len(rows) > EXPORT_LIMIT:
             raise HTTPException(422, f'This export exceeds {EXPORT_LIMIT:,} entries. Narrow the dates or filters.')
         headers = ('When (IST)', 'Actor', 'On behalf of', 'Record type', 'Record code', 'Record title',
@@ -488,7 +610,7 @@ def install(app, get_db, current):
         q, kind, start, end, event_type, outcome = selection
         audit(db, actor, 'audit_report', 'trail', 'EXPORTED', new={
             'count': len(rows), 'record_type': kind, 'from': start, 'to': end, 'search_applied': bool(q),
-            'event_type': event_type, 'outcome': outcome,
+            'event_type': event_type, 'outcome': outcome, 'column_filters_applied': bool(columns),
         })
         return Response(content, media_type='text/csv', headers={
             **NO_CACHE, 'Content-Disposition': 'attachment; filename="compliance-audit-trail.csv"',

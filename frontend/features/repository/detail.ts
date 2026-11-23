@@ -258,8 +258,8 @@ export function renderRecord(q) {
           esc(r.change_summary || '—'),
           esc(r.approved_by ? ref('user', r.approved_by) : '—'),
         ]),
-        { summary: false },
-      ).replace('<table class="data-table">', '<table class="data-table version-history-table">'),
+        { tableClass: 'version-history-table' },
+      ),
     );
   else if (tab === 'clauses') body = clauseView(i, v, editable, q);
   else if (tab === 'obligations') body = obligationView(i, versions, clauses, linked_obligations, obligationRegisterPath);

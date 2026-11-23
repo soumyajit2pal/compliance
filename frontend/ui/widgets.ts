@@ -1,6 +1,6 @@
 import { esc, title, badge, link } from './components.ts';
 import { icon } from './icons.ts';
-import { collectionKey, withoutPaging, type PageInfo } from '../core/pagination.ts';
+import { collectionKey, withoutPaging, type PageInfo, type PageCursors } from '../core/pagination.ts';
 import { pagedTable } from './pagination.ts';
 import { dashboardInfo } from './dashboard-info.ts';
 export { pagedCollection } from './pagination.ts';
@@ -16,15 +16,18 @@ export function note(text, kind = 'info') {
 export function table(
   headers,
   rows,
-  { summary = true, caption = '', empty = 'No records match this view.', pageKey = '', label = '', pagination = undefined as PageInfo | undefined, paginate = true, cardLayout = paginate } = {},
+  { summary = true, caption = '', empty = 'No records match this view.', pageKey = '', label = '', pagination = undefined as PageInfo | undefined,
+    cursors = undefined as PageCursors | undefined, columnOptionsUrl = '', cardLayout = true, tableClass = '', rowHeaders = false } = {},
 ) {
-  // Labelled cells allow ordinary registers to become readable cards on phones.
-  // Complex matrices and complete hierarchies retain their scrollable table layout.
   const cards = cardLayout && headers.length <= 7;
-  const content = `<div class="table-wrap"><table class="data-table${cards ? ' record-table' : ''}"${cards ? ' role="table"' : ''}>${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead${cards ? ' role="rowgroup"' : ''}><tr${cards ? ' role="row"' : ''}>${headers.map((h) => `<th scope="col"${cards ? ' role="columnheader"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody ${paginate ? 'data-page-items' : ''}${cards ? ' role="rowgroup"' : ''}>${rows.length ? rows.map((cells) => `<tr${cards ? ' role="row"' : ''}>${cells.map((c,i) => `<td${cards ? ` role="cell" data-label="${esc(headers[i] || 'Actions')}"` : ''}>${c}</td>`).join('')}</tr>`).join('') : `<tr data-empty-row${cards ? ' role="row"' : ''}><td colspan="${headers.length}"${cards ? ' role="cell"' : ''}><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`}</tbody></table></div>`;
-  return paginate ? pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), label, pagination, summary})
-    : content + (summary ? `<div class="table-summary">${rows.length} records · Complete hierarchy</div>` : '');
+  const emptyRow = `<tr data-empty-row${cards ? ' role="row"' : ''}><td colspan="${headers.length}"${cards ? ' role="cell"' : ''}><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`;
+  const body = rows.map(cells => `<tr${cards ? ' role="row"' : ''}>${cells.map((cell, index) => rowHeaders && index === 0
+    ? `<th scope="row">${cell}</th>`
+    : `<td${cards ? ` role="cell" data-label="${esc(headers[index] || 'Actions')}"` : ''}>${cell}</td>`).join('')}</tr>`).join('');
+  const content = `<div class="table-wrap"><table class="data-table${cards ? ' record-table' : ''}${tableClass ? ' ' + esc(tableClass) : ''}"${cards ? ' role="table"' : ''}>${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead${cards ? ' role="rowgroup"' : ''}><tr${cards ? ' role="row"' : ''}>${headers.map(h => `<th scope="col"${cards ? ' role="columnheader"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody data-page-items${cards ? ' role="rowgroup"' : ''}>${body || emptyRow}</tbody></table></div>${rows.length ? `<template data-table-empty>${emptyRow}</template>` : ''}`;
+  return pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), label, pagination, cursors, summary, columnOptionsUrl});
 }
+
 export function tablePanel(content, name = '', actions = '', cls = '') {
   return name
     ? panel(name, content, { action: actions, cls: `table-panel ${cls}`.trim() })

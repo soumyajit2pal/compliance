@@ -190,7 +190,9 @@
   .obligation-workspace-heading { padding: 23px; align-items: start; }
   .obligation-register-results .table-wrap { overflow: visible; }
   .obligation-register-results .data-table { display: block; }
-  .obligation-register-results .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+  .obligation-register-results .data-table thead { display: block; }
+  .obligation-register-results .data-table thead tr { display: flex; flex-wrap: wrap; padding: 8px 16px; }
+  .obligation-register-results .data-table thead th { padding: 0; border: 0; background: transparent; }
   .obligation-register-results .data-table tbody { display: grid; gap: 12px; padding: 0 16px 16px; }
   .obligation-register-results .data-table tbody tr { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); border: 1px solid #e4dce9; border-radius: 9px; overflow: hidden; padding: 16px; gap: 16px; }
   .obligation-register-results .data-table td { display: block; min-width: 0; border: 0; padding: 0; }

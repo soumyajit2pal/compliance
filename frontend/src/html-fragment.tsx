@@ -1,5 +1,6 @@
 import { createElement, useMemo, type CSSProperties, type ReactNode } from 'react';
 import { SearchableSelectField } from './components/searchable-select';
+import { tableColumns } from '../core/table-filters.ts';
 import { PaginatedCollection } from './components/paginated-collection';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -85,7 +86,7 @@ function propsFor(element: Element): Record<string, unknown> {
   return props;
 }
 
-function nodeToReact(node: Node, key: string, replacement?: {target: Element; children: ReactNode[]}): ReactNode {
+function nodeToReact(node: Node, key: string, replacement?: {target: Element; children: ReactNode[]; headings: Map<Element, ReactNode>}): ReactNode {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent;
   if (!(node instanceof Element)) return null;
   const tag = node.tagName.toLowerCase();
@@ -94,18 +95,44 @@ function nodeToReact(node: Node, key: string, replacement?: {target: Element; ch
   if (node.hasAttribute('data-paged-collection')) {
     const target = node.querySelector('[data-page-items]');
     const info = JSON.parse(node.getAttribute('data-page-info'));
-    const children = Array.from(target.childNodes).filter(child => child.nodeType !== Node.TEXT_NODE || child.textContent.trim())
-      .map((child, i) => nodeToReact(child, key + '.item' + i));
+    const children = Array.from(target.childNodes).filter(child => child.nodeType !== Node.TEXT_NODE || child.textContent.trim());
+    const table = node.hasAttribute('data-page-table');
+    const emptyRow = table && (target.querySelector(':scope > [data-empty-row]') ||
+      node.querySelector<HTMLTemplateElement>(':scope > template[data-table-empty]')?.content.firstElementChild);
+    const records = table ? children.filter(child => child !== emptyRow) : info.total ? children : [];
+    const empty = table ? (emptyRow ? [emptyRow] : []) : info.total ? [] : children;
+    const cursors = node.getAttribute('data-page-cursors');
+    const server = node.getAttribute('data-page-server') === '1';
+    const headers = table ? Array.from(target.parentElement.querySelectorAll('thead th')) : [];
+    const columns = table ? tableColumns(headers.map(th => th.textContent)) : undefined;
+    const cells = table && !server ? records.map(row => Array.from((row as HTMLTableRowElement).cells, cell => {
+      const words = [];
+      const walker = cell.ownerDocument.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const parent = walker.currentNode.parentElement;
+        if (parent?.closest('[hidden], [aria-hidden="true"]')) continue;
+        if (parent?.closest('details:not([open])') && !parent.closest('summary')) continue;
+        words.push(walker.currentNode.textContent);
+      }
+      return words.join(' ').replace(/\s+/g, ' ').trim() || cell.getAttribute('aria-label') || '—';
+    })) : undefined;
     return createElement(PaginatedCollection, {
       key: key + ':' + node.getAttribute('data-page-key') + ':' + node.getAttribute('data-page-scope'),
       pageKey: node.getAttribute('data-page-key'), initial: info,
-      revision: node.getAttribute('data-page-revision'), server: node.getAttribute('data-page-server') === '1',
+      revision: node.getAttribute('data-page-revision'), server, cursors: cursors ? JSON.parse(cursors) : undefined, columns, cells,
+      columnOptionsUrl: node.getAttribute('data-column-options-url'),
       label: node.getAttribute('data-page-label'), summary: node.getAttribute('data-page-summary') === '1',
-      items: info.total ? children : [], empty: info.total ? [] : children,
-      renderItems: visible => Array.from(node.childNodes).map((child, i) => nodeToReact(child, key + '.body' + i, {target, children: visible})),
+      items: records.map((child, i) => nodeToReact(child, key + '.item' + i)),
+      empty: empty.map((child, i) => nodeToReact(child, key + '.empty' + i)),
+      renderItems: (visible, headings = []) => {
+        const replacement = {target, children: visible, headings: new Map(headers.map((header, i) => [header, headings[i]]))};
+        return Array.from(node.childNodes).filter(child => !(child instanceof HTMLTemplateElement))
+          .map((child, i) => nodeToReact(child, key + '.body' + i, replacement));
+      },
     });
   }
-  const children = tag === 'textarea'
+  const heading = replacement?.headings.get(node);
+  const children = heading ? [heading] : tag === 'textarea'
     ? []
     : node === replacement?.target ? replacement.children
     : Array.from(node.childNodes).map((child, index) => nodeToReact(child, `${key}.${index}`, replacement));

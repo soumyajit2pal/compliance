@@ -1,3 +1,4 @@
+import type { PageInfo } from '../core/pagination.ts';
 import { api } from '../core/api.ts';
 import { clauseWorkspacePath } from '../core/source-navigation.ts';
 import { esc } from '../ui/components.ts';
@@ -7,7 +8,8 @@ import { clauseEditionBadges } from './clause-workspace.ts';
 export type BrowserClause = Record<string, any>;
 export interface ClauseBatch {
   items: BrowserClause[];
-  next_page: number | null;
+  next_page?: number | null;
+  pagination?: PageInfo;
 }
 
 export function browsePath(row: BrowserClause, query: URLSearchParams) {

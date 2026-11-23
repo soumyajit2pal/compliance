@@ -89,8 +89,7 @@
   min-width: 0;
 }
 
-.audit-filter-actions,
-.audit-paging {
+.audit-filter-actions {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -101,8 +100,7 @@
   min-width: 0;
 }
 
-.audit-results-meta,
-.audit-paging {
+.audit-results-meta {
   padding: 14px 18px;
 }
 
@@ -114,11 +112,6 @@
   color: var(--muted);
   border-bottom: 1px solid var(--line);
   font-size: .85rem;
-}
-
-.audit-paging {
-  justify-content: flex-end;
-  border-top: 1px solid var(--line);
 }
 
 .audit-results .data-table {

@@ -38,7 +38,7 @@ function familyStatus(value) {
   return statusTag(label, tone);
 }
 
-function familyRegister(data, when, q, domain, filters) {
+function familyRegister(data, when, q, domain, filters, columnOptionsUrl) {
   const rows = data.families.map(({root, notification_count, latest_issued, obligation_count}) => {
     const path = familyPath(root.id, new URLSearchParams({as_of: when}));
     const obligations = familyPath(root.id, new URLSearchParams({as_of: when, show: 'obligations'}));
@@ -57,7 +57,7 @@ function familyRegister(data, when, q, domain, filters) {
   return heading('Notification families','Original notifications and amendments, grouped by family.',link('repository','Regulatory library','btn'))+
     filters + `<p class="family-register-total">${counted(total,q||domain?'matching family':'authorised family',q||domain?'matching families':'authorised families')} · ${counted(data.authorised_instruments,'authorised library record')}</p>` +
     '<div class="family-register">' + tablePanel(table(['Original notification','Regulator / domain','Notifications','Latest issued','Materiality','Obligations','Family'], rows,{
-      pageKey:'families', pagination:data.pagination, label:'families', caption:'Notification families',
+      pageKey:'families', pagination:data.pagination, columnOptionsUrl, label:'families', caption:'Notification families',
       empty:q||domain ? 'No matching notification families' : 'No notification families are available in your scope',
     })) + '</div>';
 }
@@ -146,7 +146,8 @@ export async function notificationFamiliesPage(id,query=new URLSearchParams()) {
   filters.set('as_of',when);
   if (id) filters.set('include_implementation_progress','true');
   else filters.set('library','true');
-  const data=await api('/notification-families'+(id?'/'+id:'')+'?'+(id?filters:apiPageQuery(filters,'families')));
+  const requestUrl='/notification-families'+(id?'/'+id:'')+'?'+(id?filters:apiPageQuery(filters,'families'));
+  const data=await api(requestUrl);
   state.view.family=data;
   const domains = (state.masters?.regulatory_domain || [])
     .filter(row => data.domain_ids?.includes(row.id)).sort((a,b) => a.name.localeCompare(b.name));
@@ -155,7 +156,7 @@ export async function notificationFamiliesPage(id,query=new URLSearchParams()) {
       field('Domain',select('domain_id',domains,domain,'name','aria-label="Domain"','All domains'))}
     ${field('As of date',input('as_of',when,'date','required'))}<button type="submit" class="btn primary family-filter-apply">Apply filters</button>
     </div>${id?`<input type="hidden" name="notification" value="${esc(query.get('notification')||id)}"><input type="hidden" name="tab" value="${esc(query.get('tab')||'sources')}">`:''}</form>`;
-  if(!id) return familyRegister(data, when, q, domain, dateForm('notification-families'));
+  if(!id) return familyRegister(data, when, q, domain, dateForm('notification-families'), requestUrl);
   const selected=data.members.find(row=>row.id===(query.get('notification')||id))||data.members[0];
   const root=data.members.find(row=>row.id===data.root_id);
   if(query.get('tab')==='implementation'&&!hasImplementation(selected))query.set('tab','sources');

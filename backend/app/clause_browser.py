@@ -1,5 +1,6 @@
 """Bounded browsing reads. The legacy clause catalogue still serves authoring integrations."""
 from datetime import date
+from collections import deque
 from typing import Literal
 
 import sqlalchemy as sa
@@ -7,6 +8,8 @@ from fastapi import Depends, HTTPException, Query
 
 from . import business_ids, clause_search, models as m, repository as repo
 from .access import READ_ROLES
+from .pagination import paginate, page_metadata
+from .table_filters import column_choices, column_predicate, column_query, fields, label, version
 
 PAGE_SIZE = 25
 clause = m.regulatory_clause
@@ -90,10 +93,90 @@ def _ancestors(db, rows):
     return paths
 
 
-def browse(db, actor, instrument_id, edition_filter, parent_id, mode, query, status, page, search_type):
+def annotate_search_rows(db, rows):
+    mark_current(db, rows)
+    paths = _ancestors(db, rows)
+    for row in rows:
+        row['parent_path'] = [
+            item['source_clause_reference'] or item['heading'] or item['code'] for item in paths[row['id']]
+        ]
+
+
+def edition_text(row):
+    status = row['version_approval_status']
+    if row['version_is_effective_current']:
+        display = 'Current approved'
+    elif row['version_cancelled_draft']:
+        display = 'Cancelled draft'
+    elif status == 'APPROVED' and row['version_effective_from'] > date.today():
+        display = 'Approved Future effective'
+    elif status == 'APPROVED' and row['version_effective_to'] and row['version_effective_to'] <= date.today():
+        display = 'Approved Historical'
+    else:
+        display = label(status)
+    return 'v' + version(row['version_number']), display
+
+
+CLAUSE_COLUMNS = {
+    'clause': fields('code','heading','source_clause_reference'),
+    'instrument': fields('instrument_code','instrument_short_title','instrument_title'),
+    'source_edition': edition_text,
+    'parent_path': lambda row:' → '.join(row['parent_path']) or 'Top level',
+    'page': fields('source_page_reference'),
+    'clause_approval': lambda row:label(row['approval_status']),
+}
+
+
+def matching_clause_rows(db, statement, order, includes, required):
+    with db.execute(statement.order_by(*order)) as result:
+        for partition in result.mappings().partitions(100):
+            rows = [dict(row) for row in partition]
+            if 'parent_path' in required:
+                annotate_search_rows(db, rows)
+            elif 'source_edition' in required:
+                mark_current(db, rows)
+            yield from (row for row in rows if includes is None or includes(row))
+
+
+def register_page(db, statement, order, page, size, columns):
+    includes = column_predicate(columns, CLAUSE_COLUMNS)
+    option = getattr(columns, 'options_for', '')
+    if option:
+        source = matching_clause_rows(db, statement, order, includes, {*columns, option})
+        return column_choices(source, option, CLAUSE_COLUMNS)
+    if includes:
+        total = 0
+        offset = (page - 1) * size
+        items = []
+        tail = deque(maxlen=size)
+        for row in matching_clause_rows(db, statement, order, includes, columns):
+            if offset <= total < offset + size:
+                items.append(row)
+            tail.append(row)
+            total += 1
+        info = page_metadata(total, page, size)
+        if total and info['page'] < page:
+            items = list(tail)[-(info['end'] - info['start'] + 1):]
+        if 'parent_path' not in columns:
+            annotate_search_rows(db, items)
+        return {'items': items, 'pagination': info}
+
+    total = db.execute(sa.select(sa.func.count()).select_from(statement.subquery())).scalar_one()
+    info = page_metadata(total, page, size)
+    rows = [dict(row) for row in db.execute(statement.order_by(*order)
+            .offset((info['page'] - 1) * size).limit(size)).mappings()] if total else []
+    annotate_search_rows(db, rows)
+    return {'items': rows, 'pagination': info}
+
+
+def browse(db, actor, instrument_id, edition_filter, parent_id, mode, query, status, page, search_type,
+           page_size=None, columns=None):
     actor.require(READ_ROLES)
     query = query.strip()
-    empty = {'items': [], 'next_page': None}
+    paged_register = mode == 'search' and page_size is not None
+    option = getattr(columns, 'options_for', '')
+    empty = (column_choices([], option, CLAUSE_COLUMNS) if paged_register and option else
+             paginate([], page, page_size) if paged_register else {'items': [], 'next_page': None})
     if mode == 'search' and query and search_type == 'literal' and (
         instrument_id == 'all' or edition_filter in {'all', 'current'}
     ):
@@ -131,16 +214,15 @@ def browse(db, actor, instrument_id, edition_filter, parent_id, mode, query, sta
                 statement = statement.where(clause.c.id.in_(clause_search.candidate_ids(query, search_type, search_filters)))
         order = (instrument.c.title, instrument.c.id, edition.c.version_date.desc(),
                  clause.c.sequence_number, clause.c.code, clause.c.id)
+    if paged_register:
+        return register_page(db, statement, order, page, page_size, columns if columns is not None else {})
     rows = [dict(row) for row in db.execute(statement.order_by(*order)
             .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE + 1)).mappings()]
     items = rows[:PAGE_SIZE]
-    mark_current(db, items)
-    if mode == 'search' and items:
-        paths = _ancestors(db, items)
-        for row in items:
-            row['parent_path'] = [
-                item['source_clause_reference'] or item['heading'] or item['code'] for item in paths[row['id']]
-            ]
+    if mode == 'search':
+        annotate_search_rows(db, items)
+    else:
+        mark_current(db, items)
     return {'items': items, 'next_page': page + 1 if len(rows) > PAGE_SIZE else None}
 
 
@@ -189,8 +271,9 @@ def install(app, get_db, current):
                 parent: str | None = Query(None, max_length=36), mode: Literal['tree', 'search'] = 'tree',
                 search_type: Literal['keyword', 'phrase', 'reference', 'literal'] = 'keyword',
                 q: str = Query('', max_length=200), status: str = Query('', max_length=30),
-                page: int = Query(1, ge=1, le=1_000_000), db=Depends(get_db), actor=Depends(current)):
-        return browse(db, actor, instrument, edition, parent, mode, q, status, page, search_type)
+                page: int = Query(1, ge=1, le=1_000_000), page_size: int | None = Query(None, ge=1, le=100),
+                columns=Depends(column_query), db=Depends(get_db), actor=Depends(current)):
+        return browse(db, actor, instrument, edition, parent, mode, q, status, page, search_type, page_size, columns)
 
     @app.get('/api/clause-browser/{identifier}')
     def read(identifier: str, db=Depends(get_db), actor=Depends(current)):

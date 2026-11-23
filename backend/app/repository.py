@@ -632,7 +632,7 @@ def listing(db,actor,filters):
             if filters.get(key): date.fromisoformat(filters[key])
     except ValueError as exc:raise HTTPException(422,'Search dates must use YYYY-MM-DD.') from exc
     current_version=m.instrument_version.alias('current_version')
-    rows=db.execute(sa.select(m.regulatory_instrument,m.regulator.c.name.label('regulator_name'),
+    rows=db.execute(sa.select(m.regulatory_instrument,m.regulator.c.name.label('regulator_name'),m.regulator.c.code.label('regulator_code'),
         m.regulatory_domain.c.name.label('domain_name'),m.instrument_type.c.name.label('type_name'),
         m.confidentiality_class.c.rank_number.label('confidentiality_rank'),
         current_version.c.version_number.label('current_version_number'))

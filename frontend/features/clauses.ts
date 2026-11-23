@@ -1,3 +1,5 @@
+import { pageInfo, pageParam, pageRequest, sizeParam } from '../core/pagination.ts';
+import { apiColumnFilters, readColumnFilters, writeColumnFilters } from '../core/table-filters.ts';
 import { api } from '../core/api.ts';
 import { covered, has } from '../core/access.ts';
 import { state } from '../core/state.ts';
@@ -52,7 +54,9 @@ function parentPath(row: BrowserClause) {
   return row.parent_path?.length ? row.parent_path.join(' → ') : 'Top level';
 }
 
-function clauseRegister(batch: ClauseBatch, query: URLSearchParams, page: number) {
+const clauseRegisterKey = 'clause-register';
+
+function clauseRegister(batch: ClauseBatch, query: URLSearchParams, parameters: URLSearchParams) {
   return tablePanel(table(
     ['Clause', 'Instrument', 'Source edition', 'Parent path', 'Page', 'Clause approval'],
     batch.items.map(row => [
@@ -63,8 +67,9 @@ function clauseRegister(batch: ClauseBatch, query: URLSearchParams, page: number
       esc(row.source_page_reference || '—'),
       badge(row.approval_status),
     ]),
-    { caption: 'Authorised source clauses and Para', empty: 'No clauses or Para match this search.', paginate: false, summary: false },
-  ) + pageLinks(query, page, batch), 'Clause and para register', '', 'clause-register-panel');
+    { caption: 'Authorised source clauses and Para', empty: 'No clauses or Para match this search.', pageKey: clauseRegisterKey,
+      columnOptionsUrl: '/clause-browser?' + parameters, pagination: batch.pagination || pageInfo(batch.items.length, 1, pageRequest(query, clauseRegisterKey).page_size), cardLayout: false },
+  ), 'Clause and para register', '', 'clause-register-panel');
 }
 
 function searchNavigation(batch: ClauseBatch, query: URLSearchParams, page: number) {
@@ -214,9 +219,16 @@ export async function clausesPage(_id, query = new URLSearchParams()) {
   if (selected) context.set('clause', selected.id);
   if (selected && query.get('return_view') === 'register') context.set('return_view', 'register');
   const requestedPage = Number(query.get('page'));
-  const page = Number.isInteger(requestedPage) && requestedPage > 0 && requestedPage <= 1_000_000 ? requestedPage : 1;
+  const legacyPage = Number.isInteger(requestedPage) && requestedPage > 0 && requestedPage <= 1_000_000 ? requestedPage : 1;
+  const registerRequest = pageRequest(query, clauseRegisterKey);
+  const page = registerView && query.has(pageParam(clauseRegisterKey)) ? Math.min(registerRequest.page, 1_000_000) : legacyPage;
   const searchMode = registerView || filtering;
-  if (searchMode && page > 1) context.set('page', String(page));
+  if (searchMode && page > 1) context.set(registerView ? pageParam(clauseRegisterKey) : 'page', String(page));
+  if (registerView || context.has('return_view')) {
+    if (query.has(pageParam(clauseRegisterKey))) context.set(pageParam(clauseRegisterKey), String(registerRequest.page));
+    if (query.has(sizeParam(clauseRegisterKey))) context.set(sizeParam(clauseRegisterKey), String(registerRequest.page_size));
+    writeColumnFilters(context, clauseRegisterKey, readColumnFilters(query, clauseRegisterKey));
+  }
   if (registerView) context.set('view', 'register');
   const browsing = Boolean(scope.instrument || filtering);
   const readerScope = selected ? new URLSearchParams({ instrument: selected.instrument_id, edition: selected.instrument_version_id }) : null;
@@ -227,6 +239,10 @@ export async function clausesPage(_id, query = new URLSearchParams()) {
     if (search) parameters.set('q', search);
     if (status) parameters.set('status', status);
     if (page > 1) parameters.set('page', String(page));
+    if (registerView) {
+      parameters.set('page_size', String(registerRequest.page_size));
+      apiColumnFilters(parameters, query, clauseRegisterKey);
+    }
   }
   const batch = readerScope || (browsing && !exactUnavailable)
     ? await clauseBatch(readerScope || parameters) : { items: [], next_page: null };
@@ -267,7 +283,7 @@ export async function clausesPage(_id, query = new URLSearchParams()) {
       <p>Choose an instrument to explore its clause hierarchy by source edition.</p>
       ${sourceControls(instruments, scope, today)}
     </section>`;
-    const results = !browsing || exactUnavailable ? '' : registerView ? clauseRegister(batch, context, page) :
+    const results = !browsing || exactUnavailable ? '' : registerView ? clauseRegister(batch, context, parameters) :
       filtering ? searchNavigation(batch, context, page) : `<section class="panel">${hierarchy(context, [], true)}</section>`;
     return `<div class="clause-workspace-page">${pageHeading}
       <div class="clause-workspace-stack">${searchForm(scope, search, searchType, status, registerView)}${notices}

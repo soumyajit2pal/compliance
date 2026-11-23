@@ -305,9 +305,10 @@ def visible_family_chains(db,actor,when):
     return visible,parents,chains
 
 
-def library(db,actor,when,search,domain_id,paging):
+def library(db,actor,when,search,domain_id,paging,columns=None):
     from . import delivery,implementation_progress,obligations
     from .pagination import paginate
+    from .table_filters import column_choices, fields, filter_rows
     when=when or date.today()
     visible,parents,chains=visible_family_chains(db,actor,when)
     groups={}
@@ -329,13 +330,44 @@ def library(db,actor,when,search,domain_id,paging):
             'latest_issued':{'code':latest['code'],'issue_date':latest['issue_date']} if latest else None,
             '_members':ids,
         })
+    def fill_obligation_counts(rows):
+        links=obligations.instrument_links_by_source(db,actor,[key for family in rows for key in family['_members']])
+        day=delivery.today()
+        for family in rows:
+            linked=(row for key in family.pop('_members') for row in links.get(key,[]))
+            family['obligation_count']=len(implementation_progress.obligation_population(linked,day))
+
+    def notification_count(family):
+        count=family['notification_count']
+        if family['root']['restricted_parent']:
+            description='Authorised branch'
+        elif count > 1:
+            description=f"{count - 1} amendment" + ('s' if count > 2 else '')
+        else:
+            description='Standalone'
+        return count, description
+
+    column_filters = columns if columns is not None else {}
+    options_for = getattr(columns, 'options_for', '')
+    counts_required = 'obligations' in column_filters or options_for == 'obligations'
+    if counts_required:
+        fill_obligation_counts(results)
+    projections={
+        'original_notification':lambda family:fields('code','short_title','title','official_reference_number')(family['root']),
+        'regulator_domain':lambda family:fields('regulator_code','regulator_name','domain_name')(family['root']),
+        'notifications':notification_count,
+        'latest_issued':lambda family:fields('code','issue_date')(family['latest_issued']) if family['latest_issued'] else None,
+        'materiality':lambda family:family['root']['materiality'],
+        'obligations':fields('obligation_count'),
+        'family':lambda family:'Open family',
+    }
+    results=filter_rows(results,column_filters,projections)
+    if options_for:
+        return column_choices(results,options_for,projections)
     paged=paginate(results,**paging)
     families=paged['items'] if isinstance(paged,dict) else paged
-    links=obligations.instrument_links_by_source(db,actor,[key for family in families for key in family['_members']])
-    day=delivery.today()
-    for family in families:
-        linked=(row for key in family.pop('_members') for row in links.get(key,[]))
-        family['obligation_count']=len(implementation_progress.obligation_population(linked,day))
+    if not counts_required:
+        fill_obligation_counts(families)
     return {'as_of':when,'families':families,'domain_ids':domain_ids,'authorised_instruments':len(visible),
             **({'pagination':paged['pagination']} if isinstance(paged,dict) else {})}
 

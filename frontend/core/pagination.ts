@@ -1,6 +1,15 @@
+import { apiColumnFilters, isColumnFilterParam } from './table-filters.ts';
+
 /** Shared paging contract for API registers and already-authorised local collections. */
 export const PAGE_SIZES = [10, 25, 50, 100] as const;
 export const DEFAULT_PAGE_SIZE = 25;
+export interface PageCursors {
+  older?: string | null;
+  newer?: string | null;
+  through?: string;
+  total?: number;
+  end?: number;
+}
 export interface PageInfo {
   page: number;
   page_size: number;
@@ -53,6 +62,9 @@ export function pagePath(hash: string, key: string, page: number, size: number) 
 }
 export function apiPageQuery(query: URLSearchParams, key: string) {
   const next = withoutPaging(query), request = pageRequest(query, key);
+  for (const param of [...next.keys()]) if (isColumnFilterParam(param)) next.delete(param);
+  next.delete('columns');
+  apiColumnFilters(next, query, key);
   next.set('page', String(request.page)); next.set('page_size', String(request.page_size));
   return next;
 }

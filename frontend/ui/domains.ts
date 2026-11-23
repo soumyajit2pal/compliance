@@ -31,6 +31,9 @@ export function domainReadiness(domain) {
 export const domainChoices = (rows) =>
   rows.map((domain) => ({ ...domain, option_status: domainReadiness(domain).label }));
 
+export const domainFilterChoices = (rows) =>
+  (rows || []).map(({ id, code, name }) => ({ id, code, name }));
+
 export function domainGuidance(domain) {
   const status = domainReadiness(domain);
   if (!status)

@@ -31,6 +31,7 @@ class RuntimeSettings:
     reminders_enabled: bool = False
     reminder_interval_seconds: int = 300
     employee_api_allowed_hosts: tuple[str, ...] = ('app.mahabank.co.in',)
+    redis_url: str = field(default='', repr=False)
 
     def __post_init__(self):
         if not 60 <= self.reminder_interval_seconds <= 86400:
@@ -118,4 +119,5 @@ def runtime_settings():
         positive_integer('SLOW_REQUEST_MS',2000,3600000),
         values.get('COMPLIANCE_REMINDERS_ENABLED','true' if s.app_env=='uat' else 'false').lower()=='true',
         positive_integer('COMPLIANCE_REMINDER_INTERVAL_SECONDS',300,86400),
-        tuple(x.strip().lower() for x in values.get('EMPLOYEE_API_ALLOWED_HOSTS','app.mahabank.co.in').split(',') if x.strip()))
+        tuple(x.strip().lower() for x in values.get('EMPLOYEE_API_ALLOWED_HOSTS','app.mahabank.co.in').split(',') if x.strip()),
+        redis_url=(values.get('REDIS_URL') or '').strip())

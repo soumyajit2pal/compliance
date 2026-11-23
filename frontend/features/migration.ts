@@ -36,7 +36,8 @@ export async function migrationPage(id, query = new URLSearchParams()) {
     state.batch = data;
     return renderBatch(query);
   }
-  const result = await api('/migration?' + apiPageQuery(query, 'batches'));
+  const columnOptionsUrl = '/migration?' + apiPageQuery(query, 'batches');
+  const result = await api(columnOptionsUrl);
   const batches = Array.isArray(result) ? result : result.items;
   if (request !== state.routeNumber || !state.identity) return '';
   const q = (query.get('q') || '').toLowerCase(),
@@ -64,7 +65,7 @@ export async function migrationPage(id, query = new URLSearchParams()) {
           r.pending_count,
           link('migration/' + r.id, 'Source profile', 'btn small'),
         ]),
-        {pageKey: 'batches', pagination: result.pagination},
+        {pageKey: 'batches', pagination: result.pagination, columnOptionsUrl},
       ),
       'Source batches',
       `<div><div class="actions"><a class="btn small" href="/api/migration-template?format=xlsx" download>${icon('download')}Download Excel template</a><a class="btn small" href="/api/migration-template?format=csv" download>CSV template</a></div><p>Choices refreshed from the database on every download.</p></div>`,

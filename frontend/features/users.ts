@@ -225,9 +225,9 @@ async function departmentHistory(id, trigger: HTMLElement) {
   ]);
   modal('Employee profile history', `<div class="review-history">
     ${pending ? `<section class="review-callout"><div><h3>Pending profile review</h3><p>${esc(reviewSummary(pending))} · Submitted ${reviewTime(pending.requested_at)}</p></div>${reviewButton(pending,user,'Review request')}</section>` : '<p class="review-callout">No profile decision is pending.</p>'}
-    <h3>Review history</h3>${history.length ? table(['Submitted','Profile details','Status','Decision'],history,{paginate:history.length>25, summary:false, cardLayout:true}) : '<p>No requests have been submitted.</p>'}
+    <h3>Review history</h3>${history.length ? table(['Submitted','Profile details','Status','Decision'],history,{summary:false}) : '<p>No requests have been submitted.</p>'}
     <details class="review-disclosure"><summary>Current profile and Home organisation</summary><p>${esc(ref('organisational_unit',user.org_unit_id) || 'Not selected')}</p>${userDepartmentDetails(user)}</details>
-    ${archived.length ? `<details class="review-disclosure"><summary>Archived pre-migration evidence (${archived.length})</summary>${archived.map(r=>`<h4>${esc(title(r.record_type))}</h4>${table(['Archived field','Retained value'],Object.entries(JSON.parse(r.payload)).filter(([,v])=>v!=null).map(([k,v])=>[esc(title(k)),esc(typeof v==='object'?JSON.stringify(v):String(v))]),{summary:false})}`).join('')}</details>` : ''}
+    ${archived.length ? `<details class="review-disclosure"><summary>Archived pre-migration evidence (${archived.length})</summary>${archived.map(r=>`<h4>${esc(title(r.record_type))}</h4>${table(['Archived field','Retained value'],Object.entries(JSON.parse(r.payload)).filter(([,v])=>v!=null).map(([k,v])=>[esc(title(k)),esc(typeof v==='object'?JSON.stringify(v):String(v))]),{summary:false,pageKey:'archived-profile-'+r.id})}`).join('')}</details>` : ''}
   </div>`, '', '', user.full_name + ' · ' + user.username, trigger);
 }
 function reviewDepartment(id, trigger) {

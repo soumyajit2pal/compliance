@@ -40,6 +40,6 @@ export default defineConfig(({ command }) => {
       fs: { allow: [directory], deny: ['.env', '.env.*', '**/*.{pem,key,crt}', '**/.git/**', '**/var/**', '**/.secrets/**'] },
     },
     preview: { https, host: local?.host || '127.0.0.1', port: 5173, strictPort: true, proxy },
-    build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },
+    build: { outDir: 'dist', assetsDir: 'bundles', emptyOutDir: true, sourcemap: false },
   };
 });

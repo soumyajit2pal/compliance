@@ -1,4 +1,7 @@
+import type { PageCursors } from '../core/pagination.ts';
 import { api, downloadProtected } from '../core/api.ts';
+import { pageRequest, sizeParam } from '../core/pagination.ts';
+import { apiColumnFilters, readColumnFilters, writeColumnFilters } from '../core/table-filters.ts';
 import { esc, field, input, select, statusTag, title } from '../ui/components.ts';
 import { dashboardInfo } from '../ui/dashboard-info.ts';
 import { close, modal } from '../ui/dialog.ts';
@@ -47,11 +50,9 @@ interface AuditDetail extends AuditEntry {
   settings_changed?: string[];
 }
 
-interface AuditPage {
+interface AuditPage extends PageCursors {
   items: AuditEntry[];
   types: { id: string; name: string }[];
-  older: string | null;
-  newer: string | null;
   summary?: {total: number; authentication: number; access_changes: number; failed: number} | null;
   event_types?: {id: string; name: string}[];
   departments?: {id: string; name: string}[];
@@ -85,12 +86,6 @@ function filterParams(query: URLSearchParams, workflow: boolean) {
     if (value) result.set(key, value);
   }
   return result;
-}
-
-function cursorLink(path: string, filters: URLSearchParams, key: 'newer' | 'older', cursor: string, label: string) {
-  const query = new URLSearchParams(filters);
-  query.set(key, cursor);
-  return `<a class="btn small" href="#${path}?${esc(query.toString())}">${esc(label)}</a>`;
 }
 
 function auditChange(change: AuditChange) {
@@ -151,12 +146,18 @@ export async function auditTrailPage(query: URLSearchParams, workflow = false) {
   const path = workflow ? workflowPath : auditPath;
   const caption = workflow ? 'Approval Workflow Log' : 'Audit Log';
   const filters = filterParams(query, workflow);
+  apiColumnFilters(filters, query, path);
   const request = new URLSearchParams(filters);
+  request.set('page_size', String(pageRequest(query, path).page_size));
+  request.set('through', query.get('through') || 'latest');
   for (const key of ['older', 'newer']) {
     if (query.has(key)) request.set(key, query.get(key));
   }
   const data: AuditPage = await api('/' + path + '?' + request.toString());
   const exportUrl = '/api/' + path + '/export?' + filters.toString();
+  const optionQuery = new URLSearchParams(filters);
+  optionQuery.set('through', data.through || request.get('through'));
+  const columnOptionsUrl = '/' + path + '?' + optionQuery;
   return `<div class="audit-trail${workflow ? ' workflow-log' : ''}">
     <header class="audit-heading">
       <div><h1>${caption}</h1><p>${workflow ? 'Review past submissions and decisions for records you can access.' : 'Review system access, outcomes, and changes across the portal.'}</p></div>
@@ -175,18 +176,15 @@ export async function auditTrailPage(query: URLSearchParams, workflow = false) {
       ${field('From date', input('from', filters.get('from') || '', 'date'))}
       ${field('To date', input('to', filters.get('to') || '', 'date'))}
       <div class="audit-filter-actions"><button type="submit" class="btn primary">Apply filters</button>
-        ${filters.size || request.size ? `<a class="text-link" href="#${path}">Clear</a>` : ''}</div>
+        ${filters.size || query.has('older') || query.has('newer') ? `<a class="text-link" href="#${path}">Clear</a>` : ''}</div>
     </form>
     <section class="panel audit-results" aria-label="${workflow ? 'Workflow entries' : 'Audit entries'}">
-      <div class="audit-results-meta"><span role="status">${data.items.length ? `Showing ${data.items.length} ${data.items.length === 1 ? 'entry' : 'entries'}` : '0 entries'}</span><span>Newest first · Times in IST</span></div>
+      <div class="audit-results-meta">Newest first · Times in IST</div>
       ${table(workflow ? ['When', 'Actor', 'Record', 'Department', 'Stage', 'Decision', 'Details']
         : ['When', 'Actor', 'Event', 'Outcome', 'Access / record', 'Client IP', 'Details'], data.items.map((entry) => entryRow(entry, workflow)), {
-        caption, empty: workflow ? 'No workflow entries match this view.' : 'No audit entries match this view.', summary: false, paginate: false, cardLayout: true,
+        caption, pageKey: path, columnOptionsUrl, label: workflow ? 'workflow entries' : 'audit entries', cursors: {older: data.older, newer: data.newer, through: data.through, total: data.total, end: data.end},
+        empty: workflow ? 'No workflow entries match this view.' : 'No audit entries match this view.',
       })}
-      ${data.older || data.newer ? `<nav class="audit-paging" aria-label="Log pages">
-        ${data.newer ? cursorLink(path, filters, 'newer', data.newer, 'Newer entries') : ''}
-        ${data.older ? cursorLink(path, filters, 'older', data.older, 'Older entries') : ''}
-      </nav>` : ''}
     </section>
   </div>`;
 }
@@ -246,7 +244,11 @@ export function auditTrailHandlers() {
         const start = filters.get('from');
         const end = filters.get('to');
         if (start && end && start > end) throw new Error('Choose an end date on or after the start date.');
-        location.hash = (workflow ? workflowPath : auditPath) + (filters.size ? '?' + filters.toString() : '');
+        const path = workflow ? workflowPath : auditPath;
+        const current = new URLSearchParams(location.hash.split('?')[1] || '');
+        writeColumnFilters(filters, path, readColumnFilters(current, path));
+        if (current.has(sizeParam(path))) filters.set(sizeParam(path), current.get(sizeParam(path)));
+        location.hash = path + (filters.size ? '?' + filters.toString() : '');
       },
     },
   };

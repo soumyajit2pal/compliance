@@ -4,6 +4,7 @@ import sqlalchemy as sa
 from . import models as m,repository as repo,obligations as obligations,notification_families as families,business_ids
 from .access import READ_ROLES
 from .pagination import page_query,paginate
+from .table_filters import column_choices, column_query, fields, filter_rows, label
 from .obligation_workspace import workspace_rows,workspace_summary,workspace_groups,workspace_counts,current as current_owner,response as coverage_owner_response
 
 
@@ -202,7 +203,36 @@ def install(app,get_db,current):
     @app.get('/api/clause-relationships/sources')
     def sources(db=Depends(get_db),actor=Depends(current)):return relationship_sources(db,actor)
     @app.get('/api/clause-relationships')
-    def relationships(request:Request,paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
-        rows=clause_relationships(db,actor,dict(request.query_params));result=paginate(rows,page=paging['page'] or 1,page_size=paging['page_size'] or 25)
-        result['decision_tasks']=families.proposal_tasks(db,actor,{r['id'] for r in result['items']})
+    def relationships(request:Request,paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
+        rows=clause_relationships(db,actor,dict(request.query_params))
+        tasks={task['entity_id']:task for task in families.proposal_tasks(db,actor,{row['id'] for row in rows})} if 'decision' in columns or columns.options_for=='decision' else None
+
+        def decision(row):
+            task=tasks.get(row['id'])
+            actions=[]
+            if task:
+                actions.extend(('Decision required','Record review' if task['stage']=='COMPLIANCE_REVIEW' else 'Approve','Return for changes','Reject'))
+            if (row['created_by']==actor.id and row['approval_status'] in {'IN_REVIEW','REVIEWED'}
+                    and actor.covers(row['regulatory_owner_unit_id'],{'AUTHOR'})):
+                actions.append('Withdraw proposal')
+            return actions or 'No decision required from you'
+
+        def source(row):
+            return (row['code'],row['source_clause_reference'] or 'Unnumbered',row['heading'],row['instrument_title'],
+                    'Edition '+str(row['edition_number']),label(row['edition_approval']))
+
+        projections={
+            'source_clause_para':lambda row:source(row['source']),
+            'relationship':lambda row:label(row['relationship_type']),
+            'related_earlier_clause_para':lambda row:source(row['target']),
+            'effective_period':lambda row:(row['effective_from'],row['effective_to'] or 'No end date'),
+            'basis':fields('description'),'approval':lambda row:label(row['approval_status']),'decision':decision,
+        }
+        rows=filter_rows(rows,columns,projections)
+        if columns.options_for:
+            return column_choices(rows,columns.options_for,projections)
+        result=paginate(rows,page=paging['page'] or 1,page_size=paging['page_size'] or 25)
+        ids={row['id'] for row in result['items']}
+        result['decision_tasks']=([task for identifier,task in tasks.items() if identifier in ids]
+                                  if tasks is not None else families.proposal_tasks(db,actor,ids))
         return result

@@ -1,6 +1,6 @@
 /** Shared indexes for master trees and parent choices; API validation remains authoritative. */
-export function childIndex(rows: Record<string, any>[], parentField: string) {
-  const children = new Map<string | null, Record<string, any>[]>();
+export function childIndex<T extends Record<string, any>>(rows: T[], parentField: keyof T) {
+  const children = new Map<string | null, T[]>();
   for (const row of rows) {
     const parent = row[parentField] || null;
     if (!children.has(parent)) children.set(parent, []);

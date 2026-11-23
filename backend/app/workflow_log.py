@@ -10,6 +10,7 @@ from . import audit_trail as retained, delivery, models as m
 from .access import READ_ROLES
 from .events import audit
 from .obligation_export import csv_bytes
+from .table_filters import column_choices, column_predicate, column_query, fields
 
 
 DECISIONS = {
@@ -166,15 +167,29 @@ def project(db, actor, event, subject):
     return item
 
 
-def entries(db, actor, filters, cursor='', newer=False):
+WORKFLOW_COLUMNS = {
+    'when': lambda item: (retained.entry_time(item), retained.entry_date(item)),
+    'actor': fields('actor', 'represented'),
+    'record': fields('record_type', 'record_code', 'record_title', 'record_id'),
+    'department': fields('department'),
+    'stage': fields('stage', 'next_stage'),
+    'decision': fields('event', 'decision'),
+    'details': lambda item: ('Details', item['event'], item['record_code']),
+}
+
+
+def entries(db, actor, filters, *, columns=None, through=None):
     q, record_type, department, stage, decision, start, end = filters
     if not actor.roles & READ_ROLES:
         return
+    included = column_predicate(columns or {}, WORKFLOW_COLUMNS)
     event = m.audit_log.c
-    query = retained.date_range(retained.event_query().where(predicate(record_type, decision)), event, start, end)
+    query = retained.event_query().where(predicate(record_type, decision), *retained.date_bounds(event, start, end))
+    if through is not None:
+        query = query.where(event.event_at <= through)
     subjects = {}
     term = q.casefold()
-    with db.execute(retained.chronological(query, cursor, newer)) as result:
+    with db.execute(retained.chronological(query, '', False)) as result:
         for row in result.yield_per(100).mappings():
             key = row['entity_type'], row['entity_id']
             try:
@@ -195,6 +210,8 @@ def entries(db, actor, filters, cursor='', newer=False):
             item = project(db, actor, row, subject)
             if stage and stage != item['stage_id']:
                 continue
+            if included is not None and not included(item):
+                continue
             if retained.matches(item, term) or term in ' '.join(
                 item[key] for key in ('department', 'stage', 'next_stage', 'decision') if item[key]
             ).casefold():
@@ -204,10 +221,17 @@ def entries(db, actor, filters, cursor='', newer=False):
 def install(app, get_db, current):
     @app.get('/api/approval-workflow-log')
     def workflow_page(filters=Depends(selection), older: str = Query('', max_length=80),
-                      newer: str = Query('', max_length=80), db=Depends(get_db), actor=Depends(current)):
+                      newer: str = Query('', max_length=80), page_size: int = Query(retained.PAGE_SIZE, ge=1, le=100),
+                      through: str = Query('', max_length=40), columns=Depends(column_query), db=Depends(get_db), actor=Depends(current)):
         if older and newer:
             raise HTTPException(422, 'Open one workflow page at a time.')
-        rows, cursors = retained.page_entries(entries(db, actor, filters, older or newer, bool(newer)), older, newer)
+        through = retained.log_cutoff(through)
+        source = entries(db, actor, filters, columns=columns, through=through)
+        if columns.options_for:
+            projections = {**WORKFLOW_COLUMNS, 'when': retained.entry_date,
+                           'record': fields('record_type', 'record_code', 'record_title')}
+            return column_choices(source, columns.options_for, projections)
+        rows, page = retained.page_matching_entries(source, older, newer, page_size, through)
         allowed_units = {unit['id']: unit['name'] for unit in actor.units.values() if actor.covers(unit['id'], READ_ROLES)}
         # Some authorised records are visible through participation in a related department.
         # Include those options only after the event has passed the same record check.
@@ -218,12 +242,12 @@ def install(app, get_db, current):
             'items': [{key: value for key, value in row.items() if key not in {'reason', 'path'}} for row in rows],
             'types': options({key: label for key, (label, _) in RECORD_TYPES.items()}),
             'departments': options(dict(sorted(allowed_units.items(), key=lambda pair: pair[1].casefold()))),
-            'stages': options(STAGES), 'decisions': options(DECISIONS), **cursors,
+            'stages': options(STAGES), 'decisions': options(DECISIONS), **page,
         }), headers=retained.NO_CACHE)
 
     @app.get('/api/approval-workflow-log/export')
-    def export_workflow(filters=Depends(selection), db=Depends(get_db), actor=Depends(current)):
-        rows = retained.take_entries(entries(db, actor, filters), retained.EXPORT_LIMIT + 1)
+    def export_workflow(filters=Depends(selection), columns=Depends(column_query), db=Depends(get_db), actor=Depends(current)):
+        rows = retained.take_entries(entries(db, actor, filters, columns=columns), retained.EXPORT_LIMIT + 1)
         if len(rows) > retained.EXPORT_LIMIT:
             raise HTTPException(422, f'This export exceeds {retained.EXPORT_LIMIT:,} entries. Narrow the dates or filters.')
         headers = ('When (IST)', 'Actor', 'On behalf of', 'Record type', 'Reference', 'Record', 'Department',

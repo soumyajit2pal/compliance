@@ -65,10 +65,15 @@ def configuration(db, lock=False):
     return row['revision'], json.loads(row['definition'])
 
 
-def demo_presentation(db):
+def configuration_revision(db):
+    table = m.dropdown_config.c
+    return db.execute(sa.select(table.revision).where(table.id == 'portal')).scalar_one()
+
+
+def demo_presentation(db, configuration_reader=configuration):
     """The optional UAT sign-in picker also operates on pre-catalogue schemas."""
     try:
-        return configuration(db)[1]['presentation'].get('demo-user', {})
+        return configuration_reader(db)[1]['presentation'].get('demo-user', {})
     except sa.exc.DBAPIError as exc:
         error = exc.orig.args[0] if exc.orig.args else None
         if getattr(error, 'code', None) == 942 or str(error) == 'no such table: cbd_dropdown_config':
@@ -174,11 +179,11 @@ def save_answers(db, actor, form, identifier, submitted, reason=None, copy_from=
     audit(db,actor,form,identifier,'CUSTOM_FIELDS_SAVED',old=original,new=answers,reason=reason)
 
 
-def install(app, get_db, current):
+def install(app, get_db, current, configuration_reader=configuration):
     @app.get('/api/admin/dropdowns')
     def catalogue(db=Depends(get_db),actor=Depends(current)):
         actor.require({'ADMIN'})
-        revision, data = configuration(db)
+        revision, data = configuration_reader(db)
         t=m.audit_log.c
         recent=[]
         for event in db.execute(sa.select(t.event_at,t.actor_name,t.reason,t.new_value).where(

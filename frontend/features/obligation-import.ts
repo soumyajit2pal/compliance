@@ -37,14 +37,15 @@ export async function obligationImportsPage(query){
           ${ownershipSummary(p.owners)}${applicabilitySummary(p.applicability)}${processSummary(p.processes)}</details>`);
       }).join('');
   }
-  const result=await api('/obligation-imports?'+apiPageQuery(query,'obligation-imports'));
+  const columnOptionsUrl = '/obligation-imports?' + apiPageQuery(query, 'obligation-imports');
+  const result = await api(columnOptionsUrl);
   return link('obligations','← Obligation register','back-link')+
     heading('Import obligations','Use approved regulatory clauses; load owned, assessed requirements into Draft.',
       '<a class="btn" href="/api/obligation-import-template" download>Download Excel template</a>'+(has('AUTHOR')?button('obl-import-new','Upload obligations','','primary'):''))+
     note('Fill Obligations, Owners, Applicability and Processes using one import reference per atomic requirement. An independent Reviewer validates the import before the uploader loads ready Drafts.')+
     tablePanel(table(['Source workbook','Date','Status','Source rows','Loaded','Not loaded'],result.items.map(b=>[
       link('obligations/imports?batch='+b.id,b.source_file),date(b.uploaded_at),badge(b.record_status.replace(/^OBL_/,'')),esc(b.source_count),esc(b.loaded_count),esc(b.rejected_count),
-    ]),{pageKey:'obligation-imports',pagination:result.pagination}));
+    ]),{pageKey: 'obligation-imports', pagination: result.pagination, columnOptionsUrl}));
 }
 
 export function obligationImportHandlers({render}){

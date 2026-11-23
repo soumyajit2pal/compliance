@@ -8,7 +8,9 @@ from .storage import stored_path
 import hashlib
 import sqlalchemy as sa
 from . import models as m,obligations as service,obligation_schemas as contracts
+from .delivery import today
 from .pagination import page_query,paginate
+from .table_filters import column_choices, column_query, fields, filter_rows, label
 from .events import audit
 from .access import actor_for,REGULATORY_ROLES
 
@@ -18,18 +20,73 @@ def safe_cell(value):
     return "'"+text if text.lstrip().startswith(('=','+','-','@','\t','\r')) else text
 
 
+ISSUE_LABELS = {
+    'SOURCE_PERIOD_MISMATCH': 'Source edition does not cover the obligation start',
+    'PENDING_BUSINESS_VALIDATION': 'Owner confirmation pending',
+    'MISSING_REGULATORY_OWNER': 'No primary regulatory owner',
+    'MISSING_BUSINESS_OWNER': 'No primary business owner',
+    'MISSING_CONTROL_OWNER': 'No check owner',
+    'MISSING_COMPLIANCE_REVIEWER_OWNER': 'No Compliance reviewer',
+    'INVALID_OWNER_ACCESS': 'Owner access requires review',
+    'MISSING_APPLICABILITY': 'Applicability not assessed',
+    'MISSING_PROCESS_MAPPING': 'No process mapping',
+    'CONTENT_VALIDATION_PENDING': 'Content validation pending',
+    'MISSING_EVIDENCE_STANDARD': 'No evidence requirement',
+    'UNAPPROVED_SOURCE': 'Source approval required',
+    'SOURCE_REASSESSMENT_REQUIRED': 'Source changed — reassessment required',
+    'PROCESS_REASSESSMENT_REQUIRED': 'Process changed — reassessment required',
+    'PRODUCT_REASSESSMENT_REQUIRED': 'Product changed — reassessment required',
+    'MISSING_OR_UNAVAILABLE_CLAUSE': 'Source clause unavailable',
+    'PARTIAL_APPLICABILITY': 'Partially applicable',
+    'UNAPPROVED_NON_APPLICABILITY': 'Non-applicability awaiting approval',
+    'REVIEW_OVERDUE': 'Review overdue',
+    'HIGH_CRITICAL': 'High / critical',
+    'ACTIVE_WITHOUT_MAPPED_CONTROLS': 'Active obligations without linked checks',
+}
+
+
+def obligation_columns(actor, today):
+    def stage(row):
+        status, approval = row['record_status'], row['approval_status']
+        if approval == 'WITHDRAWN' and status in {'DRAFT', 'RETIRED'}:
+            return 'Cancelled Draft'
+        if status != 'DRAFT':
+            return label(status)
+        if approval == 'APPROVED':
+            if row['effective_to'] and row['effective_to'] <= today:
+                return 'Approved · period ended'
+            if row['effective_from'] > today:
+                return 'Approved · not yet effective'
+            return 'Approved · awaiting activation'
+        return {'BUSINESS_VALIDATION': 'Owner acceptance'}.get(row['stage'], label(row['stage']))
+
+    return {
+        'obligation': lambda row: (row['title'], row['code'], f"v{row['version_number']}", 'Quick view'),
+        'regulatory_source': lambda row: (row['instrument_code'],
+            'Clause ' + (row['source_clause_reference'] or row['clause_code']), f"Edition {row['source_version']}"),
+        'accountable_department': lambda row: actor.units.get(row['business_owner_unit_id'], {}).get('name') or row['business_owner_unit_id'],
+        'stage': stage,
+        'criticality': fields('criticality'),
+        'findings': lambda row: [ISSUE_LABELS.get(issue, label(issue)) for issue in row['issues']] or 'None reported',
+    }
+
+
 def install(app,get_db,current):
     @app.get('/api/obligations')
-    def listing(request:Request,paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+    def listing(request:Request,paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
         actor.require(service.READ_ROLES)
         filters=dict(request.query_params)
         pagination={'page':paging['page'] or 1,'page_size':paging['page_size'] or 25}
+        projections=obligation_columns(actor,today())
+        if columns.options_for:
+            rows=filter_rows(service.listing(db,actor,filters),columns,projections)
+            return column_choices(rows,columns.options_for,projections)
         if filters.get('tab')!='reports':
-            return paginate(service.listing(db,actor,filters),**pagination)
+            return paginate(filter_rows(service.listing(db,actor,filters),columns,projections),**pagination)
         # Keep the summary useful while one finding is selected. Other filters
         # and authorisation apply to both the full population and the page.
         finding=filters.pop('exception',None)
-        rows=service.listing(db,actor,filters)
+        rows=filter_rows(service.listing(db,actor,filters),columns,projections)
         counts=Counter(issue for row in rows for issue in row['issues'])
         if finding:
             rows=[row for row in rows if finding in row['issues']]
@@ -104,9 +161,17 @@ def install(app,get_db,current):
             headers={'Content-Disposition':'attachment; filename="obligation-import-template.xlsx"','Cache-Control':'private, no-store'})
 
     @app.get('/api/obligation-imports')
-    def batches(paging=Depends(page_query),db=Depends(get_db),actor=Depends(current)):
+    def batches(paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
         imports.require(actor)
         rows=[dict(r) for r in db.execute(sa.select(m.migration_batch).where(m.migration_batch.c.record_status.like('OBL_%')).order_by(m.migration_batch.c.uploaded_at.desc())).mappings()]
+        projections={
+            'source_workbook':fields('source_file'),'date':fields('uploaded_at'),
+            'status':lambda row:label(row['record_status'].removeprefix('OBL_')),
+            'source_rows':fields('source_count'),'loaded':fields('loaded_count'),'not_loaded':fields('rejected_count'),
+        }
+        rows=filter_rows(rows,columns,projections)
+        if columns.options_for:
+            return column_choices(rows,columns.options_for,projections)
         return paginate(rows,page=paging['page'] or 1,page_size=paging['page_size'] or 25)
 
     @app.post('/api/obligation-imports')

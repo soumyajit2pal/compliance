@@ -24,6 +24,7 @@ import { obligationView } from '../core/obligation-workspace.ts';
 import { obligationWorkspacePage, workspaceTabs, workspaceHeading } from './obligation-workspace.ts';
 import { obligationExportHandlers } from './obligation-export.ts';
 import { obligationExportButton } from '../ui/obligation-export.ts';
+import { domainFilterChoices } from '../ui/domains.ts';
 
 const criticalities=['CRITICAL','HIGH','MEDIUM','LOW'];
 const roles=['REGULATORY','BUSINESS','CONTROL','EVIDENCE','DATA'];
@@ -77,7 +78,8 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
   const view=obligationView(query);
   if(view!=='register')return obligationWorkspacePage(view,query);
   state.view.obligationRegisterQuery=query.toString();
-  const response=await api('/obligations?'+apiPageQuery(query,'obligations'));
+  const columnOptionsUrl = '/obligations?' + apiPageQuery(query, 'obligations');
+  const response = await api(columnOptionsUrl);
   const report=query.get('tab')==='reports';
   const registerView=report
     ? '<input type="hidden" name="tab" value="reports">'
@@ -85,6 +87,11 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
   const findingLabels=report || query.get('exception')===coverageFinding
     ? {...issueNames,[coverageFinding]:coverageLabel} : issueNames;
   const filter=(name,rows,label,blank)=>select(name,rows,query.get(name),label,'class="filter-select"',blank);
+  const lookupRows={
+    domain:domainFilterChoices(state.masters.regulatory_domain),
+    department:active('organisational_unit'),
+    owner:active('user'),
+  };
   const advanced=['domain','criticality','owner','exception'];
   const advancedCount=advanced.filter(key=>query.get(key)).length;
   const selectedLabel=(key)=>{
@@ -93,8 +100,7 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
     if(key==='status')return 'Stage: '+stageLabel(value);
     if(key==='criticality')return 'Criticality: '+title(value);
     if(key==='exception')return 'Finding: '+(findingLabels[value]||title(value));
-    const master={domain:'regulatory_domain',department:'organisational_unit',owner:'user'}[key];
-    const row=active(master).find(item=>item.id===value);
+    const row=lookupRows[key].find(item=>item.id===value);
     return ({domain:'Domain',department:'Department',owner:'Owner'}[key])+': '+(row?.name||row?.full_name||value);
   };
   const applied=['q','department','status',...advanced].filter(key=>query.get(key));
@@ -125,13 +131,13 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
       </div>
       <div class="obligation-register-filter-fields">
         ${field('Search obligations',`<div class="search-field">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Requirement or regulatory source"')}</div>`)}
-        ${field('Accountable department',filter('department',active('organisational_unit'),'name','All departments'))}
+        ${field('Accountable department',filter('department',lookupRows.department,'name','All departments'))}
         ${field('Stage',filter('status',['DRAFT','COMPLIANCE_REVIEW','BUSINESS_VALIDATION','FINAL_APPROVAL','ACTIVE','APPROVED','REJECTED','SUPERSEDED'].map(id=>({id,name:stageLabel(id)})),'name','All stages'))}
         <button class="btn primary obligation-register-apply" type="submit">Apply filters</button>
         <details class="obligation-register-more" ${advancedCount?'open':''}><summary>${icon('filter')}More filters${advancedCount?`<span class="obligation-filter-count">${advancedCount}</span>`:''}${icon('down')}</summary><div class="obligation-register-more-fields">
-          ${field('Regulatory domain',filter('domain',active('regulatory_domain'),'name','All domains'))}
+          ${field('Regulatory domain',filter('domain',lookupRows.domain,'name','All domains'))}
           ${field('Criticality',filter('criticality',criticalities.map(id=>({id,name:title(id)})),'name','All criticalities'))}
-          ${field('Named owner',filter('owner',active('user'),'full_name','All owners'))}
+          ${field('Named owner',filter('owner',lookupRows.owner,'full_name','All owners'))}
           ${field('Finding',filter('exception',Object.entries(findingLabels).map(([id,name])=>({id,name})),'name','All findings'))}
         </div></details>
       </div>
@@ -139,7 +145,7 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
     </form>`+
     (report?note('Only obligations with a finding appear here. Findings include high or critical priority, pending validations and applicability gaps. Use More filters → Finding to focus the report. Unmapped legacy records appear in '+link('obligations/imports','Import validation findings')+'.'):'')+
     `<section class="obligation-register-results ${rows.length?'':'is-empty'}" aria-labelledby="obligation-register-results-title"><header class="obligation-register-results-heading"><div><h2 id="obligation-register-results-title">${report?'Exceptions':'Obligation register'}<span class="obligation-register-total">${response.pagination.total}</span></h2><p>${applied.length?'Matching your applied filters.':'Requirements in your authorised view.'}</p></div><span class="obligation-register-results-note">${icon('eye')}Select a record for quick view</span></header>`+
-    tablePanel(table(['Obligation','Regulatory source','Accountable department','Stage','Criticality','Findings'],rows,{pageKey:'obligations',pagination:response.pagination,empty:report?'No exceptions match this view.':'No obligations match this view.'}))+`</section></div>`;
+    tablePanel(table(['Obligation','Regulatory source','Accountable department','Stage','Criticality','Findings'],rows,{pageKey: 'obligations', pagination: response.pagination, columnOptionsUrl,empty:report?'No exceptions match this view.':'No obligations match this view.'}))+`</section></div>`;
 
 }
 

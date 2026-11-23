@@ -10,14 +10,20 @@ def page_query(page: int | None = Query(None, ge=1), page_size: int | None = Que
     return {'page': page, 'page_size': page_size}
 
 
+def page_metadata(total, page, size):
+    pages = (total + size - 1) // size
+    current = min(page or 1, max(1, pages))
+    offset = (current - 1) * size
+    return {
+        'page': current, 'page_size': size, 'total': total, 'total_pages': pages,
+        'start': offset + 1 if total else 0, 'end': min(offset + size, total),
+    }
+
+
 def paginate(items, page=None, page_size=None):
     if page is None and page_size is None:
         return items
     size = page_size or 25
-    total = len(items)
-    pages = (total + size - 1) // size
-    current = min(page or 1, max(1, pages))
-    offset = (current - 1) * size
-    return {'items': items[offset:offset + size], 'pagination': {
-        'page': current, 'page_size': size, 'total': total, 'total_pages': pages,
-        'start': offset + 1 if total else 0, 'end': min(offset + size, total)}}
+    info = page_metadata(len(items), page, size)
+    offset = (info['page'] - 1) * size
+    return {'items': items[offset:offset + size], 'pagination': info}

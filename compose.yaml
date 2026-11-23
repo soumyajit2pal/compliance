@@ -1,0 +1,151 @@
+name: compliance-portal
+
+x-backend-release: &backend-release
+  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.21-r2}"
+  build:
+    context: .
+    target: backend
+    args: &release-args
+      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.21-r2}"
+
+services:
+  frontend:
+    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.21-r2}"
+    build:
+      context: .
+      target: frontend
+      args: *release-args
+    user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}:8443"
+    volumes:
+      - type: bind
+        source: ${PORTAL_TLS_CERT:-./var/tls/localhost.crt}
+        target: /run/portal/tls.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PORTAL_TLS_KEY:-./var/tls/localhost.key}
+        target: /run/portal/tls.key
+        read_only: true
+        bind:
+          create_host_path: false
+      - portal-socket:/run/portal-socket:ro
+    networks: [edge]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--no-check-certificate", "-O", "/dev/null", "https://127.0.0.1:8443/api/ready"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  migrate:
+    <<: *backend-release
+    init: true
+    user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: ["python", "-m", "backend.app.compose_migrate"]
+    environment:
+      APP_ENV_FILE: /run/portal/migration.env
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - type: bind
+        source: ${PORTAL_MIGRATION_ENV_FILE:-${PORTAL_ENV_FILE:-./.env.docker}}
+        target: /run/portal/migration.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PORTAL_ENV_FILE:-./.env.docker}
+        target: /run/portal/profile.env
+        read_only: true
+        bind:
+          create_host_path: false
+
+  backend:
+    <<: *backend-release
+    init: true
+    user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      APP_ENV_FILE: /run/portal/profile.env
+      UPLOAD_STORAGE_ROOT: /data/documents
+      LOG_DIR: /data/logs
+      SESSION_COOKIE_SECURE: "true"
+      LOGIN_ENCRYPTION_PRIVATE_KEY_FILE: /run/portal/login-private.pem
+      REDIS_URL: redis://redis:6379/0
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - type: bind
+        source: ${PORTAL_ENV_FILE:-./.env.docker}
+        target: /run/portal/profile.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PORTAL_LOGIN_KEY:-./var/login-private.pem}
+        target: /run/portal/login-private.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - portal-socket:/run/portal-socket
+      - type: bind
+        source: ${PORTAL_DOCUMENTS:-./var/documents}
+        target: /data/documents
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PORTAL_LOGS:-./var/logs}
+        target: /data/logs
+        bind:
+          create_host_path: false
+    networks: [default, cache]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect('/run/portal-socket/portal.sock'); s.sendall(b'GET /api/ready HTTP/1.0'+bytes((13,10))*2); assert b' 200 ' in s.makefile('rb').readline()"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--protected-mode", "no", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    restart: unless-stopped
+    tmpfs: [/data]
+    networks: [cache]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+networks:
+  edge:
+  cache:
+    internal: true
+
+volumes:
+  portal-socket:

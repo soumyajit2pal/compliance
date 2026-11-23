@@ -46,9 +46,9 @@
   max-height: calc(100vh - 16px);
   overflow: auto;
   padding: 9px 11px;
-  border: 1px solid #ded2e5;
+  border: 1px solid var(--plum-line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--selection);
   color: var(--ink);
   box-shadow: 0 6px 20px #39274729;
   font-size: 12px;
@@ -161,8 +161,6 @@
   content: '';
 }
 .dashboard-evidence-legend + p { margin-top: 12px; }
-.dashboard-criticality-scroll, .dashboard-breakdown-scroll { position: relative; overflow-x: auto; }
-.dashboard-breakdown-scroll { max-block-size: 23rem; }
 .dashboard-criticality-table, .dashboard-breakdown-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 :is(.dashboard-criticality-table,.dashboard-breakdown-table) :is(th,td) {
   padding: 11px 12px;

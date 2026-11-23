@@ -199,6 +199,69 @@
 .portal-mode .tree-node.active { color: var(--primary-dark); background: var(--selection); box-shadow: inset 3px 0 #9570ad; }
 .portal-mode .tree-node:hover { color: var(--primary); background: #f6f0fa; }
 .portal-mode .runtime-tree-children { border-color: #e3d9eb; }
+.organisation-import-tree {
+  --import-indent: 18px;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.organisation-import-branch {
+  position: relative;
+  min-inline-size: 0;
+  margin-inline-start: calc(var(--import-level, 0) * var(--import-indent));
+}
+.organisation-import-branch[data-depth="1"] { --import-level: 1; }
+.organisation-import-branch[data-depth="2"] { --import-level: 2; }
+.organisation-import-branch[data-depth="3"] { --import-level: 3; }
+.organisation-import-branch[data-depth="4"] { --import-level: 4; }
+.organisation-import-branch[data-depth="5"] { --import-level: 5; }
+.organisation-import-branch[data-parent-code]::before {
+  position: absolute;
+  inset-inline-end: 100%;
+  inset-block-start: -7px;
+  inline-size: calc(var(--import-indent) * .6);
+  block-size: 28px;
+  border-inline-start: 1px solid var(--plum-line);
+  border-block-end: 1px solid var(--plum-line);
+  border-end-start-radius: 4px;
+  content: '';
+}
+.organisation-import-node {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.organisation-import-node.is-existing { background: var(--soft); }
+.organisation-import-icon {
+  display: grid;
+  place-items: center;
+  inline-size: 30px;
+  block-size: 30px;
+  border-radius: 7px;
+  background: var(--selection);
+  color: var(--primary-dark);
+}
+.organisation-import-icon .icon { inline-size: 16px; block-size: 16px; }
+.organisation-import-label { overflow-wrap: anywhere; }
+.organisation-import-label strong { display: block; color: var(--ink); }
+.organisation-import-label :is(small, .organisation-import-parent) {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .organisation-import-tree { --import-indent: 10px; }
+  .organisation-import-node { grid-template-columns: auto minmax(0, 1fr); }
+  .organisation-import-node .tag { grid-column: 2; justify-self: start; }
+}
 .portal-mode .family-register .data-table { table-layout: fixed; }
 .portal-mode .family-register :is(th, td) { padding-inline: clamp(8px, 1.15vw, 18px); overflow-wrap: anywhere; }
 .portal-mode .family-register th { white-space: normal; }
@@ -342,17 +405,19 @@
   .portal-mode :is(.record-detail-header, .obligation-detail-header) { padding: 18px; }
   .portal-mode .obligation-workspace-heading { padding: 23px 20px; }
   /* Native roles/headers are retained when the shared table is displayed as cards. */
-  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-rows, .organisation-import-findings) .record-table { display: block; min-width: 0; width: 100%; }
-  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-rows, .organisation-import-findings) .record-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-rows, .organisation-import-findings) .record-table tbody { display: grid; gap: 12px; padding: 12px; }
-  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-rows, .organisation-import-findings) .record-table tbody tr { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); min-width: 0; gap: 16px 12px; padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
-  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-rows, .organisation-import-findings) .record-table td { display: block; min-width: 0; width: auto; padding: 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table { display: block; min-width: 0; width: 100%; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table thead { display: block; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table thead tr { display: flex; flex-wrap: wrap; padding: 8px 12px; background: var(--soft); }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table thead th { padding: 0; border: 0; background: transparent; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table tbody { display: grid; gap: 12px; padding: 12px; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table tbody tr { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); min-width: 0; gap: 16px 12px; padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table td { display: block; min-width: 0; width: auto; padding: 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
   .app-shell:not([data-workspace=obligations]) .content .record-table td:first-child, .app-shell:not([data-workspace=obligations]) .content .record-table td:last-child { grid-column: 1 / -1; }
   .access-account-table .record-table td:last-child { grid-column: 1 / -1; }
   .organisation-import-findings .record-table td:last-child { grid-column: 1 / -1; }
-  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-rows, .organisation-import-findings) .record-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 600; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 600; }
   .app-shell:not([data-workspace=obligations]) .content .record-table .record-title { min-width: 0; font-size: 13px; }
-  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-rows, .organisation-import-findings) .record-table tr[data-empty-row] { display: block; padding: 0; border: 0; }
+  :is(.app-shell:not([data-workspace=obligations]) .content, .organisation-import-findings) .record-table tr[data-empty-row] { display: block; padding: 0; border: 0; }
   .portal-mode .family-register .record-table td:first-child[data-label]::before,
   .portal-mode .family-register .record-table td:last-child[data-label]::before { display: none; }
   .family-filters-register .family-filter-controls { grid-template-columns: minmax(0,1fr); }

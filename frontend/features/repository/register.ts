@@ -37,7 +37,7 @@ function libraryTiles(counts:Record<string,number>|undefined, query:URLSearchPar
   }));
 }
 
-export function renderRegister(rows, q, pagination = undefined, counts = undefined) {
+export function renderRegister(rows, q, pagination = undefined, counts = undefined, columnOptionsUrl = '') {
   const statusCell = (record) => {
     const position = record.regulatory_status;
     const status = ['CURRENT', 'SUPERSEDED', 'WITHDRAWN'].includes(position)
@@ -118,7 +118,7 @@ export function renderRegister(rows, q, pagination = undefined, counts = undefin
           `<span class="risk ${esc(String(r.materiality || '').toLowerCase())}"><i aria-hidden="true"></i>${esc(title(r.materiality))}</span>`,
           statusCell(r)+'<br>'+link('notification-families/'+r.id,'Open notification family','text-link'),
         ]),
-        { caption: 'Authorised regulatory notifications', pageKey: 'instruments', pagination },
+        { caption: 'Authorised regulatory notifications', pageKey: 'instruments', pagination, columnOptionsUrl },
       ),
     ) +
     `<div class="source-note">A source edition is a version of one library record. Original source wording and the bank’s interpretation are preserved separately.</div>`

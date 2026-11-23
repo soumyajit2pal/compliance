@@ -8,6 +8,7 @@ import { modal, close } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
 import { heading } from '../ui/layout.ts';
 import { domainStatus } from '../ui/domains.ts';
+import { organisationImportTree, type OrganisationImportRow } from '../ui/organisation-import-tree.ts';
 import { panel, table, tablePanel, tabs, note, searchForm, detailFields, pagedCollection } from '../ui/widgets.ts';
 
 const otherLookups = ['frequency', 'evidence_type', 'confidentiality_class', 'process', 'legal_entity', 'product', 'channel', 'customer_segment', 'geography', 'system', 'taxonomy_scheme', 'control_type', 'execution_mode', 'obligation_nature', 'role'];
@@ -213,8 +214,7 @@ export function masterHandlers({ render }) {
     imported: number;
     file_hash: string;
     errors: { row: number; code: string; message: string }[];
-    rows: { row: number; code: string; name: string; parent_code: string; unit_type: string;
-      active_flag: boolean; effective_from: string; effective_to: string | null }[];
+    rows: OrganisationImportRow[];
   };
   const pending = new WeakMap<HTMLFormElement, { file: File; hash: string }>();
   function showOrganisationPreview(result: ImportPreview, file: File) {
@@ -226,12 +226,8 @@ export function masterHandlers({ render }) {
         `<div class="organisation-import-findings">${findings}</div><div class="mt16">${replace}</div>`);
       return;
     }
-    const rows = table(['Excel row', 'Unit', 'Type', 'Parent code', 'Effective dates', 'Status'], result.rows.map(row => [
-      esc(row.row), `<strong>${esc(row.name)}</strong><br><span class="small muted">${esc(row.code)}</span>`,
-      esc(title(row.unit_type)), esc(row.parent_code), esc(row.effective_from + ' → ' + (row.effective_to || 'Open-ended')),
-      badge(row.active_flag ? 'ACTIVE' : 'INACTIVE'),
-    ]), { pageKey: 'org-import-preview', caption: 'Organisation units ready to import' });
-    modal('Organisation import preview', `<div class="organisation-import-rows">${rows}</div><div class="mt16">${field('Reason for import', area('reason', '', 'required minlength="5" maxlength="2000"'))}${replace}</div>`,
+    const tree = organisationImportTree(result.rows, state.masters.organisational_unit);
+    modal('Organisation import preview', `${tree}<div class="mt16">${field('Reason for import', area('reason', '', 'required minlength="5" maxlength="2000"'))}${replace}</div>`,
       'organisation-import-confirm', `Import ${result.ready} ${result.ready === 1 ? 'unit' : 'units'}`, `${result.ready} ${result.ready === 1 ? 'unit is' : 'units are'} ready to add.`);
     pending.set(dialog.querySelector<HTMLFormElement>('#organisation-import-confirm')!, { file, hash: result.file_hash });
   }
