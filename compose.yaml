@@ -1,16 +1,16 @@
 name: compliance-portal
 
 x-backend-release: &backend-release
-  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.21-r2}"
+  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
   build:
     context: .
     target: backend
     args: &release-args
-      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.21-r2}"
+      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
 
 services:
   frontend:
-    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.21-r2}"
+    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
     build:
       context: .
       target: frontend
