@@ -1,0 +1,6 @@
+services:
+  haproxy:
+    network_mode: host
+    ports: !reset []
+    environment:
+      PORTAL_EDGE_BIND: "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}"

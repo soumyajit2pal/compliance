@@ -10,17 +10,43 @@ x-portal-user: &portal-user
 
 x-backend-release: &backend-release
   <<: *portal-user
-  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
+  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.23-r2}"
   build:
     context: .
     target: backend
     args: &release-args
-      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
+      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.23-r2}"
 
 services:
+  haproxy:
+    <<: *portal-user
+    image: "${PORTAL_HAPROXY_IMAGE:-docker.io/library/haproxy:3.2-alpine}"
+    entrypoint: ["haproxy"]
+    command: ["-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      frontend:
+        condition: service_healthy
+    network_mode: bridge
+    environment:
+      PORTAL_EDGE_BIND: 0.0.0.0:8443
+    ports:
+      - "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}:8443"
+    volumes:
+      - ./deploy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro,z
+      - portal-edge:/run/portal-edge:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://$${PORTAL_EDGE_BIND}/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
   frontend:
     <<: *portal-user
-    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.23-r1}"
+    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.23-r2}"
     build:
       context: .
       target: frontend
@@ -33,8 +59,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    ports:
-      - "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}:8443"
     volumes:
       - type: bind
         source: ${PORTAL_TLS_CERT:-./var/tls/localhost.crt}
@@ -49,9 +73,10 @@ services:
         bind:
           create_host_path: false
       - portal-socket:/run/portal-socket:ro
-    networks: [edge]
+      - portal-edge:/run/portal-edge
+    network_mode: none
     healthcheck:
-      test: ["CMD", "wget", "-q", "--no-check-certificate", "-O", "/dev/null", "https://127.0.0.1:8443/api/ready"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/ready"]
       interval: 15s
       timeout: 5s
       start_period: 15s
@@ -150,9 +175,10 @@ services:
       retries: 3
 
 networks:
-  edge:
+  default:
   cache:
     internal: true
 
 volumes:
   portal-socket:
+  portal-edge:

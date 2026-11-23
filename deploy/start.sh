@@ -39,9 +39,13 @@ if [ "$engine" = podman ]; then
     if [ "$rootless" = true ]; then
         userns=keep-id
     fi
+    set -- up -d "$@"
+    if [ "$(uname -s)" = Linux ]; then
+        set -- -f compose.yaml -f deploy/compose.podman.yaml "$@"
+    fi
 else
-    set -- --wait "$@"
+    set -- up -d --wait "$@"
 fi
 
 exec env PORTAL_UID="$uid" PORTAL_GID="$gid" PORTAL_USERNS_MODE="$userns" \
-    "$engine" compose up -d "$@"
+    "$engine" compose "$@"
