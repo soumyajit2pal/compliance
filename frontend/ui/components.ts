@@ -18,6 +18,7 @@ const checkLabels = new Map([
   ['CONTROL_RESULT_REJECT', 'Check Result Rejected'],
 ]);
 export const title = (value) => {
+  if (value === 'SUB_DEPARTMENT') return 'Sub-department';
   if (value === 'CONTROL_OWNER') {
     const roleName = state.masters?.role?.find((role) => role.code === value)?.name;
     return roleName && roleName !== value ? roleName : 'Check Owner';
@@ -71,6 +72,12 @@ export const ref = (name, id) =>
   state.masters?.[name]?.find((r) => r.id === id)?.full_name ||
   id ||
   '—';
+export const organisationScopeLabel = (id) => {
+  const unit = state.masters?.organisational_unit?.find(row => row.id === id);
+  return unit?.unit_type === 'SUB_DEPARTMENT'
+    ? `${ref('organisational_unit', unit.parent_org_unit_id)} / ${unit.name}`
+    : unit?.name || id || '—';
+};
 export const link = (url, label, css = '') =>
   /* HTML */ `<a class="${css.replace(/\bbutton\b/, 'btn')}" href="#${url}">${esc(label)}</a>`;
 export const button = (action, label, data = '', css = '') =>
