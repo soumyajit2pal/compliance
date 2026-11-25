@@ -10,22 +10,43 @@ x-portal-user: &portal-user
 
 x-backend-release: &backend-release
   <<: *portal-user
-  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.25-r2}"
+  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.25-r3}"
 
   build:
     context: .
     target: backend
     args: &release-args
-      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.25-r2}"
+      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.25-r3}"
 
 services:
+  haproxy:
+    <<: *portal-user
+    image: "${PORTAL_HAPROXY_IMAGE:-docker.io/library/haproxy:3.2-alpine}"
+    entrypoint: ["haproxy"]
+    command: ["-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      PORTAL_EDGE_BIND: "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}"
+    volumes:
+      - "./deploy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro,Z"
+      - "portal-edge:/run/portal-edge:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://$${PORTAL_EDGE_BIND}/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
   frontend:
     <<: *portal-user
 
-    ports:
-      - "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}:8443"
-
-    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.25-r2}"
+    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.25-r3}"
 
     build:
       context: .
@@ -53,6 +74,7 @@ services:
       # The certificate must be PEM encoded.
       - "${PORTAL_TLS_CERT:-./var/tls/localhost.crt}:/run/portal/tls.crt:ro,Z"
       - "${PORTAL_TLS_KEY:-./var/tls/localhost.key}:/run/portal/tls.key:ro,Z"
+      - "portal-edge:/run/portal-edge"
 
     networks:
       web:
@@ -93,7 +115,7 @@ services:
       - backend.app.compose_migrate
 
     environment:
-      APP_ENV_FILE: /run/portal/migration.env
+      APP_ENV_FILE: /run/portal/profile.env
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -101,7 +123,6 @@ services:
     volumes:
       # Lowercase z is required because the default file is also
       # mounted by backend and notification_worker.
-      - "${PORTAL_MIGRATION_ENV_FILE:-./.env.docker}:/run/portal/migration.env:ro,z"
       - "${PORTAL_ENV_FILE:-./.env.docker}:/run/portal/profile.env:ro,z"
 
     networks:
@@ -279,3 +300,6 @@ networks:
         - subnet: "${PORTAL_WEB_SUBNET:-10.253.178.0/29}"
   cache:
     internal: true
+
+volumes:
+  portal-edge:

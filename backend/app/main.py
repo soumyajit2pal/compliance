@@ -220,7 +220,7 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/health')
     def health():
-        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', '2026.11.25-r2')}
+        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', '2026.11.25-r3')}
 
     @app.get('/api/ready')
     def ready(request: Request):

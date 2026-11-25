@@ -134,29 +134,36 @@ The default backend suite passed 349 tests. Another 31 tests passed in a tempora
 
 ## Container deployment · 25 November 2026
 
-From the updated source directory, use the same non-root Podman account that owns the portal profile, keys and storage.
+Run Podman from the updated directory containing `compose.yaml` as the account that owns the portal profile, keys and storage. To save custom paths once, copy the Compose settings example to `.env` in that directory or merge its settings into the existing `.env`. Compose reads that file on each run. Keep Oracle credentials in the referenced application profile. [Compose settings example](.env.compose.example)
 
 ```sh
-podman compose up -d --build
+podman compose --env-file .env up -d --build
 ```
 
-For an upgrade from the HAProxy release, stop the old HAProxy container once if it still holds the portal port, then run the command above. In the deployment shown previously, that container was named `compliance-portal_haproxy_1`. Keep the existing profile, keys, document directory and log directory. If the deployment pins `PORTAL_IMAGE_TAG`, set it to `2026.11.25-r2`.
+Deploy the matching source files from release `2026.11.25-r3`. Reuse the existing Compose `.env`, Oracle profile, keys, documents and logs. If the deployment pins `PORTAL_IMAGE_TAG`, set it to `2026.11.25-r3` once in `.env`.
 
-On a fresh installation, copy [the UAT profile example](.env.docker.example) to `.env.docker` with mode `0600`. Configure the Oracle connection and `SECRET_KEY`, create owner-writable `var/documents` and `var/logs`, and provision the [login key](#encrypted-login-and-deployment-private-key) and [TLS pair](#local-https--30-october-2026). The default publishes HTTPS on `127.0.0.1:8010`. Keep the deployment's `PORTAL_BIND_HOST` and `PORTAL_PORT` overrides if it uses a different address. Rootless Podman maps the account that owns the files to the non-root container user.
+On a fresh installation, copy the UAT profile example to `.env.docker` with mode `0600`, configure the Oracle connection and `SECRET_KEY`, and create owner-writable `var/documents` and `var/logs`. Save `PORTAL_ENV_FILE=./.env.docker` in the Compose `.env` file and provision the login key and TLS pair. By default, HAProxy binds to `127.0.0.1:8010`. Set `PORTAL_BIND_HOST` and `PORTAL_PORT` in `.env` for a different listener. Rootless Podman maps the account that owns the files to the non-root container user. [UAT profile example](.env.docker.example) · [Login key](#encrypted-login-and-deployment-private-key) · [TLS pair](#local-https--30-october-2026)
 
-Open the published HTTPS address and sign in with an authorised account or an eligible public UAT demo account when demo sign-in is enabled. `podman compose ps` shows service status. A successful `migrate` exits with code 0. `/api/health` should report release `2026.11.25-r2` and `/api/ready` should report Oracle readiness. The release uses Oracle revision `20261124_0038`. The same backend image runs the API, the migration job and the notification worker.
+Open the published HTTPS address and sign in with an authorised account or an eligible public UAT demo account when demo sign-in is enabled. `podman compose ps` shows service status. A successful `migrate` exits with code 0. `/api/health` should report release `2026.11.25-r3` and `/api/ready` should report Oracle readiness. The release uses Oracle revision `20261124_0038`. The same backend image runs the API, the migration job and the notification worker.
 
-[Nginx](deploy/nginx.conf) serves the frontend and proxies API requests over the Compose web network. The backend and Redis have no published ports. Nginx replaces forwarding headers with the HTTPS scheme and the source address it sees. The backend trusts forwarding headers only from Nginx's configured IP. Podman, Docker Desktop, VPNs or NAT may rewrite the source address before it reaches Nginx. New audit and request logs record the address visible there. In a network overlap, set `PORTAL_WEB_SUBNET`, `PORTAL_PROXY_IP` and `PORTAL_API_IP` to an unused subnet and two distinct addresses within it. [Compose configuration](compose.yaml) · [Podman port forwarding](https://docs.podman.io/en/stable/markdown/podman-run.1.html)
+HAProxy runs on the Linux host network and reads the client IP from the accepted TCP connection. It sends that address to Nginx over their shared Unix socket using PROXY protocol v2. Nginx terminates HTTPS, replaces browser-supplied forwarding headers, and sends API traffic over the private Compose web network. The backend trusts forwarding headers only from Nginx's configured IP. A VPN, NAT or proxy upstream of HAProxy can change the address visible at the host. Check a new sign-in in the Audit Log from another workstation to verify the address. In a network overlap, set `PORTAL_WEB_SUBNET`, `PORTAL_PROXY_IP` and `PORTAL_API_IP` to an unused subnet and two distinct addresses within it. [HAProxy configuration](deploy/haproxy.cfg) · [Nginx configuration](deploy/nginx.conf) · [Podman port forwarding](https://docs.podman.io/en/stable/markdown/podman-run.1.html)
 
-For Docker Compose, pass the owner UID and GID and clear the Podman user namespace setting.
+For Docker Desktop development, the bridge override publishes HAProxy from the VM. Client IPs reflect the desktop port forwarder's address when it rewrites them. [Docker bridge override](deploy/compose.docker.yaml)
 
 ```sh
-PORTAL_USERNS_MODE= PORTAL_CONTAINER_USER="$(id -u):$(id -g)" docker compose up -d --build
+PORTAL_USERNS_MODE= PORTAL_CONTAINER_USER="$(id -u):$(id -g)" \
+  docker compose -f compose.yaml -f deploy/compose.docker.yaml up -d --build
 ```
 
-The backend profile and login key are mounted read-only. The backend and migration profiles both default to `.env.docker`. If you use a custom profile path, set `PORTAL_ENV_FILE` and `PORTAL_MIGRATION_ENV_FILE` to that path, or use a separate migration-owner profile for the latter. Both profiles must select the same environment and Oracle owner service. Prod uses the restricted runtime grants and its approved TLS pair. Docker Desktop can reach a host Oracle listener using `host.docker.internal`. [Restricted runtime grants](database/runtime-grants.sql) · [Storage and recovery](docs/storage-and-logging.md)
+The API, migration job and worker share the profile selected by `PORTAL_ENV_FILE`, which defaults to `.env.docker`. For an existing `.env.uat` deployment, save `PORTAL_ENV_FILE=./.env.uat` in the Compose `.env` file. Relative paths start from the directory containing `compose.yaml`. If the migration log says `APP_ENV_FILE must identify an existing profile file`, check that the path selected by `PORTAL_ENV_FILE` points to the profile file. Use its absolute path if it lives in another directory.
 
-Both release images built locally. Docker Compose and `podman-compose` 1.5.0 accepted the configuration. An isolated Docker run with a synthetic database readiness check verified HTTPS, Swagger, the encrypted login challenge, forwarding-header replacement, and frontend availability after stopping the backend. The backend suite passed 377 tests and skipped 283. Native Podman runtime and Oracle connectivity on `MBHUCMDA01` remain unverified. [Earlier split deployment results](outputs/docker-split-2026-11-21/verification.json)
+For a separate migration-owner profile, set `PORTAL_MIGRATION_ENV_FILE` in `.env` and include the migration override when starting the stack. Both profiles must select the same environment and Oracle owner service. Prod also uses the restricted runtime grants and its approved TLS pair. Docker Desktop can reach a host Oracle listener using `host.docker.internal`. [Migration override](deploy/compose.migration.yaml) · [Restricted runtime grants](database/runtime-grants.sql) · [Storage and recovery](docs/storage-and-logging.md)
+
+```sh
+podman compose -f compose.yaml -f deploy/compose.migration.yaml up -d --build
+```
+
+Both `r3` images built locally. Docker Compose and `podman-compose` 1.5.0 accepted the configuration. An isolated Docker run with Linux host networking verified HTTPS and the encrypted login challenge. Two clients with distinct addresses generated sign-in audit events that recorded each client IP even when the requests included different forwarding headers. The test used synthetic Oracle readiness and captured the audit events before the Oracle insert. The default backend suite passed 377 tests and skipped 283. Earlier `r2` checks verified the shared profile and the separate owner override. Client addresses and Oracle connectivity on `MBHUCMDA01` remain unverified. [Earlier split deployment results](outputs/docker-split-2026-11-21/verification.json)
 
 ## Workflow decisions · 20 November 2026
 

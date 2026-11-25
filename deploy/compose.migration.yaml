@@ -1,0 +1,6 @@
+services:
+  migrate:
+    environment:
+      APP_ENV_FILE: /run/portal/migration.env
+    volumes:
+      - "${PORTAL_MIGRATION_ENV_FILE:?Set PORTAL_MIGRATION_ENV_FILE to the migration owner profile}:/run/portal/migration.env:ro,z"
