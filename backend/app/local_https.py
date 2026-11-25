@@ -30,10 +30,6 @@ class LocalHTTPS:
         host = '[' + self.host + ']' if ':' in self.host else self.host
         return f'https://{host}:{self.port}'
 
-    @property
-    def origins(self):
-        return tuple(dict.fromkeys((self.origin, f'https://localhost:{self.port}', f'https://127.0.0.1:{self.port}')))
-
     def public_config(self):
         return dict(host=self.host, port=self.port, origin=self.origin,
                     cert_file=str(self.cert_file), key_file=str(self.key_file))
@@ -123,7 +119,7 @@ def provision(config, renew=False):
     cert = validate(config)
     for field, value in {'TLS_CERT_FILE': str(config.cert_file), 'TLS_KEY_FILE': str(config.key_file),
             'UAT_HTTPS_HOST': config.host, 'UAT_HTTPS_PORT': str(config.port),
-            'SESSION_COOKIE_SECURE': 'true', 'CORS_ALLOWED_ORIGINS': ','.join(config.origins)}.items():
+            'SESSION_COOKIE_SECURE': 'true'}.items():
         set_key(config.profile, field, value, quote_mode='always')
     config.profile.chmod(0o600)
     return {'origin': config.origin, 'browser_url': f'https://localhost:{config.port}',

@@ -16,7 +16,6 @@ from fastapi.responses import FileResponse,JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from .runtime import runtime_settings
-from .portal_origin import portal_write_allowed, web_origin
 from .pagination import page_query, paginate
 from .table_filters import column_choices, column_query, fields, filter_rows, label, version as version_label
 from .config import ROOT
@@ -137,7 +136,6 @@ def create_app(settings=None,engine=None):
             insert_request(db, event)
     # An injected engine belongs to tests and supplies its own rollback-bound writer.
     app.state.write_request_audit = persist_access if engine is None else None
-    configured_origins = frozenset(filter(None, map(web_origin, cfg.origins)))
 
     @app.middleware('http')
     async def security(request,call_next):
@@ -147,8 +145,6 @@ def create_app(settings=None,engine=None):
             local=cfg.environment=='uat' and not cfg.secure_cookie and request.url.hostname in {'localhost','127.0.0.1','::1'} and local_client
             if not local:return JSONResponse({'detail':'Secure sign-in requires HTTPS.'},status_code=426)
         if request.method not in {'GET','HEAD','OPTIONS'}:
-            if not portal_write_allowed(request, configured_origins):
-                return JSONResponse({'detail':'Open the portal directly in your browser and try again.'},status_code=403)
             path=request.url.path.rstrip('/')
             file_upload=(path in {'/api/migration','/api/obligation-imports','/api/documents',
                 organisation_import.IMPORT_PATH, organisation_import.IMPORT_PATH+'/preview'}
@@ -224,7 +220,7 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/health')
     def health():
-        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', 'Weeks 1–5')}
+        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', '2026.11.25-r1')}
 
     @app.get('/api/ready')
     def ready(request: Request):
@@ -292,14 +288,15 @@ def create_app(settings=None,engine=None):
 
     @app.post('/api/auth/logout')
     def logout(request:Request,response:Response,db=Depends(get_db)):
-        raw=request.cookies.get(auth.COOKIE,'')
-        if raw:
-            try:actor,session=auth.resolve(db,request,cfg,limited=True)
-            except HTTPException as exc:
-                if exc.status_code!=401:raise
-            else:
-                db.execute(m.app_session.update().where(m.app_session.c.id==session['id']).values(revoked_flag=1))
-                audit(db,actor,'user',actor.id,'LOGOUT')
+        # A request without a session cookie has nothing to sign out or clear.
+        if not request.cookies.get(auth.COOKIE):
+            return {'ok':True}
+        try:actor,session=auth.resolve(db,request,cfg,limited=True)
+        except HTTPException as exc:
+            if exc.status_code!=401:raise
+        else:
+            db.execute(m.app_session.update().where(m.app_session.c.id==session['id']).values(revoked_flag=1))
+            audit(db,actor,'user',actor.id,'LOGOUT')
         response.delete_cookie(auth.COOKIE,path='/');return {'ok':True}
 
     @app.post('/api/auth/password')

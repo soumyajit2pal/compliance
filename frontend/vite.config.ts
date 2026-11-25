@@ -24,11 +24,6 @@ export default defineConfig(({ command }) => {
       changeOrigin: false,
       // Trust this configured local certificate, without disabling TLS checks.
       agent: local ? new Agent({ ca: certificate, rejectUnauthorized: true }) : undefined,
-      configure(proxy) {
-        proxy.on('proxyReq', (proxyRequest, request) => {
-          if (request.headers.origin) proxyRequest.setHeader('origin', target);
-        });
-      },
     },
   };
   return {

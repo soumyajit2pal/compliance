@@ -11,7 +11,6 @@ class RuntimeSettings:
     environment: str
     database_url: str = field(repr=False)
     secret: str = field(repr=False)
-    origins: tuple[str, ...] = ()
     secure_cookie: bool = True
     storage: Path = ROOT / 'var/documents'
     max_minutes: int = 480
@@ -60,17 +59,15 @@ def runtime_settings():
         secret = local.read_text().strip()
     if len(secret) < 48:
         raise RuntimeError('Set SECRET_KEY to at least 48 random characters before starting the API.')
-    origins = tuple(x.strip().rstrip('/') for x in values.get('CORS_ALLOWED_ORIGINS',
-        'http://127.0.0.1:8010,http://localhost:8010' if s.app_env == 'uat' else '').split(',') if x.strip())
     secure = values.get('SESSION_COOKIE_SECURE', 'true' if s.app_env == 'prod' else 'false').lower() == 'true'
     url = values.get('RUNTIME_DATABASE_URL') or (s.database_url if s.app_env == 'uat' else '')
     if url:
         parsed=make_url(url)
         if not (parsed.drivername=='oracle+oracledb' and parsed.username and parsed.host and parsed.query.get('service_name')):
             raise RuntimeError('RUNTIME_DATABASE_URL must identify an Oracle Thin-driver account and service.')
-    if not url or (s.app_env == 'prod' and (not secure or any(not x.startswith('https://') for x in origins)
+    if not url or (s.app_env == 'prod' and (not secure
             or make_url(url).username.upper() == make_url(s.database_url).username.upper())):
-        raise RuntimeError('Prod requires secure cookies, a separate restricted RUNTIME_DATABASE_URL and HTTPS for any configured origins.')
+        raise RuntimeError('Prod requires secure cookies and a separate restricted RUNTIME_DATABASE_URL.')
     def server_path(name, default):
         raw = values.get(name, default)
         if not raw or not raw.strip():
@@ -112,7 +109,7 @@ def runtime_settings():
     key_file = values.get('LOGIN_ENCRYPTION_PRIVATE_KEY_FILE', '')
     key_path = Path(key_file).expanduser() if key_file else None
     if key_path is not None and not key_path.is_absolute(): key_path = ROOT / key_path
-    return RuntimeSettings(s.app_env, url, secret, origins, secure, storage,
+    return RuntimeSettings(s.app_env, url, secret, secure, storage,
         int(values.get('SESSION_MAX_MINUTES',480)),int(values.get('SESSION_IDLE_MINUTES',30)),ldap,
         s.app_env == 'uat' and values.get('UAT_DEMO_LOGIN_ENABLED','true').lower() == 'true',
         values.get('LDAP_MOCK_ENABLED', 'false').lower() == 'true',
