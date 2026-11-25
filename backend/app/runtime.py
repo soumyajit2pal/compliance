@@ -68,9 +68,9 @@ def runtime_settings():
         parsed=make_url(url)
         if not (parsed.drivername=='oracle+oracledb' and parsed.username and parsed.host and parsed.query.get('service_name')):
             raise RuntimeError('RUNTIME_DATABASE_URL must identify an Oracle Thin-driver account and service.')
-    if not url or (s.app_env == 'prod' and (not secure or not origins or any(not x.startswith('https://') for x in origins)
+    if not url or (s.app_env == 'prod' and (not secure or any(not x.startswith('https://') for x in origins)
             or make_url(url).username.upper() == make_url(s.database_url).username.upper())):
-        raise RuntimeError('Prod requires HTTPS origins, secure cookies and a separate restricted RUNTIME_DATABASE_URL.')
+        raise RuntimeError('Prod requires secure cookies, a separate restricted RUNTIME_DATABASE_URL and HTTPS for any configured origins.')
     def server_path(name, default):
         raw = values.get(name, default)
         if not raw or not raw.strip():

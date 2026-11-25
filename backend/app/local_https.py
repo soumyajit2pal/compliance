@@ -136,8 +136,8 @@ def serve(config):
     from .runtime import runtime_settings
     import uvicorn
     runtime = runtime_settings()
-    if not runtime.secure_cookie or not set(config.origins) <= set(runtime.origins):
-        raise RuntimeError('Configure HTTPS origins and secure cookies with local_https setup before startup.')
+    if not runtime.secure_cookie:
+        raise RuntimeError('Enable secure cookies with local_https setup before startup.')
     server = uvicorn.Config('backend.app.main:app', host=config.host, port=config.port,
         ssl_certfile=str(config.cert_file), ssl_keyfile=str(config.key_file),
         ssl_version=ssl.PROTOCOL_TLS_SERVER, proxy_headers=False)
