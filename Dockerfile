@@ -28,19 +28,16 @@ COPY backend/alembic.ini ./backend/
 COPY backend/alembic/ ./backend/alembic/
 COPY backend/templates/ ./backend/templates/
 COPY --from=frontend-build /app/backend/static/swagger/ ./backend/static/swagger/
-RUN install -d -m 0777 /run/portal-socket
-ARG PORTAL_IMAGE_TAG=2026.11.24-r3
+ARG PORTAL_IMAGE_TAG=2026.11.25-r2
 LABEL org.opencontainers.image.title="Compliance by Design backend" org.opencontainers.image.version="${PORTAL_IMAGE_TAG}"
 ENV PORTAL_RELEASE=${PORTAL_IMAGE_TAG} PORTAL_SERVE_FRONTEND=false
 USER 10001:10001
-# Nginx is the sole peer on the mounted socket and replaces incoming forwarding headers.
-CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--uds", "/run/portal-socket/portal.sock", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
 
 FROM nginx:1.30-alpine AS frontend
-RUN install -d -m 0777 /run/portal-edge
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 COPY --from=frontend-build /app/frontend/dist/ /srv/portal/assets/
-ARG PORTAL_IMAGE_TAG=2026.11.24-r3
+ARG PORTAL_IMAGE_TAG=2026.11.25-r2
 LABEL org.opencontainers.image.title="Compliance by Design frontend" org.opencontainers.image.version="${PORTAL_IMAGE_TAG}"
 USER 10001:10001
 ENTRYPOINT ["nginx"]

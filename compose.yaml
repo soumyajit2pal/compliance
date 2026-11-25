@@ -4,79 +4,68 @@ x-podman:
   in_pod: false
 
 x-portal-user: &portal-user
-  # deploy/start.sh supplies the deployment account and runtime-specific mapping.
-  user: "${PORTAL_UID:-10001}:${PORTAL_GID:-10001}"
-  userns_mode: "${PORTAL_USERNS_MODE:-}"
+  # Rootless Podman maps the deployment account to the non-root image user.
+  user: "${PORTAL_CONTAINER_USER:-10001:10001}"
+  userns_mode: "${PORTAL_USERNS_MODE-keep-id:uid=10001,gid=10001}"
 
 x-backend-release: &backend-release
   <<: *portal-user
-  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.24-r3}"
+  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.25-r2}"
+
   build:
     context: .
     target: backend
     args: &release-args
-      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.24-r3}"
+      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.25-r2}"
 
 services:
-  haproxy:
-    <<: *portal-user
-    image: "${PORTAL_HAPROXY_IMAGE:-docker.io/library/haproxy:3.2-alpine}"
-    entrypoint: ["haproxy"]
-    command: ["-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
-    restart: unless-stopped
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    depends_on:
-      frontend:
-        condition: service_healthy
-    network_mode: bridge
-    environment:
-      PORTAL_EDGE_BIND: 0.0.0.0:8443
-    ports:
-      - "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}:8443"
-    volumes:
-      - ./deploy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro,z
-      - portal-edge:/run/portal-edge:ro
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://$${PORTAL_EDGE_BIND}/"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-
   frontend:
     <<: *portal-user
-    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.24-r3}"
+
+    ports:
+      - "${PORTAL_BIND_HOST:-127.0.0.1}:${PORTAL_PORT:-8010}:8443"
+
+    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.25-r2}"
+
     build:
       context: .
       target: frontend
       args: *release-args
+
     restart: unless-stopped
     read_only: true
-    tmpfs: ["/tmp:mode=1777"]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+
+    tmpfs:
+      - /tmp:mode=1777
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
     depends_on:
       backend:
         condition: service_healthy
+
     volumes:
-      - type: bind
-        source: ${PORTAL_TLS_CERT:-./var/tls/localhost.crt}
-        target: /run/portal/tls.crt
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${PORTAL_TLS_KEY:-./var/tls/localhost.key}
-        target: /run/portal/tls.key
-        read_only: true
-        bind:
-          create_host_path: false
-      - portal-socket:/run/portal-socket:ro
-      - portal-edge:/run/portal-edge
-    network_mode: none
+      # Certificate and key are private to the frontend container.
+      # The certificate must be PEM encoded.
+      - "${PORTAL_TLS_CERT:-./var/tls/localhost.crt}:/run/portal/tls.crt:ro,Z"
+      - "${PORTAL_TLS_KEY:-./var/tls/localhost.key}:/run/portal/tls.key:ro,Z"
+
+    networks:
+      web:
+        ipv4_address: "${PORTAL_PROXY_IP:-10.253.178.2}"
+
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/ready"]
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8081/ready
       interval: 15s
       timeout: 5s
       start_period: 15s
@@ -84,80 +73,99 @@ services:
 
   migrate:
     <<: *backend-release
+
     init: true
     restart: "no"
     read_only: true
-    tmpfs: ["/tmp:mode=1777"]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    command: ["python", "-m", "backend.app.compose_migrate"]
+
+    tmpfs:
+      - /tmp:mode=1777
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    command:
+      - python
+      - -m
+      - backend.app.compose_migrate
+
     environment:
       APP_ENV_FILE: /run/portal/migration.env
+
     extra_hosts:
-      - host.docker.internal:host-gateway
+      - "host.docker.internal:host-gateway"
+
     volumes:
-      - type: bind
-        source: ${PORTAL_MIGRATION_ENV_FILE:-${PORTAL_ENV_FILE:-./.env.docker}}
-        target: /run/portal/migration.env
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${PORTAL_ENV_FILE:-./.env.docker}
-        target: /run/portal/profile.env
-        read_only: true
-        bind:
-          create_host_path: false
+      # Lowercase z is required because the default file is also
+      # mounted by backend and notification_worker.
+      - "${PORTAL_MIGRATION_ENV_FILE:-./.env.docker}:/run/portal/migration.env:ro,z"
+      - "${PORTAL_ENV_FILE:-./.env.docker}:/run/portal/profile.env:ro,z"
+
+    networks:
+      - default
 
   backend:
     <<: *backend-release
+
     init: true
     restart: unless-stopped
     read_only: true
+
     tmpfs:
       - /tmp:mode=1777
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
     environment:
       APP_ENV_FILE: /run/portal/profile.env
       UPLOAD_STORAGE_ROOT: /data/documents
       LOG_DIR: /data/logs
       SESSION_COOKIE_SECURE: "true"
       LOGIN_ENCRYPTION_PRIVATE_KEY_FILE: /run/portal/login-private.pem
+      FORWARDED_ALLOW_IPS: "${PORTAL_PROXY_IP:-10.253.178.2}"
       REDIS_URL: redis://redis:6379/0
       NOTIFICATION_WORKER_MODE: dedicated
+
     extra_hosts:
-      - host.docker.internal:host-gateway
+      - "host.docker.internal:host-gateway"
+
     volumes:
-      - type: bind
-        source: ${PORTAL_ENV_FILE:-./.env.docker}
-        target: /run/portal/profile.env
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${PORTAL_LOGIN_KEY:-./var/login-private.pem}
-        target: /run/portal/login-private.pem
-        read_only: true
-        bind:
-          create_host_path: false
-      - portal-socket:/run/portal-socket
-      - type: bind
-        source: ${PORTAL_DOCUMENTS:-./var/documents}
-        target: /data/documents
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${PORTAL_LOGS:-./var/logs}
-        target: /data/logs
-        bind:
-          create_host_path: false
-    networks: [default, cache]
+      # Shared by migrate, backend, and notification_worker.
+      - "${PORTAL_ENV_FILE:-./.env.docker}:/run/portal/profile.env:ro,z"
+
+      # Used only by backend.
+      - "${PORTAL_LOGIN_KEY:-./var/login-private.pem}:/run/portal/login-private.pem:ro,Z"
+
+      # Documents and logs are shared with notification_worker.
+      - "${PORTAL_DOCUMENTS:-./var/documents}:/data/documents:z"
+      - "${PORTAL_LOGS:-./var/logs}:/data/logs:z"
+
+    networks:
+      web:
+        ipv4_address: "${PORTAL_API_IP:-10.253.178.3}"
+      cache:
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect('/run/portal-socket/portal.sock'); s.sendall(b'GET /api/ready HTTP/1.0'+bytes((13,10))*2); assert b' 200 ' in s.makefile('rb').readline()"]
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          from urllib.request import urlopen;
+          urlopen('http://127.0.0.1:8000/api/ready', timeout=3).close()
       interval: 15s
       timeout: 5s
       start_period: 15s
@@ -165,16 +173,31 @@ services:
 
   notification_worker:
     <<: *backend-release
+
     init: true
     restart: unless-stopped
     read_only: true
-    tmpfs: ["/tmp:mode=1777"]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+
+    tmpfs:
+      - /tmp:mode=1777
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
     depends_on:
       migrate:
         condition: service_completed_successfully
-    command: ["python", "-m", "backend.app.notification_worker"]
+      redis:
+        condition: service_healthy
+
+    command:
+      - python
+      - -m
+      - backend.app.notification_worker
+
     environment:
       APP_ENV_FILE: /run/portal/profile.env
       LOG_DIR: /data/logs
@@ -184,46 +207,75 @@ services:
       NOTIFICATION_WORKER_MODE: dedicated
       DB_POOL_SIZE: "2"
       DB_MAX_OVERFLOW: "1"
+
     extra_hosts:
-      - host.docker.internal:host-gateway
+      - "host.docker.internal:host-gateway"
+
     volumes:
-      - type: bind
-        source: ${PORTAL_ENV_FILE:-./.env.docker}
-        target: /run/portal/profile.env
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${PORTAL_LOGS:-./var/logs}
-        target: /data/logs
-        bind:
-          create_host_path: false
-    networks: [default, cache]
+      # Shared with migrate and backend.
+      - "${PORTAL_ENV_FILE:-./.env.docker}:/run/portal/profile.env:ro,z"
+
+      # Shared with backend.
+      - "${PORTAL_DOCUMENTS:-./var/documents}:/data/documents:z"
+      - "${PORTAL_LOGS:-./var/logs}:/data/logs:z"
+
+    networks:
+      - default
+      - cache
+
     healthcheck:
-      test: ["CMD", "python", "-m", "backend.app.notification_worker", "--healthcheck"]
+      test:
+        - CMD
+        - python
+        - -m
+        - backend.app.notification_worker
+        - --healthcheck
       interval: 15s
       timeout: 5s
       start_period: 15s
       retries: 3
+
     stop_grace_period: 90s
 
   redis:
-    image: redis:7.4-alpine
-    command: ["redis-server", "--protected-mode", "no", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    image: "docker.io/library/redis:7.4-alpine"
+
+    command:
+      - redis-server
+      - --protected-mode
+      - "no"
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 64mb
+      - --maxmemory-policy
+      - allkeys-lru
+
     restart: unless-stopped
-    tmpfs: [/data]
-    networks: [cache]
+
+    tmpfs:
+      - /data
+
+    networks:
+      - cache
+
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - CMD
+        - redis-cli
+        - ping
       interval: 15s
       timeout: 3s
+      start_period: 10s
       retries: 3
 
 networks:
   default:
+  web:
+    ipam:
+      config:
+        - subnet: "${PORTAL_WEB_SUBNET:-10.253.178.0/29}"
   cache:
     internal: true
-
-volumes:
-  portal-socket:
-  portal-edge:
