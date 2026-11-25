@@ -231,7 +231,9 @@ def decide(db,actor,kind,identifier,payload):
         db.execute(m.workflow_instance.update().where(m.workflow_instance.c.id==workflow['id']).values(current_stage='FINAL_APPROVAL'))
         recipient=db.execute(sa.select(m.workflow_action.c.assignee_user_id).where(m.workflow_action.c.instance_id==workflow['id'],m.workflow_action.c.stage=='FINAL_APPROVAL')).scalar_one()
         notify(db,'family_'+kind,identifier,recipient,'APPROVAL_ASSIGNED',workflow['id']+':APPROVAL')
-    else:db.execute(m.workflow_instance.update().where(m.workflow_instance.c.id==workflow['id']).values(record_status='RETURNED' if payload.decision=='RETURN' else target,current_stage='CLOSED',completed_at=at))
+    else:
+        db.execute(m.workflow_instance.update().where(m.workflow_instance.c.id==workflow['id']).values(record_status='RETURNED' if payload.decision=='RETURN' else target,current_stage='CLOSED',completed_at=at))
+        notify(db, 'family_'+kind, identifier, row['created_by'], 'FAMILY_'+payload.decision, workflow['id']+':'+payload.decision)
     history(db,actor,'family_'+kind,identifier,row['approval_status'],target,payload.comments)
     audit(db,actor,'family_'+kind,identifier,payload.decision,reason=payload.comments)
     return {'id':identifier,'approval_status':target}

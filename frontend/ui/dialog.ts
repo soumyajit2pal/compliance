@@ -1,3 +1,4 @@
+import { canPreviewDocument } from '../core/upload-policy.ts';
 import { dialog, setDialogMarkup } from '../core/dom.ts';
 import { esc, button } from './components.ts';
 import { icon } from './icons.ts';
@@ -30,9 +31,7 @@ export function modal(name, contents, form = '', save: string | SubmitAppearance
 export function sourceDocumentPreview(identifier: string, fileName: string) {
   clearMessage();
   lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  const extension = fileName.split('.').pop()?.toLowerCase();
-  const browserPreviewSupported = extension === 'pdf' || extension === 'txt';
-  const preview = browserPreviewSupported
+  const preview = canPreviewDocument(fileName)
     ? `<iframe class="source-preview-frame" title="Preview of ${esc(fileName)}" src="${esc(sourceDocumentUrl(identifier,true))}"></iframe>`
     : `<div class="source-preview-unavailable"><div class="source-preview-file-icon">${icon('file')}</div><h3>Preview is not available for this file type</h3><p>Download the original source to review its contents.</p></div>`;
   dialog.className = 'modal wide runtime-dialog source-document-dialog';

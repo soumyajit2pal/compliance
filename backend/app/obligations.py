@@ -26,8 +26,10 @@ def rows(db,table,identifier,current=True):
 
 
 def source(db,actor,clause_id):
+    from .clause_interpretations import apply_approved
     clause=repo.one(db,m.regulatory_clause,clause_id)
     version,instrument=repo.read_version(db,actor,clause['instrument_version_id'])
+    apply_approved(db, [clause])
     return clause,version,instrument
 
 
@@ -104,7 +106,7 @@ def eligible(db,user_id,role,unit,exclude=()):
     return candidate
 
 
-def validate(db,actor,payload,retained=None):
+def validate(db,actor,payload,retained=None,*,draft=False):
     clause,version,instrument=source(db,actor,payload.primary_clause_id)
     actor.require({'AUTHOR'},instrument['regulatory_owner_unit_id'])
     if payload.regulatory_owner_unit_id!=instrument['regulatory_owner_unit_id']:
@@ -128,8 +130,10 @@ def validate(db,actor,payload,retained=None):
     eligible(db,payload.compliance_reviewer_user_id,'REVIEWER',payload.regulatory_owner_unit_id,(actor.id,))
     for identifier in [payload.primary_clause_id,*payload.supporting_clause_ids]:
         c,v,_=source(db,actor,identifier)
-        if c['approval_status']!='APPROVED' or c['interpretation_status']!='APPROVED' or v['approval_status']!='APPROVED':
-            raise HTTPException(422,'Every cited clause and its source edition must have independently approved interpretation.')
+        if c['approval_status']!='APPROVED' or v['approval_status']!='APPROVED':
+            raise HTTPException(422,'Every cited clause and its source edition must be approved.')
+        if not draft and c['interpretation_status']!='APPROVED':
+            raise HTTPException(422,'Approve the bank interpretation on every cited clause before sending this obligation for review.')
         # Draft revisions may retain a historical citation while the maker maps
         # the replacement source. Submission/activation enforce source periods.
     for owner in payload.owners:
@@ -188,7 +192,7 @@ def save_children(db,actor,row,payload):
 
 def create(db,actor,payload,*,imported=False,code=None,version=1,supersedes=None,copy_fields_from=None):
     retained = repo.one(db,m.compliance_obligation,copy_fields_from) if copy_fields_from else None
-    validate(db,actor,payload,retained)
+    validate(db,actor,payload,retained,draft=True)
     identifier=new_id()
     primary=repo.one(db,m.regulatory_clause,payload.primary_clause_id)
     values=dict(id=identifier,code=code or business_ids.obligation(db,primary['code']),version_number=version,
@@ -211,7 +215,7 @@ def edit(db,actor,identifier,payload):
     row=read(db,actor,identifier,True);actor.require({'AUTHOR'},row['regulatory_owner_unit_id'])
     if row['created_by']!=actor.id or row['approval_status']!='DRAFT':raise HTTPException(409,'Only the Draft maker can edit. Approved content requires a new revision.')
     if payload.expected_revision!=row['edit_revision']:raise HTTPException(409,'This Draft changed. Refresh before saving your edits.')
-    validate(db,actor,payload,row)
+    validate(db,actor,payload,row,draft=True)
     from .dropdowns import save_answers
     save_answers(db,actor,'obligation',identifier,payload.custom_fields,payload.change_reason)
     save_children(db,actor,row,payload)
@@ -288,6 +292,8 @@ def submit(db,actor,identifier,payload):
     if row['created_by']!=actor.id or row['approval_status']!='DRAFT':raise HTTPException(409,'Only the maker can submit an editable Draft.')
     if payload.expected_revision!=row['edit_revision']:raise HTTPException(409,'This Draft changed. Refresh before submitting.')
     blocking=set(issues(db,actor,row))-{'CONTENT_VALIDATION_PENDING','PARTIAL_APPLICABILITY','UNAPPROVED_NON_APPLICABILITY','HIGH_CRITICAL'}
+    if 'UNAPPROVED_SOURCE' in blocking:
+        raise HTTPException(422,'Approve every cited clause, its source edition and the bank interpretation before sending for review.')
     if blocking:raise HTTPException(422,'Resolve before submission: '+', '.join(sorted(blocking)).replace('_',' ').lower()+'.')
     from .dropdowns import save_answers
     save_answers(db,actor,'obligation',identifier,{})
@@ -500,7 +506,7 @@ def assign_owners(db,actor,identifier,payload):
     if not draft:return ownership_changes.submit(db,actor,row,payload)
     data.update(change,change_reason=payload.reason)
     value=ObligationInput(**data)
-    validate(db,actor,value,row)
+    validate(db,actor,value,row,draft=True)
     if draft:
         save_owners(db,actor,row,value)
         db.execute(m.compliance_obligation.update().where(m.compliance_obligation.c.id==identifier).values(

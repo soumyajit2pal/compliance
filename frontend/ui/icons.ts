@@ -47,6 +47,8 @@ const paths = {
   database:
     '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/>',
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
+  panelCollapse: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-11-3 3 3 3"/>',
+  panelExpand: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m4-11 3 3-3 3"/>',
   logout: '<path d="M9 3H3v18h6m6-15 6 6-6 6m-9-6h15"/>',
   sparkle: '<path d="m12 3 3 6 6 3-6 3-3 6-3-6-6-3 6-3z"/>',
   target:

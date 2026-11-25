@@ -299,7 +299,7 @@ export async function clausesPage(_id, query = new URLSearchParams()) {
     (canAuthor && (editable || detail.edition.approval_status === 'APPROVED')
       ? `<button type="button" class="btn small" data-action="link-earlier-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">Link earlier clause</button>` : '');
   const reader = renderClauseDetail({
-    selected, parent: detail.ancestors.at(-1), carry: detail.provenance, original: detail.original,
+    selected: {...selected, regulatory_owner_unit_id: detail.owner_unit_id}, parent: detail.ancestors.at(-1), carry: detail.provenance, original: detail.original,
     ancestors: detail.ancestors,
     pathFor: row => browsePath(row, row.instrument_version_id === selected.instrument_version_id ? context :
       new URLSearchParams({ instrument: row.instrument_id, edition: row.instrument_version_id })),

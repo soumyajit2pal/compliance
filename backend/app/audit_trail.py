@@ -28,6 +28,7 @@ RECORD_TYPES = {
         'metadata_correction': 'Metadata correction', 'family_link': 'Notification relationship',
         'family_deadline': 'Regulatory date', 'family_assessment': 'Notification assessment',
         'family_clause': 'Clause relationship',
+        'clause_interpretation': 'Bank interpretation',
     }),
     'obligations': ('Obligations', {'obligation': 'Obligation'}),
     'work': ('Compliance work', {
@@ -44,7 +45,8 @@ ADMIN_TYPES = {
     'user': 'User account', 'system': 'System settings', 'employee_profile_review': 'Employee profile review',
     'dropdown_config': 'Dropdown configuration', 'application_link': 'Connected application',
 }
-ADMIN_SYSTEM_RECORDS = {'LDAP': ('LDAP settings', 'ldap'), EMPLOYEE_API_CODE: ('Employee profile API', 'employee-api')}
+ADMIN_SYSTEM_RECORDS = {'LDAP': ('LDAP settings', 'ldap'), EMPLOYEE_API_CODE: ('Employee profile API', 'employee-api'),
+                        'SMTP': ('Email settings', 'email-settings'), 'UPLOAD_POLICY': ('Upload settings', 'upload-settings')}
 ALL_RECORD_TYPES = {**RECORD_TYPES, 'administration': ('Administration', ADMIN_TYPES),
                     'system-access': ('System access', {'portal_access': 'Portal request', 'authentication': 'Authentication'}),
                     'other': ('Other audit records', {})}
@@ -127,6 +129,11 @@ def subject(db, actor, kind, identifier):
         correction = repo.one(db, m.metadata_correction, identifier)
         row = repo.read_instrument(db, actor, correction['instrument_id'])
         return row['code'], row['title'], f"repository/{row['id']}?tab=workflow&correction={identifier}", row['regulatory_owner_unit_id']
+    if kind == 'clause_interpretation':
+        from . import clause_interpretations
+        request = repo.one(db, m.clause_interpretation_request, identifier)
+        clause, _, row = clause_interpretations.context(db, actor, request['clause_id'])
+        return clause['code'], row['title'], clause_interpretations.path(row['id'], clause, identifier), row['regulatory_owner_unit_id']
     if kind.startswith('family_'):
         proposal_type = kind.removeprefix('family_')
         proposal = repo.one(db, families.KINDS[proposal_type], identifier)

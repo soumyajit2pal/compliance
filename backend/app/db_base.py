@@ -9,7 +9,7 @@ def object_name(constraint, table):
     if kind == "foreignkey":
         columns += "_" + "_".join(e.target_fullname for e in constraint.elements)
     value = f"{kind}_{table.name}_{columns}"
-    return value[:18] + "_" + hashlib.sha1(value.encode()).hexdigest()[:8]
+    return value[:18] + "_" + hashlib.sha1(value.encode(), usedforsecurity=False).hexdigest()[:8]
 
 
 metadata = MetaData(naming_convention={

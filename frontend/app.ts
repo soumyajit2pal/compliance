@@ -2,7 +2,7 @@ import {dropdownHandlers} from './features/dropdowns.ts';
 import { installEvents } from './core/events.ts';
 import { render } from './core/router.ts';
 import { SessionExpired } from './core/api.ts';
-import { message } from './ui/components.ts';
+import { reportError } from './ui/feedback.ts';
 import { close } from './ui/dialog.ts';
 import { loginView, loadIdentity, authHandlers } from './features/auth.ts';
 import { repositoryHandlers } from './features/repository.ts';
@@ -22,6 +22,8 @@ import { auditTrailHandlers } from './features/audit-trail.ts';
 
 import {controlHandlers} from './features/controls.ts';
 import {employeeSettingsHandlers} from './features/employee-settings.ts';
+import {emailSettingsHandlers} from './features/email-settings.ts';
+import {uploadSettingsHandlers} from './features/upload-settings.ts';
 
 installSearchableSelects();
 installObligationEditorEvents();
@@ -31,6 +33,8 @@ import {delegationHandlers} from './features/delegations.ts';
 const features = [
   auditTrailHandlers,
   employeeSettingsHandlers,
+  emailSettingsHandlers,
+  uploadSettingsHandlers,
   delegationHandlers,
   controlHandlers,
   deliveryHandlers,
@@ -59,5 +63,5 @@ try {
   if (await loadIdentity()) await render();
 } catch (error) {
   loginView();
-  if (!(error instanceof SessionExpired)) message(error.message, true);
+  if (!(error instanceof SessionExpired)) reportError(error);
 }

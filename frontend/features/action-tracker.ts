@@ -1,10 +1,11 @@
+import { referenceSelect } from '../ui/reference-options.ts';
 /** Read-only projections of the authenticated action register. */
-import {workRelationshipIntro} from './work-context.ts';
+import {workRelationshipExplanation} from './work-context.ts';
 import { api } from '../core/api.ts';
-import { state } from '../core/state.ts';
 import { has } from '../core/access.ts';
 import { withoutPaging } from '../core/pagination.ts';
 import { esc,title,ref,badge,statusTag,link,input,select } from '../ui/components.ts';
+import { heading, pageHelp } from '../ui/layout.ts';
 import { table,tablePanel } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
 
@@ -57,11 +58,15 @@ export async function actionTrackerPage(query=new URLSearchParams()){
  const response=await api('/actions?'+server);if(!Array.isArray(response))throw new Error('The compliance work register returned an unexpected record format.');
  const q=(query.get('q')||'').trim().toLocaleLowerCase();
  const rows=response.filter(a=>!q||[a.code,a.description,a.obligation_code,a.obligation_title,ref('user',a.owner_user_id),ref('organisational_unit',a.owner_unit_id)].join(' ').toLocaleLowerCase().includes(q));
- const departments=(state.masters?.organisational_unit||[]).filter(d=>d.active_flag!==0||d.id===query.get('department')||rows.some(a=>a.owner_unit_id===d.id));
- if(query.get('department')&&!departments.some(d=>d.id===query.get('department')))departments.push({id:query.get('department'),name:ref('organisational_unit',query.get('department'))});
  const clear=new URLSearchParams({view,month});if(query.get('obligation'))clear.set('obligation',query.get('obligation'));
  const scope=query.get('obligation')?`<div class="at-scope">Obligation: ${esc(rows[0]?.obligation_title||'Selected obligation')}${link(href(normal,{obligation:null}),'View all obligations','text-link')}</div>`:'';
- return `<div class="action-tracker"><header class="at-header"><div><h1>Compliance work tracker</h1><p>Assign and follow work linked to obligations, checks and supporting evidence. Each work item has its own owner, due dates and independent review.</p></div>${has('AUTHOR','BUSINESS_OWNER')?`<a class="btn primary at-create" href="#actions/new">${icon('plus')}<span>Assign work</span></a>`:''}</header>${workRelationshipIntro()}<nav class="at-tabs" aria-label="Compliance work tracker views">${[['list','List view'],['board','Board view'],['calendar','Calendar · '+monthFormat.format(new Date(month+'-01T12:00:00Z'))]].map(([key,label])=>`<a href="#${esc(href(normal,{view:key}))}" class="${view===key?'active':''}" ${view===key?'aria-current="page"':''}>${esc(label)}</a>`).join('')}</nav>${scope}<form id="view-filter" class="at-filters" aria-label="Compliance work tracker filters"><div class="at-search">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Search work, obligation or owner…" aria-label="Search work, obligation or owner"')}</div>${select('department',departments,query.get('department'),'name','aria-label="Department"','All departments')}${select('criticality',['CRITICAL','HIGH','MEDIUM','LOW'].map(id=>({id,name:title(id)})),query.get('criticality'),'name','aria-label="Criticality"','All criticalities')}${select('status',statuses.map(([id,name])=>({id,name})),query.get('status'),'name','aria-label="Status"','All statuses')}${input('view',view,'hidden')}${input('month',month,'hidden')}<div class="at-filter-actions"><button class="btn" type="submit">Apply</button>${link('actions?'+clear,'Clear','text-link')}</div></form><div class="at-results" role="status">${rows.length} work item${rows.length===1?'':'s'}${q?' matching your search':''}${query.get('status')?' · '+esc(statusLabel(query.get('status'))):''}</div>${view==='board'?board(rows,normal):view==='list'?list(rows,normal):calendar(rows,normal,month)}</div>`;
+ const assignWork = has('AUTHOR','BUSINESS_OWNER')
+   ? `<a class="btn primary" href="#actions/new">${icon('plus')} Assign work</a>`
+   : '';
+ return `<div class="action-tracker">
+   ${pageHelp('Track assigned work', workRelationshipExplanation, 'work-evidence')}
+   ${heading('Compliance work tracker', 'Assign and follow work linked to obligations, checks and supporting evidence. Each work item has its own owner, due dates and independent review.', assignWork)}
+   <nav class="at-tabs" aria-label="Compliance work tracker views">${[['list','List view'],['board','Board view'],['calendar','Calendar · '+monthFormat.format(new Date(month+'-01T12:00:00Z'))]].map(([key,label])=>`<a href="#${esc(href(normal,{view:key}))}" class="${view===key?'active':''}" ${view===key?'aria-current="page"':''}>${esc(label)}</a>`).join('')}</nav>${scope}<form id="view-filter" class="at-filters" aria-label="Compliance work tracker filters"><div class="at-search">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Search work, obligation or owner…" aria-label="Search work, obligation or owner"')}</div>${referenceSelect('department','organisational_unit',query.get('department')||'','aria-label="Department"','All departments',{historical:true})}${select('criticality',['CRITICAL','HIGH','MEDIUM','LOW'].map(id=>({id,name:title(id)})),query.get('criticality'),'name','aria-label="Criticality"','All criticalities')}${select('status',statuses.map(([id,name])=>({id,name})),query.get('status'),'name','aria-label="Status"','All statuses')}${input('view',view,'hidden')}${input('month',month,'hidden')}<div class="at-filter-actions"><button class="btn" type="submit">Apply</button>${link('actions?'+clear,'Clear','text-link')}</div></form><div class="at-results" role="status">${rows.length} work item${rows.length===1?'':'s'}${q?' matching your search':''}${query.get('status')?' · '+esc(statusLabel(query.get('status'))):''}</div>${view==='board'?board(rows,normal):view==='list'?list(rows,normal):calendar(rows,normal,month)}</div>`;
 }
 
 export function trackerMonthChange(form:HTMLFormElement){const query=withoutPaging(new URLSearchParams(location.hash.split('?')[1]||''));query.set('view','calendar');query.set('month',validMonth(String(new FormData(form).get('month')||'')));location.hash=href(query);}

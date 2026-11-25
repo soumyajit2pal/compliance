@@ -30,9 +30,13 @@ export class SearchableSelect {
       .replace(/^(owners|applicability|processes|citations)\.\d+\./,'').replace(/^wizard_scope_process_\d+$/,'wizard_scope_process');
     return key==='demo-user' ? state.demoDropdown : (state.masters?.dropdown_configuration?.[0]?.presentation || state.identity?.dropdown_presentation)?.[key];
   }
-  private caption(option?:HTMLOptionElement) {
+  private caption(option?: HTMLOptionElement, useOptionLabel = false) {
     const alias=option && this.presentation?.aliases?.[option.value];
-    return optionTitle(option)+(alias?' ('+alias+')':'');
+    const label = useOptionLabel ? option?.label.trim() || '' : optionTitle(option);
+    return label+(alias?' ('+alias+')':'');
+  }
+  private selectedCaption() {
+    return this.caption(this.select.selectedOptions[0], this.select.hasAttribute('data-use-option-label'));
   }
   private matches: number[] = [];
   private highlighted = -1;
@@ -135,7 +139,7 @@ export class SearchableSelect {
     this.selection = selection;
     const selected = this.select.selectedOptions[0];
     this.input.title = selected?.label.trim() || '';
-    if (!this.opened) this.input.value = this.caption(selected);
+    if (!this.opened) this.input.value = this.selectedCaption();
     if (disabled || this.select.hidden || !eligible(this.select)) this.close();
     const signature = Array.from(this.select.options).map(option =>
       [option.label, option.value, option.disabled, option.hidden, option.parentElement?.getAttribute('disabled'),
@@ -295,7 +299,7 @@ export class SearchableSelect {
     this.input.removeAttribute('aria-activedescendant');
     this.wrapper.classList.remove('is-open');
     if (this.popup.matches(':popover-open')) this.popup.hidePopover();
-    this.input.value = this.caption(this.select.selectedOptions[0]);
+    this.input.value = this.selectedCaption();
     this.input.placeholder = 'Select…';
   }
 

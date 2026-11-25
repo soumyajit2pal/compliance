@@ -18,7 +18,7 @@ from .events import audit, new_id, now
 
 LOG=logging.getLogger('cbd.employee_profiles')
 CODE='EMPLOYEE_API'
-DEFAULTS=dict(enabled=True,endpoint='https://app.mahabank.co.in/generic/master/emp',
+DEFAULTS=dict(enabled=True,verify_tls=True,endpoint='https://app.mahabank.co.in/generic/master/emp',
     userid_prefix='b0',timeout_seconds=3,retry_seconds=300,max_retry_seconds=3600,
     auth_type='NONE',api_key_header='X-API-Key',ca_certificate_pem='',revision='default')
 FIELDS={'employee_name':('empName',250),'designation':('designation',250),
@@ -114,8 +114,9 @@ async def _request(cfg,pf,transport=None):
     headers={'Accept':'application/json'}
     if cfg['auth_type']=='BEARER':headers['Authorization']='Bearer '+cfg['secret']
     if cfg['auth_type']=='API_KEY':headers[cfg['api_key_header']]=cfg['secret']
-    # All environments use unverified HTTPS for this integration.
-    async with httpx.AsyncClient(verify=False,follow_redirects=False,trust_env=False,
+    # Use the process trust store unless an administrator explicitly disables verification.
+    tls_verification = False if cfg.get('verify_tls') is False else ssl.create_default_context()
+    async with httpx.AsyncClient(verify=tls_verification,follow_redirects=False,trust_env=False,
             timeout=cfg['timeout_seconds'],transport=transport) as client:
         async with client.stream('GET',cfg['endpoint'],params={'pf_no':pf},headers=headers) as response:
             if response.status_code!=200:return {},[],('HTTP_'+str(response.status_code))
@@ -154,6 +155,7 @@ def transport_error_code(exc):
         pending.extend(getattr(cause,'exceptions',()))
     if any(isinstance(c,socket.gaierror) for c in causes):return 'DNS_RESOLUTION_FAILED'
     if any(isinstance(c,ConnectionRefusedError) for c in causes):return 'CONNECTION_REFUSED'
+    if any(isinstance(c,ssl.SSLCertVerificationError) for c in causes):return 'TLS_VERIFICATION_FAILED'
     if any(isinstance(c,ssl.SSLError) for c in causes):return 'TLS_HANDSHAKE_FAILED'
     return 'CONNECTION_FAILED'
 
@@ -161,6 +163,7 @@ def transport_error_code(exc):
 def failure_guidance(code):
     return {
         'DNS_RESOLUTION_FAILED':'The backend cannot resolve the employee API hostname. Connect the backend machine to the bank network/VPN and bank internal DNS, then retry.',
+        'TLS_VERIFICATION_FAILED':'Ask the API owner to check the certificate chain and endpoint hostname. Add the approved CA to the backend trust store if needed.',
         'TLS_HANDSHAKE_FAILED':'The secure connection could not be established. Ask the API owner to check TLS requirements.',
         'CONNECTION_REFUSED':'The host refused the connection. Check that the API service is listening on HTTPS port 443 and permits this backend server.',
         'CONNECTION_FAILED':'Check bank-network routing, firewall access and API availability from the backend server.',
@@ -242,6 +245,9 @@ def retry_batch(engine,settings,limit=10):
             row=db.execute(sa.select(t).where(t.c.id==identifier).with_for_update(skip_locked=True)).mappings().first()
             at=now()
             if not row or not row['next_retry_at'] or row['next_retry_at']>at or (row['lease_until'] and row['lease_until']>=at):continue
+            # A queued retry can start after an admin changes the connection policy.
+            cfg=load_config(db,settings)
+            if not cfg['enabled']:break
             token=new_id();snapshot=dict(row)
             db.execute(t.update().where(t.c.id==identifier).values(lease_token=token,lease_until=at+timedelta(seconds=60)))
         outcome=lookup(cfg,snapshot['pf_no'],settings)

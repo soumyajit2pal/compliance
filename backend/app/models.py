@@ -397,7 +397,8 @@ evidence_link.append_constraint(check("evidence_one_target", " + ".join(
 # Shared workflow and retained audit (§10).
 workflow_instance = table("workflow_instance", string("workflow_type", 60), string("entity_type", 60),
     string("entity_id", 36), string("current_stage", 40), fk("started_by", "user"), time("started_at"),
-    time("completed_at", True), *enum("record_status", "OPEN", "APPROVED", "REJECTED", "RETURNED", "WITHDRAWN", default="OPEN"))
+    time("completed_at", True), *enum("record_status", "OPEN", "APPROVED", "REJECTED", "RETURNED", "WITHDRAWN", default="OPEN"),
+    text("interpretation_exception_reason", True))
 workflow_action = table("workflow_action", fk("instance_id", "workflow_instance"),
     string("stage", 40), fk("assignee_user_id", "user"), time("due_at"), string("decision", 40, True),
     text("comments", True), fk("acted_by", "user", True), time("acted_at", True))
@@ -414,6 +415,19 @@ notification = table("notification", string("entity_type", 60), string("entity_i
     fk("recipient_user_id", "user"), string("channel", 40), string("trigger_key", 200),
     time("triggered_at"), time("delivered_at", True), time("escalated_at", True), time("read_at", True),
     string("delivery_status", 40, default="'PENDING'"), unique("recipient_user_id", "trigger_key"))
+email_job = table("email_job", string("kind", 12), fk("notification_id", "notification", True),
+    fk("recipient_user_id", "user"), string("recipient_address", 254, True),
+    string("dedupe_key", 100), string("status", 12, default="'PENDING'"),
+    col("attempts", sa.Integer(), default="0"), date("digest_day", True), time("next_attempt_at", True),
+    time("last_attempt_at", True), string("claim_token", 36, True), time("sent_at", True),
+    string("last_error", 60, True), unique("dedupe_key"),
+    check("email_job_kind", "(kind = 'EVENT' AND notification_id IS NOT NULL AND digest_day IS NULL) OR "
+          "(kind = 'DIGEST' AND notification_id IS NULL AND digest_day IS NOT NULL) OR "
+          "(kind = 'TEST' AND notification_id IS NULL AND digest_day IS NULL AND recipient_address IS NOT NULL)"),
+    check("email_job_state", "status IN ('PENDING','SENDING','RETRY','SENT','FAILED','SKIPPED') AND attempts >= 0"))
+sa.Index("ix_cbd_email_job_due", email_job.c.status, email_job.c.next_attempt_at, email_job.c.created_at)
+sa.Index("ix_cbd_email_job_history", email_job.c.created_at, email_job.c.id)
+email_job.c.created_at.server_default = sa.DefaultClause(sa.text('SYS_EXTRACT_UTC(SYSTIMESTAMP)'))
 
 # Migration lineage and reconciliation (requirements weeks 2, 6–8).
 migration_batch = table("migration_batch", string("code", 80), string("source_file", 500), string("file_hash", 256),
@@ -663,3 +677,8 @@ execution_mode = master("execution_mode", 40, col("display_sequence", sa.Integer
 dropdown_config = table("dropdown_config", col("revision", sa.Integer()), text("definition"))
 dropdown_answer = table("dropdown_answer", string("form_key", 80), string("record_id", 36),
                         text("answers"), unique("form_key", "record_id"))
+
+clause_interpretation_request = table('clause_interpretation_request',
+    fk('clause_id', 'regulatory_clause'), fk('workflow_id', 'workflow_instance'),
+    text('interpretation'), text('reason'), unique('workflow_id'))
+sa.Index('ix_cbd_interpretation_clause', clause_interpretation_request.c.clause_id)

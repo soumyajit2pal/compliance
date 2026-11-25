@@ -197,7 +197,7 @@ def add_evidence(db,actor,identifier,p,storage,filename=None,data=None):
     fail(p.retention_end_date>=max(today(),a['period_to']),'Choose a retention date covering the reporting period and current date.')
     document_id=None;digest=None
     if data is not None:
-        details=inspect_source(filename,data);document_id=new_id();preserve_bytes(db,storage,document_id,data);digest=details['file_hash']
+        details=inspect_source(filename,data);document_id=new_id();preserve_bytes(db,storage,document_id,details['file_name'],data);digest=details['file_hash']
         db.execute(m.document.insert().values(id=document_id,storage_uri='portal://'+document_id,owner_unit_id=a['owner_unit_id'],confidentiality_class_id=p.confidentiality_class_id,uploaded_by=actor.id,uploaded_at=now(),**details))
     else:
         uri=urlparse(p.repository_uri or '');fail(uri.scheme=='https' and uri.hostname and not uri.username and not uri.password and bool(p.file_hash),'For an existing repository, provide an HTTPS reference and the source record SHA-256. No remote content is fetched.');digest=p.file_hash.lower()
@@ -216,7 +216,7 @@ def add_evidence(db,actor,identifier,p,storage,filename=None,data=None):
 def integrity(db,e,storage):
     if not e['document_id']:return # Source hash is independently confirmed for an external repository reference.
     doc=repo.one(db,m.document,e['document_id']);fail(doc['file_hash']==e['file_hash'],'Stored evidence/document hashes disagree.',409)
-    path=stored_path(storage,e['document_id']);fail(path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==e['file_hash'],'Evidence bytes failed integrity verification.',409)
+    path=stored_path(storage,doc['id'],doc['file_name']);fail(path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==e['file_hash'],'Evidence bytes failed integrity verification.',409)
 
 def decide_evidence(db,actor,identifier,p,storage):
     a,o=read(db,actor,identifier,True);revision(a,p);require_reviewer(actor,a,o);fail(a['record_status']=='PENDING_VALIDATION','Only the current submitted work can be reviewed.',409)

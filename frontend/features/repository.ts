@@ -16,6 +16,12 @@ export async function repositoryPage(id, query) {
   const data = await api(requestUrl);
   if (request !== state.routeNumber || !state.identity) return '';
   if (!id) return renderRegister(Array.isArray(data) ? data : data.items, query, data.pagination, data.library_counts, requestUrl);
+  if (query.get('tab') === 'clauses' && query.has('interpretation')) {
+    const clause = data.clauses.find(row => row.id === query.get('clause') &&
+      row.instrument_version_id === query.get('version') && row.approval_status === 'APPROVED');
+    if (clause) data.interpretation_requests = await api('/clauses/' + encodeURIComponent(clause.id) + '/interpretation-requests');
+  }
+  if (request !== state.routeNumber || !state.identity) return '';
   state.record = data;
   return renderRecord(query);
 }

@@ -295,6 +295,15 @@ body {
   line-height: 1.6;
   color: var(--muted);
 }
+.relationship-guidance {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.relationship-guidance span { display: block; margin-top: 4px; }
 .field > label span {
   color: #a34537;
 }
@@ -929,21 +938,26 @@ pre {
 }
 #message:not(:empty) {
   position: fixed;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
   max-width: min(760px, 90vw);
   z-index: 1000;
   padding: 15px 22px;
-  background: var(--primary-dark);
+  background: #24577f;
   color: white;
   border-radius: 10px;
   box-shadow: 0 8px 30px #70538925;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
-#message.error {
-  background: #9d5941;
-}
+#message > .icon { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 2px; }
+#message.success { background: #256344; }
+#message.exception { background: #794b10; }
+#message.error { background: #942c44; }
 .tree-layout .panel {
   min-width: 0;
 }
@@ -954,12 +968,6 @@ pre {
 .tree-node.active {
   background: var(--selection) !important;
   color: var(--primary-dark) !important;
-}
-.runtime-help .panel {
-  margin-bottom: 0;
-}
-.help-topic p {
-  margin: 0;
 }
 .connection-card .btn {
   margin-top: 20px;
@@ -2094,16 +2102,22 @@ pre {
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+.runtime-dialog .modal-body > .dialog-feedback.exception:not(:empty) {
+  background: #fff7e6;
+  color: #794b10;
+  border-color: #efdbad;
+}
 .dialog-feedback-info:not(:empty) {
   margin: 0 0 18px;
   padding: 14px 16px;
-  border: 1px solid var(--line);
+  border: 1px solid #c6def2;
   border-radius: 8px;
-  background: var(--selection);
-  color: var(--primary-dark);
+  background: #e9f3fc;
+  color: #24577f;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+.dialog-feedback-info.success:not(:empty) { background: #eaf6ee; color: #256344; border-color: #cee8d7; }
 .dialog-feedback-info:empty { display: none; }
 .ldap-department-comparison { margin-block: 1.25rem; }
 .ldap-department-comparison > .card { min-width: 0; }

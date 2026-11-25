@@ -6,6 +6,7 @@ import { esc, field, input, select, statusTag, title } from '../ui/components.ts
 import { dashboardInfo } from '../ui/dashboard-info.ts';
 import { close, modal } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
+import { heading, pageHelp } from '../ui/layout.ts';
 import { note, person, table } from '../ui/widgets.ts';
 
 interface AuditChange {
@@ -158,11 +159,17 @@ export async function auditTrailPage(query: URLSearchParams, workflow = false) {
   const optionQuery = new URLSearchParams(filters);
   optionQuery.set('through', data.through || request.get('through'));
   const columnOptionsUrl = '/' + path + '?' + optionQuery;
-  return `<div class="audit-trail${workflow ? ' workflow-log' : ''}">
-    <header class="audit-heading">
-      <div><h1>${caption}</h1><p>${workflow ? 'Review past submissions and decisions for records you can access.' : 'Review system access, outcomes, and changes across the portal.'}</p></div>
-      ${data.items.length ? `<button type="button" class="btn" data-action="audit-export" data-url="${esc(exportUrl)}">${icon('download')} Export CSV</button>` : ''}
-    </header>
+  const exportButton = data.items.length ? `<button type="button" class="btn${workflow ? ' primary' : ''}" data-action="audit-export" data-url="${esc(exportUrl)}">${icon('download')} Export CSV</button>` : '';
+  const workflowHeader = workflow
+    ? pageHelp('Find submissions and decisions',
+      'Search by record or actor, or filter by department, stage and decision. Open Details to see the recorded decision and any available reason.',
+      'reports-history') + heading(caption, 'Review past submissions and decisions for records you can access.', exportButton)
+    : '';
+  return `${workflowHeader}<div class="audit-trail${workflow ? ' workflow-log' : ''}">
+    ${workflow ? '' : `<header class="audit-heading">
+      <div><h1>${caption}</h1><p>Review system access, outcomes, and changes across the portal.</p></div>
+      ${exportButton}
+    </header>`}
     ${note(workflow ? 'Workflow history is read-only. Open My decisions to act on work assigned to you.' : 'Audit entries are append-only.')}
     ${!workflow && data.summary ? auditSummary(data.summary, filters) : ''}
     <form id="audit-trail-filter" class="audit-filters panel" data-workflow="${Number(workflow)}" aria-label="${caption} filters">

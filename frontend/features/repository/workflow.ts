@@ -5,6 +5,17 @@ import { button, date, esc, link, localDate, ref, versionLabel } from '../../ui/
 import { domainReadiness } from '../../ui/domains.ts';
 import { workflowActionGroup, workflowButton } from '../../ui/workflow-actions.ts';
 
+export function missingInterpretations(record, version) {
+  return record.clauses.filter(clause => clause.instrument_version_id === version.id &&
+    !(clause.internal_interpretation || '').trim());
+}
+
+export function missingInterpretationLinks(record, version, clauses) {
+  return `<ul>${clauses.map(clause => `<li>${link('repository/' + record.instrument.id + '?' +
+    new URLSearchParams({ version: version.id, tab: 'clauses', clause: clause.id }),
+    clause.source_clause_reference || clause.code, 'text-link')} · ${esc(clause.heading || 'Clause / Para')}</li>`).join('')}</ul>`;
+}
+
 function draftSubmission(record, version, editable, clausesPath) {
   if (!editable) {
     return {
@@ -42,6 +53,16 @@ function draftSubmission(record, version, editable, clausesPath) {
       shortcut: 'Check submission requirements',
     };
   }
+  const missing = missingInterpretations(record, version);
+  if (missing.length) return {
+    tone: 'blocked',
+    heading: 'Bank interpretation required',
+    text: 'Add an interpretation to the clauses below before submitting this edition. You can request an exception with a reason and confirmation.',
+    details: missingInterpretationLinks(record, version, missing),
+    action: link(clausesPath, 'Open Clauses / Para', 'btn primary') +
+      button('submit-version', 'Request interpretation exception', 'data-exception="true"'),
+    shortcut: 'Check missing interpretations',
+  };
   return {
     tone: 'action',
     heading: 'Ready to submit for review',
@@ -66,6 +87,9 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
       covered(unit, [isReview ? 'REVIEWER' : 'APPROVER']);
     const approver = isReview && record.tasks.find(task =>
       task.instance_id === active.instance_id && task.stage === 'FINAL_APPROVAL' && !task.decision);
+    const missing = missingInterpretations(record, version);
+    const exceptionReason = active.interpretation_exception_reason;
+    const canAdvance = !missing.length || Boolean(exceptionReason);
     const assignee = ref('user', active.assignee_user_id);
     const assignment = `<p><strong>${esc(stage)} assigned to ${esc(assignee)}</strong>${active.due_at ? ' · Due ' + date(active.due_at) : ''}</p>`;
     const handoff = approver
@@ -84,10 +108,12 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
           'Compliance review is complete. Check the source and clauses, then record your final decision here.')
         : (isAssignee ? 'This assignment requires current role, scope and independence checks before you can act.' :
           'The named recipient opens this edition from My decisions to record the decision.'),
-      details: assignment + handoff,
+      details: assignment + handoff + (missing.length ? `<p><strong>${exceptionReason ? 'Interpretation exception requested' : 'Interpretation exception required'}</strong></p>
+        <p>${exceptionReason ? esc(exceptionReason) : 'Return this edition to Draft so the Author can add interpretations or submit an exception.'}</p>
+        ${missingInterpretationLinks(record, version, missing)}` : ''),
       action: canDecide
-        ? workflowActionGroup(workflowButton('decision', isReview ? 'Record Compliance review' : 'Approve source edition',
-          isReview ? 'REVIEW' : 'APPROVE', isReview ? 'data-decision="REVIEW"' : 'data-decision="APPROVE"') +
+        ? workflowActionGroup((canAdvance ? workflowButton('decision', isReview ? 'Record Compliance review' : 'Approve source edition',
+          isReview ? 'REVIEW' : 'APPROVE', isReview ? 'data-decision="REVIEW"' : 'data-decision="APPROVE"') : '') +
           workflowButton('decision', 'Return for correction', 'RETURN', 'data-decision="RETURN"') +
           workflowButton('decision', 'Reject', 'REJECT', 'data-decision="REJECT"')) +
           link(clausesPath, 'View source clauses', 'btn')
@@ -101,10 +127,11 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
   if (status === 'APPROVED') {
     const canActivate = !version.current_version_flag && !version.effective_to &&
       version.effective_from <= localDate() && covered(unit, ['APPROVER']);
+    const pending = record.clauses.some(clause => clause.instrument_version_id === version.id && clause.interpretation_status === 'PENDING');
     return {
       heading: 'Source edition approved',
-      text: 'Compliance review and final approval are complete for this edition.',
-      action: canActivate ? button('activate', 'Make effective version current') : '',
+      text: pending ? 'Some clauses still need an approved bank interpretation. Open Clauses / Para to see their status.' : 'Compliance review and final approval are complete for this edition.',
+      action: (pending ? link(clausesPath, 'Open Clauses / Para', 'btn') : '') + (canActivate ? button('activate', 'Make effective version current') : ''),
     };
   }
   return { heading: `Source edition ${status.toLowerCase()}`, text: 'The workflow is closed. Previous decisions remain in the history.' };

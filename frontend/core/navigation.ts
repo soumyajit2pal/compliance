@@ -39,6 +39,8 @@ const groups=[
   item('organisation','Organisation hierarchy','masters?tab=organisation','org','masters'),
   item('ldap','LDAP settings','ldap','lock','ldap'),
   item('employee-api','Employee profile API','employee-api','users','employee-api'),
+  item('email-settings','Email settings','email-settings','bell','email-settings',['ADMIN']),
+  item('upload-settings','Upload settings','upload-settings','upload','upload-settings',['ADMIN']),
   item('migration','Import existing regulatory records','migration','upload','migration'),
   item('applications','Connected applications','applications','external','applications'),
  ]},

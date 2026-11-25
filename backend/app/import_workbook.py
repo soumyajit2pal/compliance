@@ -10,6 +10,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from itertools import zip_longest
 from datetime import datetime, timezone
+from defusedxml.ElementTree import fromstring
 from .config import ROOT
 from .import_choices import database_choices
 from .import_template import CHOICE_LABELS, FIELDS, MULTI_VALUE_FIELDS, GUIDE_REFRESH_ROW
@@ -34,11 +35,11 @@ def _literal(row, address, value, style=None):
 
 
 def _sheet_paths(archive):
-    relationships = ET.fromstring(archive.read('xl/_rels/workbook.xml.rels'))
+    relationships = fromstring(archive.read('xl/_rels/workbook.xml.rels'))
     targets = {r.get('Id'): posixpath.normpath(r.get('Target').lstrip('/')
         if r.get('Target').startswith('/') else 'xl/' + r.get('Target'))
         for r in relationships.findall('{' + P + '}Relationship')}
-    workbook = ET.fromstring(archive.read('xl/workbook.xml'))
+    workbook = fromstring(archive.read('xl/workbook.xml'))
     return {sheet.get('name'): targets[sheet.get('{' + R + '}id')]
         for sheet in workbook.findall('s:sheets/s:sheet', NS)}
 
@@ -54,7 +55,7 @@ def fill_reference_lists(layout,choices,validations,references):
             return result
         matrices={'Choices':list(zip_longest(*choices.values(),fillvalue='')),'References':references}
         for name,values in matrices.items():
-            sheet=ET.fromstring(source.read(paths[name]));data=sheet.find('s:sheetData',NS)
+            sheet=fromstring(source.read(paths[name]));data=sheet.find('s:sheetData',NS)
             sample=data.find("s:row[@r='2']",NS)
             styles={cell.get('r').rstrip('0123456789'):cell.get('s') for cell in sample} if sample is not None else {}
             widths={int(col.get('min')):float(col.get('width',30)) for col in sheet.findall('s:cols/s:col',NS)}
@@ -76,7 +77,7 @@ def fill_reference_lists(layout,choices,validations,references):
             auto.set('ref',dimension.get('ref'))
             replacements[paths[name]]=sheet
         for name,columns in validations.items():
-            sheet=ET.fromstring(source.read(paths[name]));rules=sheet.find('s:dataValidations',NS)
+            sheet=fromstring(source.read(paths[name]));rules=sheet.find('s:dataValidations',NS)
             if rules is not None:sheet.remove(rules)
             auto=sheet.find('s:autoFilter',NS)
             if auto is None:
@@ -103,7 +104,7 @@ def fill_choices(layout, values, generated_at=None):
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(layout)) as source:
         paths = _sheet_paths(source)
-        choices = ET.fromstring(source.read(paths['Choices']))
+        choices = fromstring(source.read(paths['Choices']))
         data = choices.find('s:sheetData', NS)
         styled_row = data.find("s:row[@r='2']", NS)
         styles = {cell.get('r').rstrip('0123456789'): cell.get('s') for cell in styled_row}
@@ -127,11 +128,11 @@ def fill_choices(layout, values, generated_at=None):
             last_choice_column=chr(64+len(CHOICE_LABELS))
             dimension.set('ref', f'A1:{last_choice_column}{max(2, row_count + 1)}')
 
-        records = ET.fromstring(source.read(paths['Regulatory records']))
+        records = fromstring(source.read(paths['Regulatory records']))
         validations = records.find('s:dataValidations', NS)
         for validation in list(validations):
-            validations.remove(validation)
-        validations.set('count', str(len(CHOICE_LABELS)-len(MULTI_VALUE_FIELDS)))
+            if "'Choices'!" in validation.findtext('s:formula1', default='', namespaces=NS):
+                validations.remove(validation)
         for index, label in enumerate(CHOICE_LABELS):
             # Excel's ordinary list validation accepts one choice per cell. The
             # additional-domain field is a semicolon-delimited multi-value list.
@@ -143,8 +144,9 @@ def fill_choices(layout, values, generated_at=None):
                 'showErrorMessage': '0', 'showDropDown': '0'})
             ET.SubElement(validation, _tag('formula1')).text = (
                 f'INDIRECT("\'Choices\'!${choice_col}$2:${choice_col}${max(2, len(values[label]) + 1)}")')
+        validations.set('count', str(len(validations)))
 
-        guide = ET.fromstring(source.read(paths['How to fill']))
+        guide = fromstring(source.read(paths['How to fill']))
         guide_data = guide.find('s:sheetData', NS)
         style_row = guide_data.find(f"s:row[@r='{GUIDE_REFRESH_ROW}']", NS)
         guide_styles = [cell.get('s') for cell in style_row]

@@ -62,7 +62,13 @@ export function InstrumentQuickView({viewRevision}: {viewRevision:number}) {
   useEffect(() => {
     const click = (event:MouseEvent) => {
       if (!(event.target instanceof Element) || event.defaultPrevented || !plainClick(event)) return;
-      const target = event.target, direct = target.closest<HTMLElement>(previewSelector);
+      const target = event.target;
+      const record = target.closest<HTMLAnchorElement>('a[data-library-record]');
+      if (record?.dataset.libraryRecord) {
+        rememberLibraryLocation(record.dataset.libraryRecord);
+        return;
+      }
+      const direct = target.closest<HTMLElement>(previewSelector);
       if (!direct && target.closest(interactiveSelector)) return;
       // Dragging across a reference or other cell must remain text selection.
       const selection = window.getSelection();

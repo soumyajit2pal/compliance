@@ -6,6 +6,10 @@ export const esc = (value) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
 const checkLabels = new Map([
+  ['IMPORT_CONTENT_REVIEW', 'Import content review'],
+  ['IMPORT_DRAFT_LOAD', 'Import ready to load'],
+  ['IMPORT_CONTENT_REVIEW_REQUIRED', 'Import content review required'],
+  ['IMPORT_READY_TO_LOAD', 'Validated import ready to load'],
   ['CONTROL', 'Check'],
   ['MISSING_CONTROL_OWNER', 'Missing Check Owner'],
   ['CONTROL_REVIEW', 'Check Review Requested'],
@@ -16,6 +20,10 @@ const checkLabels = new Map([
   ['CONTROL_RESULT_RECORDED', 'Check Result Recorded'],
   ['CONTROL_RESULT_ACCEPT', 'Check Result Accepted'],
   ['CONTROL_RESULT_REJECT', 'Check Result Rejected'],
+  ['NOT_CURRENT', 'Not current'],
+  ['NOT_ASSESSED', 'Not assessed'],
+  ['NOT_ASSIGNED', 'Not assigned'],
+  ['DRAFT_ONLY', 'Draft only'],
 ]);
 export const title = (value) => {
   if (value === 'SUB_DEPARTMENT') return 'Sub-department';
@@ -32,32 +40,19 @@ export const title = (value) => {
 };
 export const versionLabel = (value) =>
   /^\d+$/.test(String(value ?? '')) ? `${value}.0` : String(value ?? '—');
-export const badge = (value) => {
-  const good = [
-    'APPROVED',
-    'CURRENT',
-    'CURRENT_APPROVED',
-    'LOADED',
-    'MIGRATION_READY',
-    'ACTIVE',
-    'AVAILABLE',
-    'RECONCILED',
-    'COMPLETED',
-    'NO_IMPACT',
-    'RESOLVED',
-  ];
-  const bad = ['REJECTED', 'CORRECTION_REQUIRED', 'OVERDUE', 'REASSESSMENT_REQUIRED'];
-  const color = good.includes(value)
-    ? 'green'
-    : bad.includes(value)
-      ? 'red'
-      : /PENDING|IN_REVIEW|REVIEWED|REVIEW_REQUIRED/.test(value)
-        ? 'amber'
-        : 'neutral';
-  return `<span class="tag badge ${color}">${esc(title(value))}</span>`;
-};
+const badgeTones = new Map([
+  ...['APPROVED', 'CURRENT', 'CURRENT_APPROVED', 'LOADED', 'MIGRATION_READY', 'ACTIVE', 'AVAILABLE',
+     'RECONCILED', 'COMPLETED', 'NO_IMPACT', 'RESOLVED', 'ACCEPTED', 'READY_FOR_REVIEW'].map(value => [value, 'green'] as const),
+  ...['REJECTED', 'CORRECTION_REQUIRED', 'OVERDUE', 'REASSESSMENT_REQUIRED', 'BLOCKED', 'FAILED'].map(value => [value, 'red'] as const),
+  ...['NOT_CURRENT', 'NOT_ASSESSED', 'NOT_ASSIGNED', 'UNASSESSED', 'DRAFT_ONLY', 'RETURNED',
+     'ACTION_REQUIRED', 'EXCEPTION', 'EXCEPTION_REQUIRED'].map(value => [value, 'amber'] as const),
+  ...['UPCOMING', 'SCHEDULED', 'IN_PROGRESS', 'SUBMITTED', 'QUEUED'].map(value => [value, 'blue'] as const),
+  ['DRAFT', 'purple'],
+]);
 /** Explicit human-readable status labels without inventing workflow enum values. */
-export const statusTag = (label, tone = 'neutral') => `<span class="tag badge ${['green','amber','red','neutral'].includes(tone)?tone:'neutral'}">${esc(label)}</span>`;
+export const statusTag = (label, tone = 'neutral') => `<span class="tag badge ${['green', 'amber', 'red', 'blue', 'purple', 'neutral'].includes(tone) ? tone : 'neutral'}">${esc(label)}</span>`;
+export const badge = (value) => statusTag(title(value), badgeTones.get(value) ??
+  (/PENDING|IN_REVIEW|REVIEWED|REVIEW_REQUIRED|AWAITING/.test(value) ? 'amber' : 'neutral'));
 export const date = (value) =>
   value
     ? new Intl.DateTimeFormat('en-IN', {

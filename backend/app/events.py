@@ -6,6 +6,8 @@ import sqlalchemy as sa
 from . import models as m
 from .request_audit import business_fields
 
+NOTIFICATION_WAKE = 'cbd_notification_wake'
+
 def now(): return datetime.now(timezone.utc).replace(tzinfo=None)
 def new_id(): return str(uuid4())
 
@@ -31,3 +33,4 @@ def notify(db,entity,identifier,recipient,kind,key):
     db.execute(m.notification.insert().values(id=new_id(),entity_type=entity,entity_id=identifier,
         notification_type=kind,recipient_user_id=recipient,channel='IN_APP',trigger_key=key,
         triggered_at=now(),delivered_at=now(),delivery_status='DELIVERED'))
+    db.info[NOTIFICATION_WAKE] = True

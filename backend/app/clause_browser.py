@@ -234,6 +234,7 @@ def mark_current(db, rows):
 
 
 def detail(db, actor, identifier):
+    from .clause_interpretations import apply_approved
     actor.require(READ_ROLES)
     # Check source scope before selecting either text column.
     source = db.execute(sa.select(clause.c.instrument_version_id).where(clause.c.id == identifier)).scalar_one_or_none()
@@ -245,6 +246,7 @@ def detail(db, actor, identifier):
     if not opened:
         raise HTTPException(404, 'Clause not found in your authorised area.')
     row = dict(opened)
+    apply_approved(db, [row])
     row['legacy_codes'] = business_ids.aliases(db, 'clause', [identifier]).get(identifier, [])
     carry = db.execute(sa.select(m.clause_carry_forward).where(
         m.clause_carry_forward.c.target_clause_id == identifier,

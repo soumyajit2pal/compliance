@@ -1,11 +1,12 @@
-import {customFields} from '../../ui/dropdown-fields.ts';
+import { documentAccept, documentHint } from '../../core/upload-policy.ts';
+import {customFieldGroup} from '../../ui/dropdown-fields.ts';
 import { state } from '../../core/state.ts';
 import { api } from '../../core/api.ts';
 import { covered, has } from '../../core/access.ts';
 import { choosePeople } from '../../core/assignees.ts';
+import { notificationRelationshipTypes } from '../../core/notification-relationships.ts';
 import {
   esc,
-  ref,
   title,
   localDate,
   field,
@@ -16,9 +17,11 @@ import {
 } from '../../ui/components.ts';
 import { icon } from '../../ui/icons.ts';
 import { heading } from '../../ui/layout.ts';
-import { domainChoices, domainGuidance, secondaryDomainPicker } from '../../ui/domains.ts';
+import { domainGuidance, secondaryDomainPicker } from '../../ui/domains.ts';
 import { note, detailFields } from '../../ui/widgets.ts';
 import { showWizardStep, validateWizardStep } from '../../ui/wizard.ts';
+import { referenceSelect, referenceAssignee } from '../../ui/reference-options.ts';
+import { relationshipHint } from '../../ui/relationship-guidance.ts';
 const steps = [
   'Basic information',
   'Classification',
@@ -63,29 +66,19 @@ export async function instrumentWizard(query=new URLSearchParams()) {
   const classification =
     field(
       'Regulator',
-      select(
-        'regulator_id',
-        parent?state.masters.regulator.filter(row=>row.id===parent.regulator_id):state.masters.regulator,
-        parent?.regulator_id||state.masters.regulator.find((r) => r.code === 'RBI')?.id,
-        'name',
-        'required',
-      ),
+      referenceSelect('regulator_id', 'regulator',
+        parent?.regulator_id || state.masters.regulator.find(r => r.code === 'RBI')?.id, 'required', undefined,
+        parent ? {only: [parent.regulator_id]} : {}),
     ) +
     field(
       'Primary regulatory domain',
-      select(
-        'primary_domain_id',
-        domainChoices(state.masters.regulatory_domain),
-        parent?.primary_domain_id||'',
-        'name',
-        'required',
-      ) + `<div data-domain-guidance role="status" aria-live="polite">${domainGuidance(state.masters.regulatory_domain.find(row=>row.id===parent?.primary_domain_id))}</div>`,
+      referenceSelect('primary_domain_id', 'regulatory_domain', parent?.primary_domain_id || '', 'required', undefined, {format: 'domain'}) + `<div data-domain-guidance role="status" aria-live="polite">${domainGuidance(state.masters.regulatory_domain.find(row=>row.id===parent?.primary_domain_id))}</div>`,
       'Choose the required primary domain. The permanent instrument ID uses this domain; assign every other affected domain below.',
     ) +
     secondaryDomainPicker(state.masters.regulatory_domain) +
     field(
       'Instrument type',
-      select('instrument_type_id', state.masters.instrument_type, parent?.instrument_type_id||'', 'name', 'required'),
+      referenceSelect('instrument_type_id', 'instrument_type', parent?.instrument_type_id || '', 'required'),
     ) +
     field(
       'Materiality',
@@ -93,22 +86,17 @@ export async function instrumentWizard(query=new URLSearchParams()) {
     ) +
     field(
       'Confidentiality',
-      select(
-        'confidentiality_class_id',
-        state.masters.confidentiality_class,
-        parent?.confidentiality_class_id||state.masters.confidentiality_class.find((r) => r.code === 'INTERNAL')?.id,
-        'name',
-        'required',
-      ),
+      referenceSelect('confidentiality_class_id', 'confidentiality_class',
+        parent?.confidentiality_class_id || state.masters.confidentiality_class.find(r => r.code === 'INTERNAL')?.id, 'required'),
     ) +
     field(
       'Search keywords',
       input('keywords', '', 'text', 'placeholder="Separate keywords with commas"'),
-    ) + customFields('instrument');
+    ) + customFieldGroup('instrument');
   const account =
     field(
       'Regulatory owner department',
-      select('regulatory_owner_unit_id', units, unit, 'name', 'required'),
+      referenceSelect('regulatory_owner_unit_id', 'organisational_unit', unit, 'required', undefined, {format: 'hierarchy', authorScope: true}),
       'Choose the department responsible for maintaining this source.',
     ) +
     field(
@@ -118,19 +106,29 @@ export async function instrumentWizard(query=new URLSearchParams()) {
         people,
         state.identity.user.id,
         'full_name',
-        'required',
+        'required ' + referenceAssignee('AUTHOR', 'regulatory_owner_unit_id'),
       ),
     ) +
     `<div class="full">${note('The regulatory owner department is mandatory. Source interpretation, review and approval remain independently governed.')}</div>`;
   const source = `<div class="full">${detailFields([
     ['First source version', '1'],
     ['Version status', 'Draft'],
-  ])}</div><div class="full upload-zone">${icon('upload')}<h3>Attach the authoritative source</h3><p>Choose the original PDF, text document or DOCX file. The portal preserves it with an integrity hash.</p>${input('source_file', '', 'file', 'required accept=".pdf,.txt,.docx" aria-label="Original source document"')}<small class="field-hint">Maximum 20 MB. The file is uploaded when you create the Draft.</small></div>`;
+  ])}</div><div class="full upload-zone">${icon('upload')}<h3>Attach the authoritative source</h3><p>Choose the original source file.</p>${input('source_file', '', 'file', `required ${documentAccept()} aria-label="Original source document"`)}<small class="field-hint">${documentHint()} The file is uploaded when you create the Draft.</small></div>`;
+  const defaultType = 'AMENDS';
+  const hintId = 'amendment-relationship-guidance';
+  const familyFields = parent ? `
+    <div class="full">${note('This separately issued amendment will receive its own library identity. Its family link requires independent review and approval; source approval remains separate.')}</div>
+    ${field('Relationship',
+      select('family_relationship_type', notificationRelationshipTypes, defaultType, 'name', `required aria-describedby="${hintId}"`) +
+      relationshipHint('notification', hintId, defaultType))}
+    ${field('Relationship basis', area('family_basis', '', 'required minlength="10"'))}
+    ${field('Family-link reviewer', select('family_reviewer_id', reviewers, '', 'full_name', 'required ' + referenceAssignee('REVIEWER', 'regulatory_owner_unit_id', true)))}
+    ${field('Family-link approver', select('family_approver_id', approvers, '', 'full_name', 'required ' + referenceAssignee('APPROVER', 'regulatory_owner_unit_id', true)))}` : '';
   const fields = [
     basic,
     classification,
     account,
-    source+(parent?`<div class="full">${note('This separately issued amendment will receive its own library identity. Its family link requires independent review and approval; source approval remains separate.')}</div>${field('Relationship',select('family_relationship_type',['AMENDS','CLARIFIES','SUPERSEDES','REPEALS'].map(id=>({id,name:title(id)})),'AMENDS'))}${field('Relationship basis',area('family_basis','','required minlength="10"'))}${field('Family-link reviewer',select('family_reviewer_id',reviewers,'','full_name','required'))}${field('Family-link approver',select('family_approver_id',approvers,'','full_name','required'))}`:''),
+    source + familyFields,
     '<div class="full" id="wizard-review"></div>',
   ];
   return (
@@ -139,7 +137,7 @@ export async function instrumentWizard(query=new URLSearchParams()) {
       parent?'Register an amendment':'Register a new instrument',
       parent?'Original notification: '+parent.code+' · '+parent.title:'Preserve an authoritative source and a governed first version.',
     ) +
-    `<div class="wizard"><aside class="wizard-steps"><div class="eyebrow mb16">INSTRUMENT SETUP</div>${steps.map((name, i) => `<div class="wizard-step ${i === 0 ? 'active' : ''}" data-step-label="${i}"><span>${i + 1}</span>${name}</div>`).join('')}<p class="small muted mt24">Your entries stay in this form as you move between steps. Leaving this page discards unsaved entries.</p></aside><div class="wizard-body"><form id="instrument" data-wizard="0" data-family-parent="${esc(parent?.id||'')}" novalidate>${fields.map((content, i) => `<fieldset class="form-section wizard-step-panel" data-step="${i}" ${i ? 'hidden' : ''}><div class="eyebrow mb16">STEP ${i + 1} OF ${steps.length}</div><h3>${steps[i]}</h3><p>Fields marked * are required for this stage.</p><div class="form-grid">${content}</div></fieldset>`).join('')}<p class="inline-error" id="form-error" role="alert"></p><div class="wizard-footer"><div><a class="btn" href="#repository">Cancel</a><button type="button" class="btn" data-action="wizard-back" hidden>Previous step</button></div><div class="row"><button type="button" class="btn primary" data-action="wizard-next">Continue ${icon('arrow')}</button><button type="submit" class="btn primary" id="wizard-create" hidden>Create Draft instrument</button></div></div></form></div></div>`
+    `<div class="wizard instrument-wizard"><aside class="wizard-steps"><div class="eyebrow mb16">INSTRUMENT SETUP</div>${steps.map((name, i) => `<div class="wizard-step ${i === 0 ? 'active' : ''}" data-step-label="${i}"><span>${i + 1}</span>${name}</div>`).join('')}<p class="small muted mt24">Your entries stay in this form as you move between steps. Leaving this page discards unsaved entries.</p></aside><div class="wizard-body"><form id="instrument" data-wizard="0" data-family-parent="${esc(parent?.id||'')}" novalidate>${fields.map((content, i) => `<fieldset class="form-section wizard-step-panel" data-step="${i}" ${i ? 'hidden' : ''}><div class="eyebrow mb16">STEP ${i + 1} OF ${steps.length}</div><h3>${steps[i]}</h3><p>Fields marked * are required for this stage.</p><div class="form-grid">${content}</div></fieldset>`).join('')}<p class="inline-error" id="form-error" role="alert"></p><div class="wizard-footer"><div><a class="btn" href="#repository">Cancel</a><button type="button" class="btn" data-action="wizard-back" hidden>Previous step</button></div><div class="row"><button type="button" class="btn primary" data-action="wizard-next">Continue ${icon('arrow')}</button><button type="submit" class="btn primary" id="wizard-create" hidden>Create Draft instrument</button></div></div></form></div></div>`
   );
 }
 function validStep(form, step) {

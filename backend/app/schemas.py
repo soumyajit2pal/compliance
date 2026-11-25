@@ -70,10 +70,17 @@ class Submit(Input):
     reviewer_id:str
     approver_id:str
     comments:str=Field(min_length=3,max_length=10000)
+class VersionSubmit(Submit):
+    interpretation_exception_reason:str|None=Field(default=None,min_length=10,max_length=10000)
+    confirm_interpretation_exception:bool=False
 class Decision(Input):
     decision:Literal['REVIEW','APPROVE','RETURN','REJECT','WITHDRAW','DELEGATE']
     comments:str=Field(min_length=3,max_length=10000)
     delegate_user_id:str|None=None
+class VersionDecision(Decision):
+    confirm_interpretation_exception:bool=False
+class ClauseInterpretationSubmit(Submit):
+    interpretation:str=Field(min_length=1,max_length=50000)
 class MetadataCorrectionInput(Input):
     official_reference_number:str|None=Field(default=None,max_length=150)
     title:str|None=Field(default=None,max_length=500)
@@ -103,9 +110,10 @@ class CarryClauseInput(Input):
 class FamilyReviewInput(Input):
     reviewer_id:str
     approver_id:str
+FamilyRelationshipType = Literal['AMENDS','CLARIFIES','SUPERSEDES','REPEALS']
 class FamilyLinkInput(FamilyReviewInput):
     child_id:str
-    relationship_type:Literal['AMENDS','CLARIFIES','SUPERSEDES','REPEALS']='AMENDS'
+    relationship_type:FamilyRelationshipType='AMENDS'
     effective_from:date
     basis:str=Field(min_length=10,max_length=10000)
 class FamilyDeadlineInput(FamilyReviewInput):
@@ -115,9 +123,12 @@ class FamilyDeadlineInput(FamilyReviewInput):
     basis:str=Field(min_length=10,max_length=10000)
 class FamilyAmendmentInput(FamilyReviewInput):
     instrument:InstrumentInput
-    relationship_type:Literal['AMENDS','CLARIFIES','SUPERSEDES','REPEALS']='AMENDS'
+    relationship_type:FamilyRelationshipType='AMENDS'
     effective_from:date
     basis:str=Field(min_length=10,max_length=10000)
+class MigrationLoadInput(Input):
+    reviewer_id:str|None=Field(default=None,max_length=36)
+    approver_id:str|None=Field(default=None,max_length=36)
 class FamilyScopeInput(Input):
     org_unit_id:str
     owner_user_id:str

@@ -16,8 +16,10 @@
   ],
   "approver_id": [
     "features/delivery.ts",
+    "features/migration.ts",
     "features/notification-families.ts",
     "features/obligations.ts",
+    "features/repository/interpretations.ts",
     "features/repository/mutations.ts"
   ],
   "approver_user_id": [
@@ -67,9 +69,6 @@
   ],
   "child_id": [
     "features/notification-families.ts"
-  ],
-  "clause_id": [
-    "features/obligations.ts"
   ],
   "clause_workspace_edition": [
     "features/clauses.ts"
@@ -209,6 +208,9 @@
     "features/repository/register.ts",
     "features/repository/wizard.ts"
   ],
+  "kind": [
+    "features/email-settings.ts"
+  ],
   "legal_entity": [
     "features/regulation-registers.ts",
     "src/components/obligation-workspace.tsx"
@@ -326,7 +328,9 @@
     "features/delivery.ts"
   ],
   "reviewer_id": [
+    "features/migration.ts",
     "features/notification-families.ts",
+    "features/repository/interpretations.ts",
     "features/repository/mutations.ts"
   ],
   "reviewer_user_id": [
@@ -368,6 +372,7 @@
     "features/clauses.ts",
     "features/controls.ts",
     "features/delivery.ts",
+    "features/email-settings.ts",
     "features/obligations.ts"
   ],
   "supersedes_evidence_id": [
@@ -384,6 +389,9 @@
   ],
   "target_clause_id": [
     "features/notification-families.ts"
+  ],
+  "transport": [
+    "features/email-settings.ts"
   ],
   "type": [
     "features/regulation-registers.ts"

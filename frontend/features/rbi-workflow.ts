@@ -77,7 +77,8 @@ export function rbiWorkflowPage() {
     <header class="rbi-workflow-header">
       <div><h1 id="rbi-workflow-title">RBI notification workflow</h1>
       <p>Follow an RBI circular or amendment from registration through independent approvals, department work and evidence review.</p></div>
-      ${workflowLink(rbiWorkflowPath + '&view=assignments', 'My RBI assignments', true)}
+      <div class="rbi-workflow-links">${workflowLink('help?topic=regulatory-sources', 'Read detailed steps')}
+      ${workflowLink(rbiWorkflowPath + '&view=assignments', 'My RBI assignments', true)}</div>
     </header>
     <ol class="rbi-workflow-steps" role="list">
       ${steps.map((step, index) => {

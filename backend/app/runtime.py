@@ -32,8 +32,12 @@ class RuntimeSettings:
     reminder_interval_seconds: int = 300
     employee_api_allowed_hosts: tuple[str, ...] = ('app.mahabank.co.in',)
     redis_url: str = field(default='', repr=False)
+    notification_worker_mode: str = 'embedded'
+    smtp: dict = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
+        if self.notification_worker_mode not in {'embedded', 'dedicated'}:
+            raise RuntimeError('NOTIFICATION_WORKER_MODE must be embedded or dedicated.')
         if not 60 <= self.reminder_interval_seconds <= 86400:
             raise RuntimeError('COMPLIANCE_REMINDER_INTERVAL_SECONDS must be between 60 and 86400.')
         if self.ldap_mock_enabled:
@@ -120,4 +124,9 @@ def runtime_settings():
         values.get('COMPLIANCE_REMINDERS_ENABLED','true' if s.app_env=='uat' else 'false').lower()=='true',
         positive_integer('COMPLIANCE_REMINDER_INTERVAL_SECONDS',300,86400),
         tuple(x.strip().lower() for x in values.get('EMPLOYEE_API_ALLOWED_HOSTS','app.mahabank.co.in').split(',') if x.strip()),
-        redis_url=(values.get('REDIS_URL') or '').strip())
+        redis_url=(values.get('REDIS_URL') or '').strip(),
+        notification_worker_mode=values.get('NOTIFICATION_WORKER_MODE', 'embedded').strip().lower(),
+        smtp={key: values[key] for key in ('SMTP_ENABLED', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME',
+              'SMTP_PASSWORD', 'SMTP_FROM_ADDRESS', 'SMTP_FROM_NAME', 'SMTP_SSL', 'SMTP_STARTTLS',
+              'SMTP_TIMEOUT_SECONDS', 'SMTP_CA_CERTS_FILE', 'PORTAL_BASE_URL',
+              'APPROVAL_REMINDERS_ENABLED', 'APPROVAL_REMINDER_TIME') if key in values})

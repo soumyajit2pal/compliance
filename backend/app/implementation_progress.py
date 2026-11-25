@@ -92,7 +92,8 @@ def build_for_sources(db, actor, instruments, versions, clauses, obligations, da
             instrument['id'], day, instrument['current_version_id'])
         if edition:
             effective_editions[edition['id']] = instrument['id']
-    edition_clauses = [row for row in clauses if row['instrument_version_id'] in effective_editions]
+    from .clause_interpretations import apply_approved
+    edition_clauses = apply_approved(db, [row for row in clauses if row['instrument_version_id'] in effective_editions])
     considered_versions = [row for row in versions if row['approval_status'] in {'DRAFT', 'IN_REVIEW', 'REVIEWED', 'APPROVED'}]
 
     def in_scope(row, unit):

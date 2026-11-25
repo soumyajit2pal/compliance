@@ -23,6 +23,7 @@ import {
 import { icon } from '../../ui/icons.ts';
 import { recordClauseRows, renderClauseWorkingView } from '../clause-workspace.ts';
 import { editionNextStep, renderEditionNextStep } from './workflow.ts';
+import { interpretationPanel } from './interpretations.ts';
 import { renderImplementationProgress } from './implementation-progress.ts';
 import { workflowActionGroup, workflowButton, workflowLink } from '../../ui/workflow-actions.ts';
 import {
@@ -102,6 +103,8 @@ function clauseView(i, v, editable, q) {
     editionId: v.id,
     provenance: state.record.clause_carry_forward||[],
     selectedId: selected?.id,
+    interpretationPanel: selected && state.record.interpretation_requests?.clause_id === selected.id
+      ? interpretationPanel(selected, state.record.interpretation_requests, q.get('interpretation')) : '',
     pathFor: (row) => recordPath(i, { id: row.instrument_version_id }, 'clauses', { clause: row.id }),
     editAction: (editable && selected?.approval_status === 'DRAFT'
       ? button('clause', 'Edit Draft clause', `data-id="${esc(selected.id)}"`, 'small')

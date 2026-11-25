@@ -1,8 +1,10 @@
 /** Present only the authorised links returned with this exact work assignment. */
 import {esc,ref,link,badge} from '../ui/components.ts';
 
+export const workRelationshipExplanation = '<strong>Checks and procedures</strong> describe the bank’s reusable checks. <strong>Compliance work</strong> assigns a person a task and a due date. <strong>Evidence</strong> records what was done and supports independent review.';
+
 export function workRelationshipIntro(){
- return '<aside class="work-relationship" aria-label="Checks, work and evidence explained"><p><strong>Checks and procedures</strong> describe the bank’s reusable checks. <strong>Compliance work</strong> assigns a person a task and a due date. <strong>Evidence</strong> records what was done and supports independent review.</p></aside>';
+ return `<aside class="work-relationship" aria-label="Checks, work and evidence explained"><p>${workRelationshipExplanation}</p></aside>`;
 }
 
 export function workContext(d){

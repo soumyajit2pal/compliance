@@ -1,4 +1,5 @@
-import { esc, field, input, select } from '../ui/components.ts';
+import { referenceSelect } from '../ui/reference-options.ts';
+import { esc, field, input } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
 
 /** Profile confirmation uses the existing onboarding endpoint and employee department gate. */
@@ -30,7 +31,7 @@ export function workProfilePage(user, department, units, roles = []) {
           <header><h2 id="profile-form-title">Complete your profile</h2><p>Both fields are required.</p></header>
           ${field('Work email', input('email', user.email || '', 'email', 'required autocomplete="email" maxlength="254" placeholder="Enter your work email"'),
             'Check or enter your bank work email address.')}
-          ${field('Home organisation', select('org_unit_id', units, user.org_unit_id, 'name', 'required', 'Choose your department…'),
+          ${field('Home organisation', referenceSelect('org_unit_id', 'organisational_unit', user.org_unit_id, 'required', 'Choose your department…', {endpoint: '/auth/departments'}, units),
             'Choose your department in the portal. Roles and organisation scope are assigned separately.')}
           <div class="profile-next-step">${icon(readyAfterConfirmation ? 'checkSquare' : 'clock')}<div><strong>${readyAfterConfirmation ? 'Ready after confirmation' : 'What happens next'}</strong><p>${readyAfterConfirmation
             ? 'Your department and role checks are complete. Confirm your profile to open the workspace.'

@@ -11,6 +11,7 @@ export async function employeeSettingsPage(){
  return heading('Employee profile API','Refresh employee details at sign-in. An unavailable API does not block sign-in or change approved access.')+
  `<form id="employee-api-settings">${panel('Connection and retry settings',`<div class="form-grid">
  ${field('Enable employee lookups',`<input type="checkbox" name="enabled" ${data.enabled?'checked':''}>`)}
+ ${field('Verify TLS certificate and hostname',`<input type="checkbox" name="verify_tls" ${data.verify_tls!==false?'checked':''}>`,'Enabled by default. Turning this off allows connections to servers whose identity cannot be verified.')}
  ${field('API endpoint',input('endpoint',data.endpoint,'url','required maxlength="1000"'),'HTTPS only. Server-approved hosts: '+data.allowed_hosts.join(', ')+'. The portal supplies pf_no.')}
  ${field('User ID prefix to remove',input('userid_prefix',data.userid_prefix,'text','required maxlength="10"'),'For example: b040786 → PF 40786. Only the leading prefix is removed.')}
  ${numeric('Total timeout (seconds)','timeout_seconds',1,10)}${numeric('First retry delay (seconds)','retry_seconds',30,3600)}${numeric('Maximum retry delay (seconds)','max_retry_seconds',30,86400)}
@@ -21,7 +22,7 @@ export async function employeeSettingsPage(){
  ${field('API key header',input('api_key_header',data.api_key_header,'text','required maxlength="80"'))}
  ${field('API credential',input('secret','','password','autocomplete="new-password" maxlength="4000"'),data.has_secret?'A credential is saved. Leave blank to retain it.':'No credential is saved.')}
  ${field('Remove saved credential',`<input type="checkbox" name="clear_secret">`)}
- </div><p class="small muted">Credentials are encrypted in the database. The employee API uses HTTPS with certificate and hostname verification disabled in all environments.</p>` )}</div>
+ </div><p class="small muted">Credentials are encrypted in the database.</p>` )}</div>
  <div class="mt24">${panel('Test without saving',field('Test PF number',input('test_pf_no','','text','inputmode="numeric" pattern="[0-9]{1,40}" maxlength="40" autocomplete="off"'))+button('employee-api-test','Test current settings')+'<p id="employee-api-test-result" role="status"></p>')}</div>
  <p class="inline-error" id="form-error" role="alert"></p><div class="wizard-footer"><span class="small muted">Employee details do not grant roles or approve department changes.</span><button class="btn primary" type="submit">Save API settings</button></div></form>
  <div class="mt24">${panel('Refresh health',`<p>Successful: ${esc(data.health.counts.SUCCESS||0)} · Incomplete: ${esc(data.health.counts.PARTIAL||0)} · Failed: ${esc(data.health.counts.FAILED||0)}</p><p class="small muted">Last attempt: ${esc(data.health.last_attempt_at||'NA')} UTC · Last full success: ${esc(data.health.last_success_at||'NA')} UTC</p>`+button('employee-api-retry','Retry pending lookups')+button('reload','Refresh status')+note('A failed lookup retains the last successful employee details. New profiles show NA for unavailable API fields. Historical department observations and approval history are retained. Existing access rules continue.'))}</div>`;
@@ -30,6 +31,7 @@ function payload(form:HTMLFormElement){
  const f=form.elements as any,v=Object.fromEntries(new FormData(form)) as any;
  delete v.test_pf_no;
  v.enabled=f.enabled.checked;v.clear_secret=f.clear_secret.checked;
+ v.verify_tls=f.verify_tls.checked;
  for(const k of ['timeout_seconds','retry_seconds','max_retry_seconds'])v[k]=Number(v[k]);
  return v;
 }

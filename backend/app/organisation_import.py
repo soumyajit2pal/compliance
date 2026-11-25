@@ -1,14 +1,21 @@
 """Preview and atomically add organisation units from an Excel workbook."""
 from collections import Counter
+from copy import copy
 from datetime import date, datetime
 from graphlib import CycleError, TopologicalSorter
 from hashlib import sha256
 from io import BytesIO
+from typing import get_args
 from zipfile import ZipFile
 
 from fastapi import Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from . import upload_policy
+from .upload_formats import validate_workbook
+from fastapi.responses import Response
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.workbook.defined_name import DefinedName
+from openpyxl.worksheet.datavalidation import DataValidation
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
@@ -20,13 +27,86 @@ from .import_choices import current_master
 KEY = 'organisational_unit'
 CUSTOM_FORM = 'master.' + KEY
 SHEET = 'Organisation units'
-MAX_FILE_BYTES = 2 * 1024 * 1024
+CHOICES_SHEET = 'Choices'
+TEMPLATE = 'organisation-unit-import-template.xlsx'
+STATUSES = ('active', 'inactive')
 MAX_ROWS = 2000
 IMPORT_PATH = '/api/admin/organisation-import'
 COLUMNS = {
     'code': 'code', 'name': 'name', 'unit type': 'unit_type', 'parent code': 'parent_code',
     'effective from': 'effective_from', 'effective to': 'effective_to', 'status': 'status',
 }
+
+
+def workbook_template(db):
+    parents = sorted((unit for unit in master_data.master_rows(db, m.organisational_unit)
+                      if current_master(unit)), key=lambda unit: unit['code'].casefold())
+    _, config = dropdowns.configuration(db)
+    custom_fields = [(key, field) for key, field in config['fields'].items()
+                     if field['form'] == CUSTOM_FORM and field['active']]
+
+    with BytesIO() as output:
+        book = load_workbook(ROOT / 'backend/templates' / TEMPLATE)
+        try:
+            sheet = book[SHEET]
+            choices = book.create_sheet(CHOICES_SHEET)
+            choices.freeze_panes = 'A2'
+            choices.sheet_view.showGridLines = False
+
+            def header(target, column, label, width):
+                cell = target.cell(1, column, label)
+                cell.data_type = 's'
+                cell.font = copy(sheet['G1'].font)
+                cell.fill = copy(sheet['G1'].fill)
+                cell.alignment = copy(sheet['G1'].alignment)
+                size = target.column_dimensions[get_column_letter(column)]
+                size.width = width
+                size.number_format = '@'
+
+            def add_dropdown(target_column, formula):
+                validation = DataValidation(type='list', formula1=formula, allow_blank=True, showErrorMessage=False)
+                validation.add(f'{target_column}2:{target_column}{MAX_ROWS + 1}')
+                sheet.add_data_validation(validation)
+
+            def named_choices(name, target_column, source_column, count):
+                col = get_column_letter(source_column)
+                book.defined_names.add(DefinedName(name,
+                    attr_text=f"'{CHOICES_SHEET}'!${col}$2:${col}${max(2, count + 1)}"))
+                add_dropdown(target_column, name)
+
+            sheet.data_validations.dataValidation.clear()
+            unit_types = get_args(master_data.Organisation.model_fields['unit_type'].annotation)
+            add_dropdown('C', '"' + ','.join(code for code in unit_types if code != 'BANK') + '"')
+            add_dropdown('G', '"' + ','.join(status.title() for status in STATUSES) + '"')
+            for column, label, width in [(1, 'Parent code', 30), (2, 'Organisation unit', 44), (3, 'Unit type', 24)]:
+                header(choices, column, label, width)
+            for row, unit in enumerate(parents, 2):
+                for column, field in enumerate(('code', 'name', 'unit_type'), 1):
+                    choices.cell(row, column, unit[field]).data_type = 's'
+            named_choices('OrganisationParentCodes', 'D', 1, len(parents))
+
+            for index, (key, field) in enumerate(custom_fields, 1):
+                target_column = len(COLUMNS) + index
+                source_column = 2 * index + 2
+                header(sheet, target_column, 'Custom: ' + key, 52)
+                header(choices, source_column, field['label'] + ' code', 30)
+                header(choices, source_column + 1, field['label'], 44)
+                active_options = [option for option in config['lists'][field['source']]['options'] if option['active']]
+                for row, option in enumerate(active_options, 2):
+                    choices.cell(row, source_column, option['code']).data_type = 's'
+                    choices.cell(row, source_column + 1, option['label']).data_type = 's'
+                named_choices(f'OrganisationCustom{index}', get_column_letter(target_column),
+                              source_column, len(active_options))
+
+            guide = book['How to fill']
+            guide['B6'] = ('Select an existing Parent code or type the code of a parent in this workbook. '
+                           'Use a Department parent for SUB_DEPARTMENT. Use BANK for direct bank children.')
+            guide['B10'] = ('Published custom fields appear as columns. Use the option codes in their dropdowns. '
+                            'Download a new workbook to refresh the parent and custom choices.')
+            book.save(output)
+        finally:
+            book.close()
+        return output.getvalue()
 
 
 def header_fields(cells, config):
@@ -60,7 +140,7 @@ def parse_workbook(data, config):
             if any('vbaproject' in entry.filename.lower() or entry.filename.startswith('xl/externalLinks/') for entry in members):
                 raise HTTPException(422, 'Use an Excel workbook without macros or external links.')
         book = load_workbook(BytesIO(data), read_only=True, data_only=False, keep_links=False)
-        if SHEET not in book.sheetnames or set(book.sheetnames) - {SHEET, 'How to fill'}:
+        if SHEET not in book.sheetnames or set(book.sheetnames) - {SHEET, 'How to fill', CHOICES_SHEET}:
             raise HTTPException(422, 'Put the data in the Organisation units worksheet of the template.')
         sheet = book[SHEET]
         sheet.reset_dimensions()
@@ -99,7 +179,7 @@ def validate_row(raw, config):
         raise ValueError('Parent codes can contain up to 30 characters.')
     value = raw.get('status')
     status = (str(value).strip().lower() if value is not None else '') or 'active'
-    if status not in {'active', 'inactive'}:
+    if status not in STATUSES:
         raise ValueError('Choose Active or Inactive for Status.')
     dates = {key: raw.get(key) for key in ('effective_from', 'effective_to')}
     for key, value in dates.items():
@@ -177,12 +257,12 @@ def plan_import(existing_rows, source_rows, config):
     return planned, sorted(errors, key=lambda error: error['row'])
 
 
-def read_upload(file):
+def read_upload(db, file):
     if not (file.filename or '').lower().endswith('.xlsx'):
         raise HTTPException(422, 'Choose an Excel workbook (.xlsx) from the template.')
-    data = file.file.read(MAX_FILE_BYTES + 1)
-    if len(data) > MAX_FILE_BYTES:
-        raise HTTPException(413, 'The workbook must be 2 MB or smaller.')
+    limits,_ = upload_policy.configuration(db)
+    data = upload_policy.read_file(file, limits.organisation_mib)
+    validate_workbook(data)
     return data
 
 
@@ -205,23 +285,22 @@ def evaluate(db, data, *, lock=False):
 
 def install(app, get_db, current):
     @app.get(IMPORT_PATH + '/template')
-    def template(actor=Depends(current)):
+    def template(db=Depends(get_db), actor=Depends(current)):
         actor.require({'ADMIN'})
-        filename = 'organisation-unit-import-template.xlsx'
-        return FileResponse(ROOT / 'backend/templates' / filename, filename=filename,
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        return Response(workbook_template(db), media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': f'attachment; filename="{TEMPLATE}"', 'Cache-Control': 'private, no-store'})
 
     @app.post(IMPORT_PATH + '/preview')
     def preview(file: UploadFile = File(...), db=Depends(get_db), actor=Depends(current)):
         actor.require({'ADMIN'})
-        result, _ = evaluate(db, read_upload(file))
+        result, _ = evaluate(db, read_upload(db, file))
         return result
 
     @app.post(IMPORT_PATH)
     def load(file: UploadFile = File(...), file_hash: str = Form(..., pattern=r'^[0-9a-f]{64}$'),
              reason: str = Form(..., min_length=5, max_length=2000), db=Depends(get_db), actor=Depends(current)):
         actor.require({'ADMIN'})
-        data = read_upload(file)
+        data = read_upload(db, file)
         if sha256(data).hexdigest() != file_hash:
             raise HTTPException(409, 'The workbook changed. Preview the updated file before importing.')
         reason = reason.strip()

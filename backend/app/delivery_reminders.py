@@ -1,25 +1,13 @@
-"""Idempotent database-backed in-app delivery; no email or arbitrary business clock."""
-import logging
-import asyncio
+"""Idempotent scheduled notices for actions, obligations and checks."""
 from datetime import timedelta
 import sqlalchemy as sa
 from . import models as m,delivery as d,obligations as obl
 from .access import actor_for
 from .events import audit,notify,now
-logger=logging.getLogger('cbd.reminders')
 
 def review_overdue(submission):
  # Stored event timestamps are UTC; compare elapsed time without a date truncation.
  return submission['submitted_at']<=now()-timedelta(days=2)
-
-async def worker(engine,interval):
- def sweep():
-  with engine.begin() as db:return run(db)
- while True:
-  try:
-   await asyncio.to_thread(sweep)
-  except Exception:logger.exception('Compliance reminder sweep failed')
-  await asyncio.sleep(interval)
 
 def run(db):
  # Dedicated migration-seeded row serialises all API/CLI workers. No startup DDL.
@@ -65,5 +53,15 @@ def run(db):
    except d.HTTPException:continue
    key='obligation-review:'+o['id']+':'+str(day)
    if not db.execute(sa.select(m.notification.c.id).where(m.notification.c.recipient_user_id==user,m.notification.c.trigger_key==key)).first():notify(db,'obligation',o['id'],user,'OBLIGATION_REVIEW_DUE',key);created+=1
+ from . import controls
+ for check in controls.rows(db, m.control, sa.and_(m.control.c.approval_status=='APPROVED',
+         m.control.c.superseded_by_id.is_(None), m.control.c.review_date<=day+timedelta(days=7))):
+  if not controls.current(check, day):continue
+  user=check['owner_user_id']
+  try:controls.read(db,actor_for(db,user),'controls',check['id'])
+  except d.HTTPException:continue
+  key='check-review:'+check['id']+':'+str(day)
+  if not db.execute(sa.select(m.notification.c.id).where(m.notification.c.recipient_user_id==user,m.notification.c.trigger_key==key)).first():
+   notify(db,'controls',check['id'],user,'CHECK_REVIEW_DUE',key);created+=1
  audit(db,None,'delivery_monitoring','scheduler','SWEEP_COMPLETED',new={'business_date':day,'created':created,'channel':'IN_APP'})
  return {'created':created,'business_date':day,'channel':'IN_APP'}

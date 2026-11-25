@@ -2,6 +2,7 @@
 import sqlalchemy as sa
 
 from . import models as m
+from .clause_interpretations import approved, request
 
 clause = m.regulatory_clause
 edition = m.instrument_version
@@ -34,7 +35,9 @@ def _literal(column, query):
 
 
 def literal_match(query):
-    return sa.or_(*(_literal(column, query) for column in wording))
+    interpretation_match = approved().where(request.c.clause_id == clause.c.id,
+        _literal(request.c.interpretation, query)).exists()
+    return sa.or_(*(_literal(column, query) for column in wording), interpretation_match)
 
 
 def wording_branches(base, columns, query, *, phrase=False):
@@ -51,6 +54,9 @@ def candidate_ids(query, search_type, filters):
     branches = []
     if search_type in {'keyword', 'phrase'}:
         branches.extend(wording_branches(base, wording, query, phrase=search_type == 'phrase'))
+        interpretations = approved().with_only_columns(request.c.clause_id)
+        branches.extend(wording_branches(interpretations, [request.c.interpretation], query,
+            phrase=search_type == 'phrase'))
     if search_type in {'keyword', 'reference'}:
         pattern = _prefix(query)
         branches.extend(base.where(_like(column, pattern))

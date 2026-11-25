@@ -1,20 +1,26 @@
+import { referenceSelect } from '../ui/reference-options.ts';
 import { api } from '../core/api.ts';
 import { apiPageQuery } from '../core/pagination.ts';
 import { state } from '../core/state.ts';
 import { covered } from '../core/access.ts';
 import { choosePeople } from '../core/assignees.ts';
+import { clauseRelationshipTypes } from '../core/clause-relationships.ts';
+import { notificationRelationshipTypes } from '../core/notification-relationships.ts';
 import { esc, date, localDate, badge, statusTag, title, link, field, input, select, options, area, versionLabel, ref, message } from '../ui/components.ts';
 import { heading, pageHelp } from '../ui/layout.ts';
 import { panel, table, tablePanel, tabs, note, pagedCollection } from '../ui/widgets.ts';
 import { modal, close } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
 import { workflowActionGroup, workflowButton, workflowSubmit } from '../ui/workflow-actions.ts';
+import { relationshipHint } from '../ui/relationship-guidance.ts';
+import { reportError } from '../ui/feedback.ts';
 import { openImplementationStage, renderImplementationProgress } from './repository/implementation-progress.ts';
 
 const familyPath=(id,query=new URLSearchParams())=>'notification-families/'+id+(query.size?'?'+query:'');
 const action=(name,label,data='')=>`<button type="button" class="btn small" data-action="${name}" ${data}>${esc(label)}</button>`;
 const author=(row)=>covered(row.regulatory_owner_unit_id,['AUTHOR']);
-const relationTypes=['AMENDS','CLARIFIES','SUPERSEDES','REPEALS'].map(id=>({id,name:title(id)}));
+const clauseHintId = 'earlier-clause-relationship-guidance';
+const notificationHintId = 'notification-link-relationship-guidance';
 const counted=(count,singular,plural=singular+'s')=>count+' '+(count===1?singular:plural);
 const recordedScopes=(row)=>row.scopes.filter(scope=>scope.id);
 const hasImplementation=(row)=>recordedScopes(row).length>0;
@@ -34,7 +40,7 @@ function familyStatus(value) {
   const label = familyStatusLabels[value];
   if (!label) return badge(value);
   const tone = value === 'NO_IMPACT' ? 'green' : value === 'REASSESSMENT_REQUIRED' ? 'red'
-    : ['IN_PROGRESS', 'UNDER_REVIEW'].includes(value) ? 'amber' : 'neutral';
+    : value === 'IN_PROGRESS' ? 'blue' : 'amber';
   return statusTag(label, tone);
 }
 
@@ -149,11 +155,9 @@ export async function notificationFamiliesPage(id,query=new URLSearchParams()) {
   const requestUrl='/notification-families'+(id?'/'+id:'')+'?'+(id?filters:apiPageQuery(filters,'families'));
   const data=await api(requestUrl);
   state.view.family=data;
-  const domains = (state.masters?.regulatory_domain || [])
-    .filter(row => data.domain_ids?.includes(row.id)).sort((a,b) => a.name.localeCompare(b.name));
   const dateForm=(route)=>`<form id="family-filters" class="family-filters ${id?'family-filters-date':'family-filters-register'}" data-route="${esc(route)}" aria-label="Notification family filters"><div class="family-filter-controls">
     ${id ? '' : field('Search notifications',input('q',q,'search','placeholder="Search any notification in the family"')) +
-      field('Domain',select('domain_id',domains,domain,'name','aria-label="Domain"','All domains'))}
+      field('Domain',referenceSelect('domain_id','regulatory_domain',domain,'aria-label="Domain"','All domains',{only: data.domain_ids || []}))}
     ${field('As of date',input('as_of',when,'date','required'))}<button type="submit" class="btn primary family-filter-apply">Apply filters</button>
     </div>${id?`<input type="hidden" name="notification" value="${esc(query.get('notification')||id)}"><input type="hidden" name="tab" value="${esc(query.get('tab')||'sources')}">`:''}</form>`;
   if(!id) return familyRegister(data, when, q, domain, dateForm('notification-families'), requestUrl);
@@ -176,7 +180,7 @@ export async function notificationFamiliesPage(id,query=new URLSearchParams()) {
     esc(data.members.find(r=>r.id===d.instrument_id)?.code),link('repository/'+data.members.find(r=>r.versions.some(v=>v.id===d.source_version_id))?.id+'?version='+d.source_version_id,'Open cited source','text-link'),date(d.due_date),date(d.effective_from),badge(d.approval_status),esc(d.basis)
   ])),{action:canAuthor?action('family-deadline','Propose regulatory deadline',`data-id="${esc(selected.id)}"`):''})+note('Approved source-cited events preserve the original date. Internal action extensions never change regulatory deadlines.');
   else body=panel('Business implementation',pagedCollection(recordedScopes(selected).map(scope=>`<article class="family-scope"><div class="row between"><div><h3>${esc(ref('organisational_unit',scope.org_unit_id))}</h3><p>Implementation owner: ${esc(ref('user',scope.owner_user_id))}</p></div>${badge(scope.status)}</div><p>Source: ${scope.source_version_id?esc(versionLabel(selected.versions.find(v=>v.id===scope.source_version_id)?.version_number)):'No effective approved source'} · ${scope.actions.length} source-specific actions · ${scope.assessments.length} retained assessment proposals</p>${current&&scope.id&&scope.owner_user_id===state.identity.user.id&&covered(scope.org_unit_id,['BUSINESS_OWNER'])?action('family-assessment','Assess implementation',`data-id="${esc(scope.id)}" data-instrument="${esc(selected.id)}" data-version="${esc(scope.source_version_id||'')}"`):''}${scope.last_approved?`<p>Last approved outcome: ${esc(title(scope.last_approved.outcome))} · revision ${scope.last_approved.revision}. A source or delivery change requires reassessment.</p>`:''}${table(['Action','Owner','Due','Status'],scope.actions.map(a=>[esc(a.code)+'<small>'+esc(a.description)+'</small>',esc(ref('user',a.owner_user_id)),date(a.current_due_date),badge(a.record_status)]),{summary:false,pageKey:'scope-actions-'+scope.id})}</article>`),{pageKey:'implementation-scopes',label:'departments'}));
-  return pageHelp('Originals and amendments, together','Read each source, its separate business implementation and approved regulatory deadline history. Select a notification to inspect its own records.')+
+  return pageHelp('Originals and amendments, together','Learn how to register or link a separately issued notification, choose a relationship type and submit it for approval. Select a notification to inspect its source and implementation.','notification-relationships')+
     link('notification-families?' + new URLSearchParams({as_of:when}),'← Notification families','back-link')+
     heading(root.short_title || root.title,counted(data.members.length,'notification')+' in this family · Position on '+date(when),
       `<button type="button" id="family-obligations" class="btn" data-action="family-progress-stage" data-stage="obligations" aria-haspopup="dialog">Family obligations</button>`+
@@ -199,13 +203,28 @@ async function reviewers(unit,scope='') {
 
 export function notificationFamilyHandlers({render}) {
   const member=(id)=>state.view.family.members.find(row=>row.id===id);
-  const setForm=(id,route)=>{document.querySelector<HTMLFormElement>('#'+id).dataset.route=route;};
+  const setForm=(id,route)=>{
+    const form=document.querySelector<HTMLFormElement>('#'+id);
+    form.dataset.route=route;
+    return form;
+  };
   return {actions:{
     'family-progress-stage': (data, trigger) => openImplementationStage(data, trigger, state.view.family),
     'family-link':async({id})=>{
       const parent=member(id);const records=await api('/instruments');
       const candidates=records.filter(row=>!state.view.family.members.some(member=>member.id===row.id)&&row.regulator_id===parent.regulator_id&&author(row));
-      modal('Link existing notification',`<div class="grid">${field('Existing notification',select('child_id',candidates.map(row=>({...row,name:row.code+' · '+row.title})),'','name','required'))}${field('Relationship',select('relationship_type',relationTypes,'AMENDS'))}${field('Effective from',input('effective_from',localDate(),'date','required'))}${field('Relationship basis',area('basis','','required minlength="10"'))}${await reviewers(parent.regulatory_owner_unit_id)}</div><p>Independent review and final approval are required. Existing source editions and implementation decisions are retained.</p>`,'family-proposal','Submit relationship for review');
+      const defaultType = 'AMENDS';
+      modal('Link existing notification', `<div class="grid">
+        ${field('Existing notification', select('child_id', candidates.map(row => ({
+          ...row, name: row.code + ' · ' + row.title,
+        })), '', 'name', 'required'), 'Choose the newer notification that relates to the one you opened.')}
+        ${field('Relationship',
+          select('relationship_type', notificationRelationshipTypes, defaultType, 'name', `required aria-describedby="${notificationHintId}"`) +
+          relationshipHint('notification', notificationHintId, defaultType))}
+        ${field('Effective from', input('effective_from', localDate(), 'date', 'required'))}
+        ${field('Relationship basis', area('basis', '', 'required minlength="10"'))}
+        ${await reviewers(parent.regulatory_owner_unit_id)}
+      </div><p>Independent review and final approval are required. Existing source editions and implementation decisions are retained.</p>`, 'family-proposal', 'Submit relationship for review');
       setForm('family-proposal','/notification-families/'+id+'/links');
       const form=document.querySelector<HTMLFormElement>('#family-proposal');
       form.querySelector('[name=child_id]').addEventListener('change',async()=>{
@@ -219,7 +238,7 @@ export function notificationFamilyHandlers({render}) {
           if(!form.isConnected||(form.elements.namedItem('child_id') as HTMLSelectElement).value!==identifier)return;
           (form.elements.namedItem('reviewer_id') as HTMLSelectElement).innerHTML=options(review,'','full_name');
           (form.elements.namedItem('approver_id') as HTMLSelectElement).innerHTML=options(approve,'','full_name');
-        }catch(error){message(error.message,true);}
+        }catch(error){reportError(error);}
       });
     },
     'family-deadline':async({id})=>{
@@ -242,8 +261,20 @@ export function notificationFamilyHandlers({render}) {
       const candidates=await api('/clauses/'+id+'/related-candidates');
       const record=await api('/instruments/'+instrument);
       if(!candidates.length){modal('Link an earlier clause','<p>No approved earlier clauses are available in this notification family. Choose a different source clause or register and approve the earlier source first.</p>');return;}
-      modal('Link an earlier clause',`<div class="grid">${field('Related approved clause',select('target_clause_id',candidates.map(row=>({...row,name:row.instrument_code+' · '+row.code+' · '+(row.source_clause_reference||'')+' · v'+versionLabel(row.version_number)})),'','name','required'))}${field('Relationship',select('relationship_type',['AMENDS','SUPERSEDES','REFERS_TO','DEPENDS_ON','REPEALS'].map(value=>({id:value,name:title(value)})),'AMENDS'))}${field('Effective from',input('effective_from',localDate(),'date','required'))}${field('Regulatory relationship basis',area('description','','required minlength="10"'))}${await reviewers(record.instrument.regulatory_owner_unit_id)}</div><p>This preserves a governed relationship. It does not make a clause from another edition a structural parent.</p>`,'family-proposal','Submit relationship for review');
-      setForm('family-proposal','/clauses/'+id+'/relationships');
+      const defaultType = 'AMENDS';
+      const relationshipField = field('Relationship',
+        select('relationship_type', clauseRelationshipTypes, defaultType, 'name', `required aria-describedby="${clauseHintId}"`) +
+        relationshipHint('clause', clauseHintId, defaultType));
+      modal('Link an earlier clause', `<div class="grid">
+        ${field('Related approved clause', select('target_clause_id', candidates.map(row => ({
+          ...row, name: row.instrument_code + ' · ' + row.code + ' · ' + (row.source_clause_reference || '') + ' · v' + versionLabel(row.version_number),
+        })), '', 'name', 'required'))}
+        ${relationshipField}
+        ${field('Effective from', input('effective_from', localDate(), 'date', 'required'))}
+        ${field('Regulatory relationship basis', area('description', '', 'required minlength="10"'))}
+        ${await reviewers(record.instrument.regulatory_owner_unit_id)}
+      </div><p>Use Parent clause for numbering within the same source edition.</p>`, 'family-proposal', 'Submit relationship for review');
+      setForm('family-proposal', '/clauses/' + id + '/relationships');
     },
   },forms:{
     'family-filters':(form)=>{const data=new URLSearchParams(new FormData(form) as any);location.hash=form.dataset.route+'?'+data;},

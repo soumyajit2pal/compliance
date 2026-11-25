@@ -1,3 +1,4 @@
+import { fileLimitHint } from '../core/upload-policy.ts';
 import { api } from '../core/api.ts';
 import { state } from '../core/state.ts';
 import { has } from '../core/access.ts';
@@ -6,7 +7,10 @@ import { esc,field,input,button,link,badge,date,message } from '../ui/components
 import { heading } from '../ui/layout.ts';
 import { panel,table,tablePanel,note,detailFields } from '../ui/widgets.ts';
 import { modal,close } from '../ui/dialog.ts';
+import { templateUploadModal } from '../ui/template-upload.ts';
 import { obligationSummary,ownershipSummary,applicabilitySummary,processSummary } from './obligation-summary.ts';
+
+const excelTemplate = '/api/obligation-import-template';
 
 export async function obligationImportsPage(query){
   const identifier=query.get('batch');
@@ -41,7 +45,7 @@ export async function obligationImportsPage(query){
   const result = await api(columnOptionsUrl);
   return link('obligations','← Obligation register','back-link')+
     heading('Import obligations','Use approved regulatory clauses; load owned, assessed requirements into Draft.',
-      '<a class="btn" href="/api/obligation-import-template" download>Download Excel template</a>'+(has('AUTHOR')?button('obl-import-new','Upload obligations','','primary'):''))+
+      `<a class="btn" href="${excelTemplate}" download>Download Excel template</a>`+(has('AUTHOR')?button('obl-import-new','Upload obligations','','primary'):''))+
     note('Fill Obligations, Owners, Applicability and Processes using one import reference per atomic requirement. An independent Reviewer validates the import before the uploader loads ready Drafts.')+
     tablePanel(table(['Source workbook','Date','Status','Source rows','Loaded','Not loaded'],result.items.map(b=>[
       link('obligations/imports?batch='+b.id,b.source_file),date(b.uploaded_at),badge(b.record_status.replace(/^OBL_/,'')),esc(b.source_count),esc(b.loaded_count),esc(b.rejected_count),
@@ -50,12 +54,14 @@ export async function obligationImportsPage(query){
 
 export function obligationImportHandlers({render}){
   return {actions:{
-    'obl-import-new':()=>modal('Upload obligation workbook',field('Source system',input('source_system','','text','required maxlength="90"'))+
-      field('Obligation Excel workbook',input('file','','file','required accept=".xlsx"')),'obl-import-upload','Preview validation'),
+    'obl-import-new':()=>templateUploadModal('Upload obligation workbook',field('Source system',input('source_system','','text','required maxlength="90"'))+
+      field('Obligation Excel workbook',input('file','','file','required accept=".xlsx"'),fileLimitHint('workbook_mib')),
+      { formId: 'obl-import-upload', submitLabel: 'Preview validation', excelTemplate }),
     'obl-import-correct':()=>{
       const b=state.view.obligationImport.batch,notes=JSON.parse(b.reconciliation_notes);
-      modal('Upload corrected obligation workbook',input('replaces_batch_id',b.id,'hidden')+field('Source system',input('source_system',notes.source_system,'text','required readonly'))+
-        field('Corrected Excel workbook',input('file','','file','required accept=".xlsx"')),'obl-import-upload','Preview linked correction');
+      templateUploadModal('Upload corrected obligation workbook',input('replaces_batch_id',b.id,'hidden')+field('Source system',input('source_system',notes.source_system,'text','required readonly'))+
+        field('Corrected Excel workbook',input('file','','file','required accept=".xlsx"'),fileLimitHint('workbook_mib')),
+        { formId: 'obl-import-upload', submitLabel: 'Preview linked correction', excelTemplate });
     },
     'obl-import-validate':async()=>{await api('/obligation-imports/'+state.view.obligationImport.batch.id+'/validate','POST',{});await render();},
     'obl-import-confirm':()=>modal('Load ready Draft obligations',note('Only complete ready groups will load. Other rows remain in the reconciliation report. Approval and activation still require the full obligation workflow.'),'obl-import-load','Load ready Drafts'),

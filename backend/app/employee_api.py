@@ -11,6 +11,7 @@ from .events import audit,now
 class Configuration(BaseModel):
     model_config=ConfigDict(extra='forbid')
     enabled:StrictBool=True
+    verify_tls:StrictBool=ep.DEFAULTS['verify_tls']
     endpoint:str=Field(default=ep.DEFAULTS['endpoint'],max_length=1000)
     userid_prefix:str=Field(default='b0',max_length=10)
     timeout_seconds:int=Field(default=3,ge=1,le=10)
@@ -31,6 +32,8 @@ class TestConfiguration(Configuration):
 
 def candidate(payload,previous,settings):
     data=payload.model_dump(exclude={'test_pf_no','ca_action','ca_data','clear_secret'})
+    if 'verify_tls' not in payload.model_fields_set:
+        data['verify_tls']=previous.get('verify_tls',ep.DEFAULTS['verify_tls'])
     data['secret']=payload.secret or ('' if payload.clear_secret else previous.get('secret',''))
     try:host_changed=urlsplit(data['endpoint']).hostname!=urlsplit(previous['endpoint']).hostname
     except ValueError:raise HTTPException(422,'Enter a valid HTTPS employee endpoint.') from None
@@ -49,7 +52,6 @@ def install(app,get_db,current,settings):
         counts={r[0]:r[1] for r in db.execute(sa.select(m.employee_profile.c.sync_status,sa.func.count()).group_by(m.employee_profile.c.sync_status))}
         last=db.execute(sa.select(sa.func.max(m.employee_profile.c.last_attempt_at),sa.func.max(m.employee_profile.c.last_success_at))).one()
         return {**ep.public_config(ep.load_config(db,settings)),
-            'verify_tls':False,
             'allowed_hosts':settings.employee_api_allowed_hosts,'health':{'counts':counts,'last_attempt_at':last[0],'last_success_at':last[1]}}
 
     @app.put('/api/admin/employee-api')
@@ -65,7 +67,7 @@ def install(app,get_db,current,settings):
         cfg=candidate(payload,ep.load_config(db,settings),settings)
         if not cfg['enabled']:raise HTTPException(422,'Enable the API in the form before testing.')
         result=ep.lookup(cfg,payload.test_pf_no,settings)
-        audit(db,actor,'system',ep.CODE,'EMPLOYEE_API_TESTED',new={'ok':not result['error'],'code':result['error'],'missing_fields':result['missing']})
+        audit(db,actor,'system',ep.CODE,'EMPLOYEE_API_TESTED',new={'ok':not result['error'],'code':result['error'],'missing_fields':result['missing'],'verify_tls':cfg['verify_tls']})
         return {'ok':not result['error'],'code':result['error'],'missing_fields':result['missing'],
             'guidance':ep.failure_guidance(result['error']) if result['error'] else None,
             'message':'The API returned the requested PF number. No employee profile or settings were saved.' if not result['error'] else 'The lookup failed ('+result['error']+'). Existing sign-in and employee details remain available.'}

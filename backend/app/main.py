@@ -11,20 +11,21 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError,DatabaseError
 from fastapi import FastAPI,Depends,Request,Response,HTTPException,UploadFile,File,Form,Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse,JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from .runtime import runtime_settings
 from .pagination import page_query, paginate
-from .table_filters import column_choices, column_query, fields, filter_rows, label, version
+from .table_filters import column_choices, column_query, fields, filter_rows, label, version as version_label
 from .config import ROOT
-from .storage import prepare_storage, stored_path, write_private
+from .storage import prepare_storage, stored_path
 from .logging_config import configure_logging, request_id as logging_request_id, client_ip as logging_client_ip, client_ip_from_scope, database_error_code
 from . import models as m,schemas as s,repository as repo,migration_service as migration
 from . import authentication as auth
 from .login_encryption import load_material, public_login_key, consume_challenge, encrypted_login_credentials
 from .access import actor_for,READ_ROLES,REGULATORY_ROLES,DISCUSS_ROLES
-from .events import new_id,now,audit
+from .events import NOTIFICATION_WAKE,new_id,now,audit
 from .request_audit import RequestAuditWriter, access_event, insert_request, request_context
 from .security import hash_password
 from .directory import (load_directory, public_directory, prepare_directory, save_directory,
@@ -34,19 +35,30 @@ from .demo_access import available_demo_users
 from .import_template import csv_template
 from .import_workbook import download_workbook
 from .user_access import account_catalogue, current_access, notify_administrators
-from . import clause_carry,notification_families as families
-from .source_documents import file_transaction, save_document, MAX_SOURCE_BYTES
+from . import clause_carry,clause_interpretations,notification_families as families
+from .source_documents import file_transaction, save_document
+from . import upload_policy
+from .upload_formats import INLINE_TYPES, validate_workbook
 from . import employee_identity as employees
 from . import applications as connected_apps, master_data, dropdowns, organisation_import
 from .dropdown_cache import DropdownCache
 from .api_docs import install_uat_docs
+from .notification_context import resolve_notification
+from .task_queue import list_tasks
+from . import mail_admin
+from .notification_worker import NotificationWorker, WakeSignal
 
 logger=logging.getLogger('cbd.portal')
 
 
 def get_db(request:Request):
     with request.app.state.engine.connect() as db:
-        with file_transaction(db), db.begin(): yield db
+        try:
+            with file_transaction(db), db.begin(): yield db
+            if db.info.get(NOTIFICATION_WAKE):
+                request.app.state.notification_wake.send()
+        finally:
+            db.info.pop(NOTIFICATION_WAKE, None)
 
 def current(request:Request,db=Depends(get_db)):
     actor=auth.resolve(db,request,request.app.state.settings)[0]
@@ -63,7 +75,7 @@ def menu(actor):
     common=[('home','Compliance at a Glance'),('tasks','My tasks'),('approvals','My approvals'),('help','Help')]
     if actor.roles & READ_ROLES:common[1:1]=[('repository','Regulatory library'),('notification-families','Notification families'),('clauses','Clauses / Para'),('clause-relationships','Clause / Para relationships'),('obligations','Obligations'),('applicability','Applicability'),('accountability','Accountability')]
     if any(g['role_code'] in {'AUTHOR','REVIEWER'} and g['global_scope_flag'] for g in actor.grants):common.append(('migration','Import existing regulatory records'))
-    if 'ADMIN' in actor.roles:common.extend([('masters','Reference masters'),('dropdowns','Dropdowns'),('users','Users and access'),('ldap','LDAP settings'),('employee-api','Employee profile API')])
+    if 'ADMIN' in actor.roles:common.extend([('masters','Reference masters'),('dropdowns','Dropdowns'),('users','Users and access'),('ldap','LDAP settings'),('employee-api','Employee profile API'),('email-settings','Email settings'),('upload-settings','Upload settings')])
     if actor.roles & READ_ROLES:common.extend([('controls','Checks and procedures'),('control-mappings','Obligation links'),('actions','Assigned actions'),('evidence','Evidence vault'),('delegations','Delegation'),('team','Team overview'),('library','Compliance library')])
     common.append(('approval-workflow-log','Approval Workflow Log'))
     if 'ADMIN' in actor.roles:common.append(('audit-trail','Audit Log'))
@@ -76,6 +88,7 @@ def safe_user(row):
 def create_app(settings=None,engine=None):
     cfg=settings or runtime_settings()
     configure_logging(cfg)
+    wake = WakeSignal(cfg)
     dropdown_cache=DropdownCache(cfg.redis_url,cfg.database_url,cfg.environment) if cfg.redis_url else None
     published_dropdowns=dropdown_cache.configuration if dropdown_cache else dropdowns.configuration
     try:login_material=load_material(cfg.login_private_key_file)
@@ -84,14 +97,14 @@ def create_app(settings=None,engine=None):
     @asynccontextmanager
     async def lifespan(app):
         configure_logging(cfg)
-        reminder_task=None;employee_task=None
+        notification_task=None;notification_worker=None;employee_task=None
         try:
             prepare_storage(cfg.storage)
             if app.state.engine is None:app.state.engine=create_application_engine(cfg.database_url)
             # Supplied engines belong to rollback-bound tests, never a scheduler.
-            if engine is None and cfg.reminders_enabled:
-                from .delivery_reminders import worker
-                reminder_task=asyncio.create_task(worker(app.state.engine,cfg.reminder_interval_seconds))
+            if engine is None and cfg.notification_worker_mode == 'embedded':
+                notification_worker = NotificationWorker(app.state.engine, cfg, wake)
+                notification_task = asyncio.create_task(asyncio.to_thread(notification_worker.run))
             if engine is None:
                 from .employee_profiles import worker as employee_worker
                 employee_task=asyncio.create_task(employee_worker(app.state.engine,cfg))
@@ -104,17 +117,18 @@ def create_app(settings=None,engine=None):
                 employee_task.cancel()
                 try:await employee_task
                 except asyncio.CancelledError:pass
-            if reminder_task:
-                reminder_task.cancel()
-                try:await reminder_task
-                except asyncio.CancelledError:pass
+            if notification_task:
+                notification_worker.stop.set()
+                await notification_task
             if engine is None and app.state.engine is not None:app.state.engine.dispose()
             if dropdown_cache:dropdown_cache.close()
+            wake.close()
             logger.info('Application stopped environment=%s',cfg.environment)
     app=FastAPI(title='Compliance by Design',lifespan=lifespan,docs_url=None,redoc_url=None,
                 openapi_url='/openapi.json' if cfg.environment=='uat' else None)
     install_uat_docs(app,cfg.environment)
     app.state.settings=cfg;app.state.engine=engine
+    app.state.notification_wake = wake
     app.state.login_material=login_material
     app.state.consume_login_challenge=lambda claims:consume_challenge(app.state.engine,claims)
     def persist_access(event):
@@ -134,10 +148,11 @@ def create_app(settings=None,engine=None):
             origin=request.headers.get('Origin')
             if origin not in cfg.origins or request.headers.get('Sec-Fetch-Site')=='cross-site':
                 return JSONResponse({'detail':'This request must come from the portal.'},status_code=403)
-            maximum=(101*1024*1024 if request.url.path=='/api/migration' else
-                     21*1024*1024 if request.url.path=='/api/obligation-imports' or request.url.path.startswith('/api/actions/') and request.url.path.endswith('/evidence') else
-                     25*1024*1024 if request.url.path=='/api/documents' else
-                     organisation_import.MAX_FILE_BYTES+128*1024 if request.url.path in {organisation_import.IMPORT_PATH, organisation_import.IMPORT_PATH+'/preview'} else
+            path=request.url.path.rstrip('/')
+            file_upload=(path in {'/api/migration','/api/obligation-imports','/api/documents',
+                organisation_import.IMPORT_PATH, organisation_import.IMPORT_PATH+'/preview'}
+                or path.startswith('/api/actions/') and path.endswith('/evidence'))
+            maximum=(upload_policy.MAX_REQUEST_BYTES if file_upload else
                      2*1024*1024 if request.url.path in {'/api/admin/ldap','/api/admin/ldap/test','/api/admin/employee-api','/api/admin/employee-api/test'} else 1024*1024)
             length=request.headers.get('Content-Length')
             try:valid=length is not None and 0<=int(length)<=maximum
@@ -186,6 +201,16 @@ def create_app(settings=None,engine=None):
             logging_request_id.reset(token)
 
     app.add_middleware(RequestAuditWriter)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_request, exc):
+        # Validation errors can carry the complete submitted model, including credentials.
+        detail = [
+            {'loc': error['loc'][:-1] if error['type'] == 'extra_forbidden' else error['loc'],
+             'msg': error['msg'], 'type': error['type']}
+            for error in exc.errors()
+        ]
+        return JSONResponse({'detail': detail}, status_code=422)
 
     @app.exception_handler(DatabaseError)
     async def db_error(request,exc):
@@ -236,6 +261,8 @@ def create_app(settings=None,engine=None):
         actor=resolve_context(db,actual,request)
         result={'user':safe_user(actor.user),'roles':sorted(actor.roles),'grants':actor.grants,
             'csrf_token':session['csrf_token'],'menu':[] if employees.blocked(actor.user) else menu(actor),'environment':cfg.environment}
+        if result['menu']:
+            result['upload_policy']=upload_policy.public(upload_policy.configuration(db)[0])
         from .employee_profiles import public_profile
         presentation=published_dropdowns(db)[1]['presentation']
         result['dropdown_presentation']=presentation if actor.roles else {
@@ -302,6 +329,8 @@ def create_app(settings=None,engine=None):
 
     dropdowns.install(app,get_db,current,published_dropdowns)
     organisation_import.install(app,get_db,current)
+    mail_admin.install(app,get_db,current,cfg)
+    upload_policy.install(app,get_db,current)
 
     @app.get('/api/masters')
     def masters(db=Depends(get_db),actor=Depends(current)):
@@ -464,8 +493,10 @@ def create_app(settings=None,engine=None):
 
     @app.post('/api/documents')
     async def upload(request:Request,file:UploadFile=File(...),owner_unit_id:str=Form(...),confidentiality_class_id:str=Form(...),db=Depends(get_db),actor=Depends(current)):
+        actor.require({'AUTHOR'},owner_unit_id)
+        limits,_=upload_policy.configuration(db)
         return save_document(db,actor,cfg.storage,file.filename or 'source',
-            await file.read(MAX_SOURCE_BYTES+1),owner_unit_id,confidentiality_class_id)
+            await upload_policy.read_upload(file,limits.source_mib),owner_unit_id,confidentiality_class_id)
 
     @app.get('/api/documents/{identifier}')
     def download(identifier:str,preview:bool=False,db=Depends(get_db),actor=Depends(current)):
@@ -481,26 +512,37 @@ def create_app(settings=None,engine=None):
         if not permitted and not (document['uploaded_by']==actor.id and actor.covers(document['owner_unit_id'],{'AUTHOR'})):
             raise HTTPException(404,'Document not found in your authorised area.')
         if document['storage_uri']!='portal://'+identifier or not re.fullmatch('[a-f0-9-]{32,36}',identifier):raise HTTPException(404,'This source is held in a separate approved repository.')
-        path=stored_path(cfg.storage,identifier)
+        path=stored_path(cfg.storage,identifier,document['file_name'])
         if not path.is_file():raise HTTPException(404,'The source file is unavailable. Contact the repository administrator.')
         if hashlib.sha256(path.read_bytes()).hexdigest()!=document['file_hash']:raise HTTPException(409,'The source integrity check failed. Contact the repository administrator.')
-        audit(db,actor,'document',identifier,'SOURCE_PREVIEWED' if preview else 'SOURCE_DOWNLOADED')
-        return FileResponse(path,filename=document['file_name'],media_type=document['content_type'],content_disposition_type='inline' if preview else 'attachment')
+        inline=preview and document['content_type'] in INLINE_TYPES
+        audit(db,actor,'document',identifier,'SOURCE_PREVIEWED' if inline else 'SOURCE_DOWNLOADED')
+        return FileResponse(path,filename=document['file_name'],media_type=document['content_type'],content_disposition_type='inline' if inline else 'attachment')
 
     @app.get('/api/instruments')
     def instruments(request:Request,paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
         filters=dict(request.query_params)
         rows=repo.listing(db,actor,filters)
+        repo.add_approved_edition_summaries(db, rows)
         def instrument_status(row):
             position = row['regulatory_status']
             status = position if position in {'CURRENT','SUPERSEDED','WITHDRAWN'} else row['approval_status'] or position
             return label(status), 'Not current' if status == 'APPROVED' and not row['current_version_id'] else '', 'Open notification family'
 
+        def instrument_version(row):
+            if row['current_version_number']:
+                return version_label(row['current_version_number'])
+            edition = row.get('approved_edition')
+            if edition:
+                effective = edition['effective_from']
+                return version_label(edition['version_number']), 'Upcoming' if edition['upcoming'] else None, f'Effective {effective.day} {effective:%b %Y}'
+            return None
+
         projections={
             'instrument':lambda row:(row['code'],row['title'],'Quick view'),
             'official_reference_number':lambda row:row['official_reference_number'] or 'Not provided by regulator',
             'regulator_domain':fields('regulator_name','regulator_code','domain_name','secondary_domain_names'),
-            'current_version':lambda row:version(row['current_version_number']) if row['current_version_number'] else None,
+            'current_version':instrument_version,
             'materiality':lambda row:label(row['materiality']),
             'status':instrument_status,
         }
@@ -580,6 +622,15 @@ def create_app(settings=None,engine=None):
     @app.get('/api/clauses')
     def clauses(db=Depends(get_db),actor=Depends(current)):
         return repo.clause_listing(db,actor)
+    @app.get('/api/clauses/{identifier}/interpretation-requests')
+    def interpretation_requests(identifier:str,db=Depends(get_db),actor=Depends(current)):
+        return clause_interpretations.register(db,actor,identifier)
+    @app.post('/api/clauses/{identifier}/interpretation-requests')
+    def submit_interpretation(identifier:str,payload:s.ClauseInterpretationSubmit,db=Depends(get_db),actor=Depends(current)):
+        return clause_interpretations.submit(db,actor,identifier,payload)
+    @app.post('/api/clause-interpretation-requests/{identifier}/decision')
+    def decide_interpretation(identifier:str,payload:s.Decision,db=Depends(get_db),actor=Depends(current)):
+        return clause_interpretations.decide(db,actor,identifier,payload)
     @app.get('/api/source-editions')
     def source_editions(instrument:str|None=Query(None,max_length=36),db=Depends(get_db),actor=Depends(current)):
         return repo.source_edition_listing(db,actor,instrument)
@@ -615,9 +666,9 @@ def create_app(settings=None,engine=None):
     @app.put('/api/versions/{identifier}/clauses/{clause_id}')
     def edit_clause(identifier:str,clause_id:str,payload:s.ClauseInput,db=Depends(get_db),actor=Depends(current)):return repo.add_clause(db,actor,identifier,payload,clause_id)
     @app.post('/api/versions/{identifier}/submit')
-    def submit(identifier:str,payload:s.Submit,db=Depends(get_db),actor=Depends(current)):return repo.submit(db,actor,identifier,payload)
+    def submit(identifier:str,payload:s.VersionSubmit,db=Depends(get_db),actor=Depends(current)):return repo.submit(db,actor,identifier,payload)
     @app.post('/api/versions/{identifier}/decision')
-    def decide(identifier:str,payload:s.Decision,db=Depends(get_db),actor=Depends(current)):return repo.decide(db,actor,identifier,payload)
+    def decide(identifier:str,payload:s.VersionDecision,db=Depends(get_db),actor=Depends(current)):return repo.decide(db,actor,identifier,payload)
     @app.post('/api/versions/{identifier}/activate')
     def activate(identifier:str,db=Depends(get_db),actor=Depends(current)):return repo.activate(db,actor,identifier)
     @app.post('/api/instruments/{identifier}/comments')
@@ -631,44 +682,7 @@ def create_app(settings=None,engine=None):
     @app.get('/api/tasks')
     def tasks(response:Response,db=Depends(get_db),actor=Depends(current)):
         response.headers['X-Dropdown-Revision']=str(dropdowns.configuration_revision(db))
-        visible={r['id']:r for r in repo.listing(db,actor,{})};result=[]
-        for v in db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.created_by==actor.id,m.instrument_version.c.approval_status=='DRAFT')).mappings():
-            instrument=visible.get(v['instrument_id'])
-            if instrument and actor.covers(instrument['regulatory_owner_unit_id'],{'AUTHOR'}):
-                result.append({'kind':'DRAFT','instrument_id':v['instrument_id'],'version_id':v['id'],'title':'Complete version '+repo.source_version_label(v['version_number']),'due_at':None})
-        for task in db.execute(sa.select(m.workflow_action,m.workflow_instance.c.entity_id,m.workflow_instance.c.current_stage).join(m.workflow_instance,m.workflow_instance.c.id==m.workflow_action.c.instance_id).where(m.workflow_instance.c.entity_type=='version',m.workflow_action.c.assignee_user_id==actor.id,m.workflow_action.c.decision.is_(None),m.workflow_instance.c.record_status=='OPEN',m.workflow_action.c.stage==m.workflow_instance.c.current_stage)).mappings():
-            v=repo.one(db,m.instrument_version,task['entity_id']);instrument=visible.get(v['instrument_id'])
-            role='REVIEWER' if task['stage']=='COMPLIANCE_REVIEW' else 'APPROVER'
-            valid_stage=v['approval_status']==('IN_REVIEW' if role=='REVIEWER' else 'REVIEWED')
-            independent=actor.id!=v['created_by'] and (role!='APPROVER' or v['reviewed_by'] and actor.id!=v['reviewed_by'])
-            if instrument and valid_stage and independent and actor.covers(instrument['regulatory_owner_unit_id'],{role}):
-                result.append({**dict(task),'kind':'DECISION','instrument_id':v['instrument_id'],'version_id':v['id'],'title':task['stage'].replace('_',' ').title()})
-        for task in db.execute(sa.select(m.workflow_action,m.workflow_instance.c.entity_id,m.workflow_instance.c.current_stage)
-            .join(m.workflow_instance,m.workflow_instance.c.id==m.workflow_action.c.instance_id)
-            .where(m.workflow_instance.c.entity_type=='metadata_correction',m.workflow_action.c.assignee_user_id==actor.id,
-                m.workflow_action.c.decision.is_(None),m.workflow_instance.c.record_status=='OPEN',
-                m.workflow_action.c.stage==m.workflow_instance.c.current_stage)).mappings():
-            correction=repo.one(db,m.metadata_correction,task['entity_id'])
-            instrument=visible.get(correction['instrument_id'])
-            role='REVIEWER' if task['stage']=='COMPLIANCE_REVIEW' else 'APPROVER'
-            valid_stage=correction['correction_status']==('IN_REVIEW' if role=='REVIEWER' else 'REVIEWED')
-            independent=actor.id!=correction['created_by'] and (role!='APPROVER' or correction['reviewed_by'] and actor.id!=correction['reviewed_by'])
-            if instrument and valid_stage and independent and actor.covers(instrument['regulatory_owner_unit_id'],{role}):
-                result.append({**dict(task),'kind':'DECISION','workflow_kind':'METADATA_CORRECTION',
-                    'correction_id':correction['id'],'instrument_id':correction['instrument_id'],
-                    'title':'Metadata correction · '+task['stage'].replace('_',' ').title()})
-        result.extend(families.proposal_tasks(db,actor))
-        from . import obligations
-        result.extend(obligations.tasks(db,actor))
-        from . import delivery
-        if actor.roles & READ_ROLES:
-            result.extend(delivery.tasks(db,actor))
-            from . import controls
-            result.extend(controls.tasks(db,actor))
-            if not actor.delegation:
-                from . import delegations
-                result.extend(delegations.tasks(db,actor))
-        return result
+        return list_tasks(db, actor)
 
     @app.get('/api/notifications')
     def notifications(db=Depends(get_db),actor=Depends(current)):
@@ -678,50 +692,8 @@ def create_app(settings=None,engine=None):
             if actor.delegation:
                 from .delegations import audit_visible
                 if not audit_visible(db,actor,item):continue
-            if item['entity_type']=='version':
-                try:version,instrument=repo.read_version(db,actor,item['entity_id'])
-                except HTTPException:pass
-                else:item.update(instrument_id=instrument['id'],source_title=instrument['title'],version_number=version['version_number'])
-            elif item['entity_type']=='metadata_correction':
-                try:
-                    correction=repo.one(db,m.metadata_correction,item['entity_id'])
-                    instrument=repo.read_instrument(db,actor,correction['instrument_id'])
-                except HTTPException:pass
-                else:item.update(instrument_id=instrument['id'],source_title=instrument['title'])
-            elif item['entity_type'].startswith('family_'):
-                kind=item['entity_type'][7:]
-                if kind not in families.KINDS:continue
-                try:
-                    proposal=repo.one(db,families.KINDS[kind],item['entity_id'])
-                    instrument,_=families.proposal_context(db,actor,kind,proposal)
-                except HTTPException:continue
-                item.update(source_title=instrument['title'],action_path='notification-families/'+instrument['id']+'?proposal='+item['entity_id'],action_label='Open notification decision')
-            elif item['entity_type']=='obligation':
-                from . import obligations
-                try:record=obligations.read(db,actor,item['entity_id'])
-                except HTTPException:continue
-                item.update(source_title=record['code']+' · '+record['title'],action_path='obligations/'+record['id'],action_label='Open obligation')
-            elif item['entity_type']=='leave_delegation':
-                from . import delegations
-                try:record=delegations.read(db,actor,item['entity_id'])
-                except HTTPException:continue
-                item.update(source_title='Leave cover · '+str(record['starts_on'])+' – '+str(record['ends_on']),action_path='delegations/'+record['id'],action_label='Open delegation')
-            elif item['entity_type'] in {'controls','control-mappings'}:
-                from . import controls
-                try:record=controls.read(db,actor,item['entity_type'],item['entity_id'])
-                except HTTPException:continue
-                item.update(source_title=record.get('title') or 'Obligation link review',action_path=item['entity_type']+'/'+record['id'],action_label='Open decision')
-            elif item['entity_type'] in {'action','action_extension'}:
-                from . import delivery
-                try:item.update(delivery.notification_context(db,actor,item))
-                except HTTPException:continue
-            elif item['entity_type']=='user':
-                if 'ADMIN' not in actor.roles and item['entity_id']!=actor.id:continue
-                target=repo.one(db,m.user,item['entity_id']);access=current_access(db,target['id'])
-                item.update(source_title=target['full_name']+' · '+target['username'],
-                    message=access['access_message'],access_status_label=access['access_status_label'],
-                    action_path=('users?tab='+target['login_type']+'&user='+target['id']) if 'ADMIN' in actor.roles else 'home',
-                    action_label='Review user access' if 'ADMIN' in actor.roles else 'Open workspace')
+            item = resolve_notification(db, actor, item)
+            if item is None:continue
             result.append(item)
         return result
     @app.post('/api/notifications/{identifier}/read')
@@ -735,18 +707,19 @@ def create_app(settings=None,engine=None):
     @app.post('/api/migration')
     async def stage_source(file:UploadFile=File(...),source_system:str=Form(...),source_files:list[UploadFile]|None=File(default=None),db=Depends(get_db),actor=Depends(current)):
         if not source_system.strip() or len(source_system)>100:raise HTTPException(422,'Enter a source system name up to 100 characters.')
-        data=await file.read(20*1024*1024+1)
-        if len(data)>20*1024*1024:raise HTTPException(422,'The source register must be at most 20 MB.')
         migration.require_migration(actor,{'AUTHOR'})
-        from .combined_import import MAX_ATTACHMENTS,MAX_BUNDLE_BYTES
-        if len(source_files or [])>MAX_ATTACHMENTS:raise HTTPException(422,'Attach at most 50 source files.')
+        limits,_=upload_policy.configuration(db)
+        data=await upload_policy.read_upload(file,limits.workbook_mib)
+        filename=Path((file.filename or '').replace('\\','/')).name[:500]
+        if filename.lower().endswith('.xlsx'):validate_workbook(data)
+        if len(source_files or [])>upload_policy.MAX_ATTACHMENTS:raise HTTPException(422,'Attach at most 50 source files.')
         attachments=[];total=len(data)
         for source in source_files or []:
             if not source.filename:continue
-            content=await source.read(MAX_SOURCE_BYTES+1);total+=len(content)
-            if total>MAX_BUNDLE_BYTES:raise HTTPException(422,'The workbook and source files must total at most 100 MB.')
+            content=await upload_policy.read_upload(source,limits.source_mib);total+=len(content)
+            if total>upload_policy.MAX_BUNDLE_MIB*upload_policy.MIB:raise HTTPException(413,'The workbook and source files must total at most 100 MiB.')
             attachments.append((source.filename,content))
-        return migration.stage(db,actor,Path(file.filename or '').name[:500],data,source_system,cfg.storage,attachments)
+        return migration.stage(db,actor,filename,data,source_system,cfg.storage,attachments)
     @app.get('/api/migration')
     def batches(q:str='',paging=Depends(page_query),columns=Depends(column_query),db=Depends(get_db),actor=Depends(current)):
         migration.require_migration(actor)
@@ -786,21 +759,34 @@ def create_app(settings=None,engine=None):
     def migration_report(identifier:str,db=Depends(get_db),actor=Depends(current)):
         data=migration.batch_detail(db,actor,identifier);stream=io.StringIO();writer=csv.writer(stream)
         writer.writerow(['Source file','Sheet','Row','Source system','Readiness','Findings','Canonical mapped values','Target type','Target ID',
-            'Import reference','Source edition','Clause import reference','Parent clause reference','Target edition ID','Loaded source document ID'])
+            'Import reference','Source edition','Clause import reference','Parent clause reference','Target edition ID','Loaded source document ID',
+            'Parent notification','Relationship','Relationship effective date','Relationship proposal ID'])
         def cell(value):
             text=str(value or '')
             return "'"+text if text.lstrip().startswith(('=','+','-','@','\t','\r')) else text
         for row in data['rows']:
+            family = row['profile'].get('family_link') or {}
             writer.writerow([cell(v) for v in [data['batch']['source_file'],row['sheet_name'],row['row_number'],row['source_system'],row['validation_status'],
                 '; '.join(row['profile'].get('errors',[])),json.dumps(row['profile'].get('normalised',{})),row['target_entity_type'],row['target_entity_id'],
                 row['profile'].get('group_reference'),row['profile'].get('edition_number'),row['profile'].get('clause_reference'),
-                row['profile'].get('parent_reference'),row['profile'].get('target_version_id'),row['profile'].get('loaded_source_document_id')]])
+                row['profile'].get('parent_reference'),row['profile'].get('target_version_id'),row['profile'].get('loaded_source_document_id'),
+                family.get('parent_reference'),family.get('relationship_type'),family.get('effective_from'),
+                (row['profile'].get('family_proposal') or {}).get('id')]])
         audit(db,actor,'migration',identifier,'PROFILE_REPORT_EXPORTED')
         return Response(stream.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="migration-profile.csv"'})
     @app.post('/api/migration/{identifier}/validate')
     def validate(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.validate_content(db,actor,identifier,cfg.storage)
     @app.post('/api/migration/{identifier}/load')
-    def load(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.load_batch(db,actor,identifier,cfg.storage)
+    def load(identifier:str,payload:s.MigrationLoadInput|None=None,db=Depends(get_db),actor=Depends(current)):
+        return migration.load_batch(db,actor,identifier,cfg.storage,payload)
+    @app.get('/api/migration/{identifier}/family-assignees')
+    def import_family_assignees(identifier:str,db=Depends(get_db),actor=Depends(current)):
+        from . import combined_import, combined_family_links
+        migration.require_migration(actor,{'AUTHOR'})
+        batch=repo.one(db,m.migration_batch,identifier)
+        if not combined_import.manifest(batch) or batch['uploaded_by']!=actor.id:
+            raise HTTPException(404,'The notification proposal assignments are unavailable.')
+        return combined_family_links.assignees(db,actor,combined_import.batch_rows(db,identifier))
     @app.get('/api/migration-template')
     def template(format:str='csv',db=Depends(get_db),actor=Depends(current)):
         migration.require_migration(actor)

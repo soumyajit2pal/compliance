@@ -186,7 +186,7 @@ export function clearDemoSelection(event) {
 }
 export async function loadIdentity() {
   state.ready = false;
-  try{state.identity=await api('/auth/me');}catch(error){if(!error.delegationUnavailable)throw error;selectDelegation('');state.identity=await api('/auth/me');message(error.message,true);}
+  try{state.identity=await api('/auth/me');}catch(error){if(!error.delegationUnavailable)throw error;selectDelegation('');state.identity=await api('/auth/me');message(error.message,'exception');}
   if(state.identity.acting_for){state.masters=await api('/masters');state.ready=true;return true;}
   let department = null;
   if (!state.identity.user.must_change_password_flag && (state.identity.user.login_type === 'LDAP' || state.identity.user.employee_profile_required)) {

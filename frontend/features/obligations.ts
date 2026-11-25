@@ -1,17 +1,19 @@
-import {customFields, captureCustom} from '../ui/dropdown-fields.ts';
+import { referenceSelect, acceptReferenceSnapshot, refreshReferenceControls } from '../ui/reference-options.ts';
+import {customFieldGroup, captureCustom} from '../ui/dropdown-fields.ts';
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
 import { has,covered } from '../core/access.ts';
 import { detailPolicy,sectionSteps,ownerRoles,stageLabel,statusLabel,obligationReturnPath,processRelationshipChoices } from '../core/obligation-detail.ts';
 import { renderObligationDetail } from './obligation-detail.ts';
-import { accountableUnits, splitBusinessAccountability } from '../core/obligation-accountability.ts';
+import { splitBusinessAccountability } from '../core/obligation-accountability.ts';
 import { obligationSetupSteps,assessmentChoices } from '../core/obligation-setup.ts';
 import { renderSetupQuestions,renderSetupReview,refreshScopeProcessLimits,refreshDepartmentFields,setupDepartmentCard } from './obligation-setup.ts';
 import { primaryBusinessOwnerFields,refreshPrimaryBusinessOwner,primaryBusinessSelectionChanged,syncAdditionalOwnerRole,validateBusinessAccountability } from './obligation-accountability.ts';
 import { copyText } from '../ui/clipboard.ts';
 import { apiPageQuery,withoutPaging } from '../core/pagination.ts';
-import { esc,title,ref,badge,button,field,input,select,fixedSelect,area,link,localDate,date,message,options,statusTag,organisationScopeLabel } from '../ui/components.ts';
-import { heading } from '../ui/layout.ts';
+import { esc,title,ref,badge,button,field,input,select,fixedSelect,area,link,localDate,date,message,options,statusTag } from '../ui/components.ts';
+import { reportError } from '../ui/feedback.ts';
+import { heading, pageHelp } from '../ui/layout.ts';
 import { panel,table,tablePanel,detailFields,note,recordCell } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
 import { workflowSubmit } from '../ui/workflow-actions.ts';
@@ -24,7 +26,9 @@ import { obligationView } from '../core/obligation-workspace.ts';
 import { obligationWorkspacePage, workspaceTabs, workspaceHeading } from './obligation-workspace.ts';
 import { obligationExportHandlers } from './obligation-export.ts';
 import { obligationExportButton } from '../ui/obligation-export.ts';
-import { domainFilterChoices } from '../ui/domains.ts';
+import { supportingClauseIds } from './supporting-clauses.ts';
+import { openSupportingClauseExplorer } from './supporting-clause-explorer.ts';
+import { clearUnavailableChoiceError, refreshSelectOptions } from '../ui/refresh-options.ts';
 
 const criticalities=['CRITICAL','HIGH','MEDIUM','LOW'];
 const roles=['REGULATORY','BUSINESS','CONTROL','EVIDENCE','DATA'];
@@ -54,10 +58,9 @@ function exceptionOverview(counts: Record<string,number> | undefined, query: URL
     return `<li><a class="obligation-exception-card" href="#obligations?${esc(next.toString())}" data-tone="${typeof count==='number' && count>0?tone:'clear'}" ${selected?'aria-current="true"':''}>
       <span>${esc(label)}</span><strong>${esc(count)}</strong></a>${dashboardInfo(label,explanation)}</li>`;
   }).join('');
-  return `<section class="obligation-exception-overview" aria-labelledby="obligation-exception-title">
-    <header class="obligation-exception-heading"><div><h1 id="obligation-exception-title">Obligation exception reports</h1>
-    <p>Exceptions are obligations that need attention. Select a card to see which records to review or follow up on. An obligation can appear in more than one count.</p></div>${obligationExportButton()}</header>
-    <ul class="obligation-exception-cards" aria-label="Findings and counts">${cards}</ul></section>`;
+  return pageHelp('Find obligations that need attention', 'Select a finding card to see the obligations behind its count. An obligation can appear in more than one count. Use filters to narrow the results.', 'reports-history') +
+    heading('Obligation exception reports', 'Review findings and open the obligations that need follow-up.', obligationExportButton()) +
+    `<div class="obligation-exception-overview"><ul class="obligation-exception-cards" aria-label="Findings and counts">${cards}</ul></div>`;
 }
 const active=(name)=> (state.masters[name]||[]).filter(r=>r.active_flag!==0);
 const current=(expectedId='')=>{
@@ -87,11 +90,7 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
   const findingLabels=report || query.get('exception')===coverageFinding
     ? {...issueNames,[coverageFinding]:coverageLabel} : issueNames;
   const filter=(name,rows,label,blank)=>select(name,rows,query.get(name),label,'class="filter-select"',blank);
-  const lookupRows={
-    domain:domainFilterChoices(state.masters.regulatory_domain),
-    department:active('organisational_unit'),
-    owner:active('user'),
-  };
+
   const advanced=['domain','criticality','owner','exception'];
   const advancedCount=advanced.filter(key=>query.get(key)).length;
   const selectedLabel=(key)=>{
@@ -100,8 +99,8 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
     if(key==='status')return 'Stage: '+stageLabel(value);
     if(key==='criticality')return 'Criticality: '+title(value);
     if(key==='exception')return 'Finding: '+(findingLabels[value]||title(value));
-    const row=lookupRows[key].find(item=>item.id===value);
-    return ({domain:'Domain',department:'Department',owner:'Owner'}[key])+': '+(row?.name||row?.full_name||value);
+    const master={domain:'regulatory_domain',department:'organisational_unit',owner:'user'}[key];
+    return ({domain:'Domain',department:'Department',owner:'Owner'}[key])+': '+ref(master,value);
   };
   const applied=['q','department','status',...advanced].filter(key=>query.get(key));
   const chips=applied.map(key=>{
@@ -131,13 +130,13 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
       </div>
       <div class="obligation-register-filter-fields">
         ${field('Search obligations',`<div class="search-field">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Requirement or regulatory source"')}</div>`)}
-        ${field('Accountable department',filter('department',lookupRows.department,'name','All departments'))}
+        ${field('Accountable department',referenceSelect('department','organisational_unit',query.get('department')||'','','All departments'))}
         ${field('Stage',filter('status',['DRAFT','COMPLIANCE_REVIEW','BUSINESS_VALIDATION','FINAL_APPROVAL','ACTIVE','APPROVED','REJECTED','SUPERSEDED'].map(id=>({id,name:stageLabel(id)})),'name','All stages'))}
         <button class="btn primary obligation-register-apply" type="submit">Apply filters</button>
         <details class="obligation-register-more" ${advancedCount?'open':''}><summary>${icon('filter')}More filters${advancedCount?`<span class="obligation-filter-count">${advancedCount}</span>`:''}${icon('down')}</summary><div class="obligation-register-more-fields">
-          ${field('Regulatory domain',filter('domain',lookupRows.domain,'name','All domains'))}
+          ${field('Regulatory domain',referenceSelect('domain','regulatory_domain',query.get('domain')||'','','All domains'))}
           ${field('Criticality',filter('criticality',criticalities.map(id=>({id,name:title(id)})),'name','All criticalities'))}
-          ${field('Named owner',filter('owner',lookupRows.owner,'full_name','All owners'))}
+          ${field('Named owner',referenceSelect('owner','user',query.get('owner')||'','','All owners',{label:'full_name'}))}
           ${field('Finding',filter('exception',Object.entries(findingLabels).map(([id,name])=>({id,name})),'name','All findings'))}
         </div></details>
       </div>
@@ -166,26 +165,25 @@ function rowControls(kind,value:any={}){
   if(kind==='owners'){
     const business=(value.owner_role||'BUSINESS')==='BUSINESS';
     fields=(value.setup_fixed_role?input(key('owner_role'),value.owner_role,'hidden','data-obl-field="owner_role"'):ctl('owner_role',select(key('owner_role'),roles.map(id=>({id,name:ownerRoles[id]})),value.owner_role||'BUSINESS','name','required'),'Owner role'))+
-      ctl('org_unit_id',select(key('org_unit_id'),active('organisational_unit'),value.org_unit_id,'name','required'),'Owner department')+
+      ctl('org_unit_id',referenceSelect(key('org_unit_id'),'organisational_unit',value.org_unit_id,'required'),'Owner department')+
       ctl('user_id',select(key('user_id'),value.people||active('user'),value.user_id,'full_name','required'),'Named owner')+
       `<div data-additional-primary-setting ${value.setup_fixed_role||business&&!value.primary_owner_flag?'hidden':''}>${ctl('primary_owner_flag',`<input type="checkbox" name="${key('primary_owner_flag')}" ${value.primary_owner_flag?'checked':''}>`,'Primary owner for this role')}</div>`+
       `<p class="field-hint full" data-additional-business-note ${business?'':'hidden'}>This is an additional Business owner. Select the primary Business owner in the dedicated section above.</p>`;
   }
   if(kind==='applicability'){
-    fields=ctl('legal_entity_id',select(key('legal_entity_id'),active('legal_entity'),value.legal_entity_id,'name','required'),'Which bank / legal entity?')+
-      ctl('org_unit_id',select(key('org_unit_id'),active('organisational_unit').map(unit=>({...unit,name:organisationScopeLabel(unit.id)})),value.org_unit_id,'name','required'),'Department or sub-department')+
+    fields=ctl('legal_entity_id',referenceSelect(key('legal_entity_id'),'legal_entity',value.legal_entity_id,'required'),'Which bank / legal entity?')+
+      ctl('org_unit_id',referenceSelect(key('org_unit_id'),'organisational_unit',value.org_unit_id,'required',undefined,{format:'scope'}),'Department or sub-department')+
       ctl('applicability_status',select(key('applicability_status'),assessmentChoices,value.applicability_status||'APPLICABLE','name','required'),'Does this department need to follow the requirement?')+
       ctl('basis',area(key('basis'),value.basis,'required minlength="10" maxlength="10000"'),'Why have you made this decision?')+
       ctl('conditions',area(key('conditions'),value.conditions,'maxlength="10000"'),'Which activities are included, and which are excluded?')+
       input(key('process_id'),value.process_id||'','hidden','data-obl-field="process_id"');
     fields+='<details class="full obligation-extra-details"><summary>Product, channel, customer and review details</summary><div class="form-grid">'+
-      ['product','channel','customer_segment','geography'].map(name=>ctl(name+'_id',select(key(name+'_id'),active(name),value[name+'_id']),title(name))).join('')+ctl('next_review_date',input(key('next_review_date'),value.next_review_date||later(),'date',`required ${value.setup_new?'data-setup-review-auto="1"':''}`),'Next department assessment review')+'</div></details>';
+      ['product','channel','customer_segment','geography'].map(name=>ctl(name+'_id',referenceSelect(key(name+'_id'),name,value[name+'_id']),title(name))).join('')+ctl('next_review_date',input(key('next_review_date'),value.next_review_date||later(),'date',`required ${value.setup_new?'data-setup-review-auto="1"':''}`),'Next department assessment review')+'</div></details>';
   }
-  if(kind==='processes')fields=ctl('process_id',select(key('process_id'),active('process'),value.process_id,'name','required'),'Process')+
+  if(kind==='processes')fields=ctl('process_id',referenceSelect(key('process_id'),'process',value.process_id,'required'),'Process')+
     ctl('relevance_type',select(key('relevance_type'),processRelationshipChoices,value.relevance_type||'DIRECT','name','required'),'How this process relates to the obligation','For example, Customer onboarding is Direct when it performs the identity check required by the obligation.')+
     `<details class="full obligation-extra-details"><summary>Process criticality</summary><div class="form-grid">${ctl('criticality',fixedSelect(key('criticality'),criticalities,value.criticality||'MEDIUM','required'),'Process criticality')}</div></details>`;
-  if(kind==='citations')fields=ctl('clause_id',select(key('clause_id'),state.view.obligationClauses||[],value.clause_id,'name','required'),'Another approved clause');
-  return `<fieldset class="obligation-form-row" data-obl-row="${kind}" ${value.setup_source_default?'data-setup-source-owner':''}><legend>${esc(({owners:'Additional owner assignment',applicability:'Department assessment',processes:'Process mapping',citations:'Additional source clause'})[kind])}</legend><div class="form-grid">${fields}</div>${button('obl-remove-row','Remove row','','small')}</fieldset>`;
+  return `<fieldset class="obligation-form-row" data-obl-row="${kind}" ${value.setup_source_default?'data-setup-source-owner':''}><legend>${esc(({owners:'Additional owner assignment',applicability:'Department assessment',processes:'Process mapping'})[kind])}</legend><div class="form-grid">${fields}</div>${button('obl-remove-row','Remove row','','small')}</fieldset>`;
 }
 
 function popupOwnerRow(value:any={},open=false){
@@ -226,7 +224,7 @@ async function openOwnerAssignment(){
   const additional=accountability.additional.map((owner,i)=>popupOwnerRow({...owner,people:savedChoices(ownerPeople[i],owner.user_id)})).join('');
   const guidance=policy.canEdit?'Save the owner changes to this Draft. Owner acceptance and final approval follow the existing review process.':'Submit a separate ownership change for Compliance review, owner acceptance and independent final approval. The obligation revision stays unchanged. Current owners remain assigned until final approval. Changes take effect on approval, or from the obligation’s future start date.';
   modal('Assign / reassign owner',input('obligation_id',id,'hidden')+input('expected_revision',d.obligation.edit_revision,'hidden')+note(guidance)+
-    `<div class="obligation-business-accountability"><div class="form-grid">${field('Accountable business department',select('business_owner_unit_id',accountableUnits(active('organisational_unit'),value.business_owner_unit_id),value.business_owner_unit_id,'name','required'),'The primary Business owner below is assigned to this department.','full')}</div>${primaryBusinessOwnerFields(value.business_owner_unit_id,accountability.primary,primaryPeople,!policy.canEdit)}</div>`+
+    `<div class="obligation-business-accountability"><div class="form-grid">${field('Accountable business department',referenceSelect('business_owner_unit_id','organisational_unit',value.business_owner_unit_id,'required',undefined,{excludeSubDepartments:true,retainSelectedType:true}),'The primary Business owner below is assigned to this department.','full')}</div>${primaryBusinessOwnerFields(value.business_owner_unit_id,accountability.primary,primaryPeople,!policy.canEdit)}</div>`+
     `<section class="obligation-editor-group"><div class="obligation-group-heading"><h3>Additional owner assignments (<span data-additional-owner-count>${accountability.additional.length}</span>)</h3>${button('obl-add-row','Add additional owner','data-kind="owners"','small')}</div><p class="obligation-additional-hint">Expand a person to change their role, department or assignment. Keep the primary Regulatory owner and at least one Check owner here.</p><div data-obl-list="owners">${additional}</div><p class="obligation-empty muted">No additional owner assignments added.</p></section>`+
     `<section class="obligation-editor-group"><h3>Compliance reviewer</h3><p class="obligation-additional-hint">Reviews this ${policy.canEdit?'obligation':'ownership change'} for ${esc(ref('organisational_unit',value.regulatory_owner_unit_id))} before named owner responses.</p>${field('Named Compliance reviewer',select('compliance_reviewer_user_id',reviewers,value.compliance_reviewer_user_id,'full_name','required'))}</section>`+
     (policy.canEdit?'':field('Independent final Approver',select('approver_id',[],'','full_name','required'),'Must be independent of the request author, Compliance reviewer and current/proposed owners.'))+
@@ -249,6 +247,7 @@ function sourceContext(clause,unit){
   if(!clause)return '<p class="muted" data-obl-regulatory-label>Select an approved document and clause.</p>';
   const path='clauses?'+new URLSearchParams({instrument:clause.instrument_id,edition:clause.instrument_version_id,clause:clause.id});
   return `<div class="obligation-rule-summary"><strong>${esc(clause.instrument_title)}</strong><p>${esc(clause.heading||clause.name)}</p><small>Approved edition ${esc(clause.version_number)} · ${esc(clause.source_clause_reference||'')}</small></div>
+    ${clause.interpretation_status!=='APPROVED'?note('<strong>Bank interpretation pending</strong><p>You can save a Draft. The bank interpretation on this clause must be approved before sending the obligation for review.</p>','warn'):''}
     <details class="obligation-extra-details"><summary>Read the original clause</summary><div>${clause.clause_text?'<div class="source-wording">'+esc(clause.clause_text)+'</div>':''}${link(path,'Open approved clause','btn small')}</div></details>
     <details class="obligation-extra-details"><summary>Document reference and regulatory responsibility</summary><div>${detailFields([['Source edition','Version '+esc(clause.version_number)+' · '+badge(clause.version_current_flag?'CURRENT_APPROVED':'APPROVED')],['Lead regulatory department',`<span data-obl-regulatory-label>${esc(ref('organisational_unit',unit))}</span>`],['Permanent clause reference',esc(clause.code)]])}</div></details>`;
 }
@@ -256,7 +255,9 @@ function sourceContext(clause,unit){
 async function editor(identifier,query){
   const request=state.routeNumber,isCurrent=()=>request===state.routeNumber&&Boolean(state.identity);
   if(!has('AUTHOR'))throw new Error('Author access is required to capture obligations.');
-  const clauses=(await api('/clauses')).filter(c=>c.approval_status==='APPROVED'&&c.version_approval_status==='APPROVED'&&c.interpretation_status==='APPROVED').map(c=>({...c,name:(c.source_clause_reference||c.code)+' · '+(c.heading||'Untitled clause')+' · edition '+c.version_number+' · '+c.code}));
+  const clauses=(await api('/clauses')).filter(c=>c.approval_status==='APPROVED'&&c.version_approval_status==='APPROVED')
+    .map(c=>({...c,name:(c.source_clause_reference||c.code)+' · '+(c.heading||'Untitled clause')+' · edition '+c.version_number+' · '+c.code,
+      option_status:c.interpretation_status==='APPROVED'?'':'Interpretation pending'}));
   if(!isCurrent())return "";
   state.view.obligationClauses=clauses;
   let value:any={effective_from:localDate(),next_review_date:later(),criticality:'MEDIUM',obligation_nature:'ONGOING',owners:[],applicability:[],processes:[],supporting_clause_ids:[]};
@@ -280,17 +281,19 @@ async function editor(identifier,query){
   const primaryPeople=value.business_owner_unit_id?await people('BUSINESS_OWNER',value.business_owner_unit_id):[];
   if(!isCurrent())return '';
   state.view.obligationEditorUnit=value.regulatory_owner_unit_id;
-  const formChoices=(name:string)=>name==='obligation_category' && editing
-    ? (state.masters[name]||[]).filter(r=>r.active_flag || r.id===value.category_id) : active(name);
-  const fields=renderSetupQuestions(value,{active:formChoices,row:rowControls,ownerCard:owner=>popupOwnerRow(owner),primaryPeople,clauses,instruments,chosen,reviewers,sourceMarkup:sourceContext(chosen,value.regulatory_owner_unit_id),editing});
-  fields[1]+=customFields('obligation',editing?state.view.obligation.obligation.custom_answers:{});
+  const sourceMarkup=clauses.length?sourceContext(chosen,value.regulatory_owner_unit_id):note(
+    `<strong>No eligible source clauses</strong><p>No approved edition with approved clauses is available in your scope.</p>
+      <p>Open the record’s workflow in the Regulatory Library to check its source approval status.</p>
+      ${link('repository','Open Regulatory Library','text-link')}`, 'warn');
+  const fields=renderSetupQuestions(value,{row:rowControls,ownerCard:owner=>popupOwnerRow(owner),primaryPeople,clauses,instruments,chosen,reviewers,sourceMarkup,editing});
+  fields[1]+=customFieldGroup('obligation', editing ? state.view.obligation.obligation.custom_answers : {});
   const cancel=editing?'obligations/'+identifier:'obligations';
   return heading(editing?'Edit Draft obligation':'Create a new obligation','One question at a time. Prepare the requirement, then send it for independent review.')+
     '<ol class="obligation-lifecycle-strip" aria-label="Obligation lifecycle"><li aria-current="step">1. Prepare</li><li>2. Compliance review</li><li>3. Owner acceptance</li><li>4. Final approval</li></ol>'+
     `<div class="wizard obligation-wizard"><aside class="wizard-steps"><div class="eyebrow">OBLIGATION SETUP</div><nav aria-label="Obligation setup steps"><ol>${setupSteps.map((name,i)=>`<li><button type="button" class="wizard-step ${i===0?'active':''}" data-step-label="${i}" data-action="obl-wizard-go" data-step-target="${i}" ${i===0?'aria-current="step"':''}><span>${i+1}</span>${esc(name.label)}</button></li>`).join('')}</ol></nav><p class="obligation-progress-note">Your entries stay while you move between questions. Save draft after completing the required details; leaving without saving discards changes.</p></aside>
       <div class="wizard-body"><form id="obligation-editor" data-id="${editing?esc(identifier):''}" data-revision="${value.expected_revision||1}" data-setup-new="${editing?'0':'1'}" data-wizard="0" data-initial-step="${editing?(Object.hasOwn(sectionSteps,query.get('section'))?sectionSteps[query.get('section')]:0):0}" novalidate>
       <p class="inline-error" data-dialog-feedback="error" role="alert"></p>
-      ${fields.map((content,i)=>`<fieldset class="form-section wizard-step-panel" data-step="${i}" ${i?'hidden':''}><div class="eyebrow">PREPARE · QUESTION ${i+1} OF ${setupSteps.length}</div><h2 tabindex="-1">${esc(setupSteps[i].title)}</h2><p class="obligation-step-hint">${esc(setupSteps[i].hint)}</p>${content}</fieldset>`).join('')}
+      ${fields.map((content,i)=>`<fieldset class="form-section wizard-step-panel" data-step="${i}" ${i?'hidden':''}><div class="obligation-step-tools"><div class="eyebrow">PREPARE · QUESTION ${i+1} OF ${setupSteps.length}</div>${i?button('obl-refresh-options','Refresh options','','small'):''}</div><h2 tabindex="-1">${esc(setupSteps[i].title)}</h2><p class="obligation-step-hint">${esc(setupSteps[i].hint)}</p>${content}</fieldset>`).join('')}
       <div class="wizard-footer"><div class="obligation-footer-back">${link(cancel,'Cancel','btn')}<button type="button" class="btn" data-action="obl-wizard-back" data-wizard-back hidden>${icon('back')}Back</button></div><div class="obligation-footer-forward"><button class="btn" type="submit" data-save-intent="draft">${icon('file')}Save draft</button><button type="button" class="btn primary" data-action="obl-wizard-next" data-wizard-next>Continue ${icon('arrow')}</button><button type="submit" class="btn primary" data-save-intent="review" data-wizard-finish hidden>Send for review ${icon('arrow')}</button></div></div>
       <p class="obligation-save-note">Complete required details before saving a Draft. Sending starts Compliance review, followed by owner acceptance and final approval.</p></form></div></div>`;
 }
@@ -318,8 +321,7 @@ function moveObligationStep(form:HTMLFormElement,index:number){
   showWizardStep(form,index,true);
   refreshDepartmentFields(form);refreshScopeProcessLimits(form);
   if(index===setupSteps.length-1){
-    const value=readInput(form),clause=state.view.obligationClauses.find(c=>c.id===value.primary_clause_id);
-    form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(value,clause);
+    form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(readInput(form),state.view.obligationClauses);
     void refreshSetupApprovers(form);
   }
 
@@ -328,29 +330,37 @@ function moveObligationStep(form:HTMLFormElement,index:number){
 async function refreshSetupApprovers(form:HTMLFormElement){
   const control=form.elements.namedItem('wizard_final_approver') as HTMLSelectElement;if(!control)return;
   const sequence=String(Number(form.dataset.approverLookupRevision||0)+1);form.dataset.approverLookupRevision=sequence;
-  const unit=form.elements['regulatory_owner_unit_id'].value,reviewerControl=form.elements['compliance_reviewer_user_id'] as HTMLSelectElement,reviewer=reviewerControl.value;
-  const selected=control.value,actor=state.identity?.user.id;
-  const assignments=readRows(form,'owners'),excluded=new Set([actor,reviewer,...assignments.map(owner=>owner.user_id)]);
-  const reviewerExcluded=new Set([actor,...assignments.filter(owner=>!(owner.owner_role==='REGULATORY'&&owner.user_id===actor)).map(owner=>owner.user_id)]);
-  reviewerControl.setCustomValidity(reviewer&&reviewerExcluded.has(reviewer)?'Choose a Compliance reviewer independent of the author and named owners.':'');
+  const unit=form.elements['regulatory_owner_unit_id'].value,actor=state.identity?.user.id;
   const status=form.querySelector('[data-setup-approver-status]'),retry=form.querySelector<HTMLElement>('[data-setup-approver-retry]');
   form.dataset.approverLookupState='pending';control.disabled=true;retry.hidden=true;
-  control.innerHTML=options([],'','full_name','Loading independent Approvers…');status.textContent='Loading eligible final approvers…';
+  status.textContent='Loading eligible final approvers…';
   try{
     const [approvers,reviewers]=await Promise.all([people('APPROVER',unit),people('REVIEWER',unit)]);
-    const choices=approvers.filter(person=>!excluded.has(person.id)),eligibleReviewers=reviewers.filter(person=>!reviewerExcluded.has(person.id));
     if(!form.isConnected||state.identity?.user.id!==actor||form.dataset.approverLookupRevision!==sequence)return;
-    const reviewerValid=!reviewer||eligibleReviewers.some(person=>person.id===reviewer);
-    if(reviewer&&!reviewerValid)eligibleReviewers.push({id:reviewer,full_name:ref('user',reviewer),option_status:'Saved reviewer needs an access or independence check'});
-    reviewerControl.innerHTML=options(eligibleReviewers,reviewer,'full_name');
-    reviewerControl.setCustomValidity(reviewerValid?'':'Choose a currently eligible Compliance reviewer independent of the author and named owners.');
-    control.innerHTML=options(choices,selected,'full_name','Choose an independent Approver');form.dataset.approverLookupState='ready';
-    status.textContent=choices.length?'The final approver will decide after Compliance review and all required owner responses.':'No independent final approver is currently eligible. Ask your access administrator to arrange a different eligible Approver before sending.';
+    applySetupApprovers(form,reviewers,approvers);
   }catch(error){
     if(!form.isConnected||form.dataset.approverLookupRevision!==sequence)return;
-    control.innerHTML=options([],'','full_name','Approver lookup unavailable');form.dataset.approverLookupState='failed';retry.hidden=false;
+    form.dataset.approverLookupState='failed';retry.hidden=false;
     status.textContent='Eligible final approvers could not load. Retry before sending for review.';
   }finally{if(form.isConnected&&form.dataset.approverLookupRevision===sequence)control.disabled=false;}
+}
+function applySetupApprovers(form:HTMLFormElement,reviewers,approvers){
+  const control=form.elements.namedItem('wizard_final_approver') as HTMLSelectElement;
+  const reviewerControl=form.elements.namedItem('compliance_reviewer_user_id') as HTMLSelectElement;
+  const reviewer=reviewerControl.value,actor=state.identity?.user.id;
+  const assignments=readRows(form,'owners'),excluded=new Set([actor,reviewer,...assignments.map(owner=>owner.user_id)]);
+  const reviewerExcluded=new Set([actor,...assignments.filter(owner=>!(owner.owner_role==='REGULATORY'&&owner.user_id===actor)).map(owner=>owner.user_id)]);
+  const choices=approvers.filter(person=>!excluded.has(person.id));
+  const eligibleReviewers=reviewers.filter(person=>!reviewerExcluded.has(person.id));
+  refreshSelectOptions(reviewerControl,eligibleReviewers,'full_name');
+  reviewerControl.setCustomValidity(!reviewer||eligibleReviewers.some(person=>person.id===reviewer)
+    ?'':'Choose a currently eligible Compliance reviewer independent of the author and named owners.');
+  refreshSelectOptions(control,choices,'full_name','Choose an independent Approver');
+  form.dataset.approverLookupState='ready';
+  form.querySelector<HTMLElement>('[data-setup-approver-retry]').hidden=true;
+  form.querySelector('[data-setup-approver-status]').textContent=choices.length
+    ?'The final approver will decide after Compliance review and all required owner responses.'
+    :'No independent final approver is currently eligible. Ask your access administrator to arrange a different eligible Approver before sending.';
 }
 function invalidateSetupReview(form:HTMLFormElement){
   if(form.id!=='obligation-editor')return;
@@ -375,7 +385,7 @@ function refreshSetupRegulatoryOwner(form:HTMLFormElement,unit,choices){
 function setupMounted(){
   const form=document.querySelector<HTMLFormElement>('#obligation-editor');if(!form)return;
   refreshDepartmentFields(form);refreshScopeProcessLimits(form);updatePopupOwnerSummaries(form);
-  if(Number(form.dataset.wizard)===setupSteps.length-1){const value=readInput(form);form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(value,state.view.obligationClauses.find(clause=>clause.id===value.primary_clause_id));void refreshSetupApprovers(form);}
+  if(Number(form.dataset.wizard)===setupSteps.length-1){form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(readInput(form),state.view.obligationClauses);void refreshSetupApprovers(form);}
 }
 async function openObligationSubmission(d=current()){
   const o=d.obligation,excluded=new Set([o.created_by,o.compliance_reviewer_user_id,...d.owners.map(r=>r.user_id)]);
@@ -385,13 +395,84 @@ async function openObligationSubmission(d=current()){
 }
 
 async function people(role,unit){return unit?api('/obligations/assignees?'+new URLSearchParams({role,unit_id:unit})):[];}
+
+async function refreshSetupOptions(form: HTMLFormElement) {
+  if (form.dataset.refreshingOptions) return;
+  form.dataset.refreshingOptions = 'true';
+  const route = state.routeNumber;
+  const actor = state.identity?.user.id;
+  const step = setupSteps[Number(form.dataset.wizard)]?.label;
+  const current = () => form.isConnected && state.routeNumber === route && state.identity?.user.id === actor;
+  const regulatoryUnit = () => form.elements['regulatory_owner_unit_id'].value;
+  const assignmentUnit = regulatoryUnit();
+  const requests = new Map<string, Promise<any[]>>();
+  const lookup = (role, unit) => {
+    const key = JSON.stringify([role, unit]);
+    if (!requests.has(key)) requests.set(key, Promise.resolve(people(role, unit)));
+    return requests.get(key);
+  };
+  try {
+    const owners = step === 'People' ? [...form.querySelectorAll<HTMLElement>('[data-obl-row=owners]')] : [];
+    const ownerUpdates = owners.map(async row => {
+      const field = (name: string) => row.querySelector<HTMLInputElement | HTMLSelectElement>('[data-obl-field=' + name + ']');
+      const primary = row.hasAttribute('data-primary-business-owner');
+      const unit = () => primary ? form.elements['business_owner_unit_id'].value : field('org_unit_id').value;
+      const role = () => roleCodes[field('owner_role').value] || 'REVIEWER';
+      const expectedUnit = unit(), expectedRole = role();
+      const choices = await lookup(expectedRole, expectedUnit);
+      return () => {
+        if (!row.isConnected || unit() !== expectedUnit || role() !== expectedRole) return;
+        // A manual refresh supersedes an earlier lookup for the same scope.
+        row.dataset.lookupRevision = String(Number(row.dataset.lookupRevision || 0) + 1);
+        row.dataset.lookupState = 'ready';
+        const user = field('user_id') as HTMLSelectElement;
+        refreshSelectOptions(user, choices, 'full_name', primary ? 'Not assigned yet' : 'Select…');
+        user.disabled = primary && !expectedUnit;
+        if (!primary) return;
+        row.dataset.eligibleUsers = JSON.stringify(choices.map(person => person.id));
+        row.querySelector<HTMLElement>('[data-primary-business-retry]').hidden = true;
+        row.querySelector('[data-primary-business-status]').textContent = user.selectedOptions[0]?.hasAttribute('data-unavailable')
+          ? 'Choose an eligible primary Business owner for this department.'
+          : expectedUnit ? 'Choose the primary Business owner for ' + ref('organisational_unit', expectedUnit) + '.'
+            : 'Select the accountable business department first to see eligible people.';
+      };
+    });
+    const approvalUpdate = step === 'Check & send' ?
+      Promise.all([lookup('REVIEWER', assignmentUnit), lookup('APPROVER', assignmentUnit)]) : undefined;
+    const [masters, applyOwners, approvals] = await Promise.all([
+      api('/masters'), Promise.all(ownerUpdates), approvalUpdate,
+    ]);
+    if (!current()) return;
+    acceptReferenceSnapshot(masters);
+    refreshReferenceControls(form);
+    applyOwners.forEach(apply => apply());
+    if (approvals && regulatoryUnit() === assignmentUnit) {
+      form.dataset.approverLookupRevision = String(Number(form.dataset.approverLookupRevision || 0) + 1);
+      applySetupApprovers(form, ...approvals);
+      (form.elements.namedItem('wizard_final_approver') as HTMLSelectElement).disabled = false;
+    }
+    refreshDepartmentFields(form);
+    refreshScopeProcessLimits(form);
+    updatePopupOwnerSummaries(form);
+    validateBusinessAccountability(form);
+    if (Number(form.dataset.wizard) === setupSteps.length - 1) {
+      form.querySelector('[data-obl-review]').innerHTML = renderSetupReview(readInput(form), state.view.obligationClauses);
+    }
+    message('Options refreshed.', 'info');
+  } catch (error) {
+    if (current()) message('Options could not be refreshed. Your entries are still here. Try Refresh options again.', 'exception');
+  } finally {
+    delete form.dataset.refreshingOptions;
+  }
+}
+
 function readRows(form,kind){return [...form.querySelectorAll(`[data-obl-row="${kind}"]`)].filter((row:any)=>!row.hasAttribute('data-primary-business-owner')||row.querySelector('[data-obl-field=user_id]').value).map((row:any)=>Object.fromEntries([...row.querySelectorAll('[data-obl-field]')].map((control:any)=>[control.dataset.oblField,control.type==='checkbox'?control.checked:control.value||null])));}
 function readInput(form){
   const value:any=Object.fromEntries([...new FormData(form)].filter(([key])=>!key.includes('.')&&!key.startsWith('wizard_')));
   for(const flag of ['testing','certification','reporting','retention'])value[flag+'_required_flag']=Boolean(form.elements[flag+'_required_flag'].checked);
   value.custom_fields=captureCustom(form);
   value.effective_to=value.effective_to||null;
-  value.owners=readRows(form,'owners');value.applicability=readRows(form,'applicability');value.processes=readRows(form,'processes');value.supporting_clause_ids=readRows(form,'citations').map(r=>r.clause_id);
+  value.owners=readRows(form,'owners');value.applicability=readRows(form,'applicability');value.processes=readRows(form,'processes');value.supporting_clause_ids=supportingClauseIds(form);
   if(form.dataset.id)value.expected_revision=Number(form.dataset.revision);
   return value;
 }
@@ -400,6 +481,7 @@ export function installObligationEditorEvents(){
   document.addEventListener('portal:obligation-setup-mounted',setupMounted);
   document.addEventListener('change',async event=>{
     const target=event.target as HTMLInputElement,form=target.closest<HTMLFormElement>('#obligation-editor, #obl-owner-form');if(!form)return;
+    if(target instanceof HTMLSelectElement)clearUnavailableChoiceError(target);
     try{
       if(target.closest('[data-obl-row=owners]')||['business_owner_unit_id','primary_clause_id','wizard_instrument_id','compliance_reviewer_user_id'].includes(target.name))invalidateSetupReview(form);
       if(target.name==='wizard_instrument_id'){
@@ -411,6 +493,9 @@ export function installObligationEditorEvents(){
         form.querySelector('[data-obl-source-context]').innerHTML=sourceContext(null,null);refreshSetupRegulatoryOwner(form,'',[]);
       }
       if(target.name==='primary_clause_id'){
+        form.querySelectorAll<HTMLInputElement>('[data-obl-row=citations] [data-obl-field=clause_id]').forEach(citation=>{
+          if(citation.value===target.value) citation.closest('[data-obl-row=citations]').remove();
+        });
         const revision=String(Number(form.dataset.sourceRevision||0)+1);form.dataset.sourceRevision=revision;
         const clause=(state.view.obligationClauses||[]).find(c=>c.id===target.value);
         const primary=target as unknown as HTMLSelectElement,reviewer=form.elements['compliance_reviewer_user_id'] as HTMLSelectElement;
@@ -453,7 +538,7 @@ export function installObligationEditorEvents(){
       validateBusinessAccountability(form);
       updatePopupOwnerSummaries(form);
       updateOwnershipApprovers(form);
-    }catch(error){message(error.message,true);}
+    }catch(error){reportError(error);}
   });
 }
 
@@ -463,8 +548,18 @@ export function obligationHandlers(context){
   return {actions:{...imported.actions,...exported.actions,
     'obl-assign-owner':()=>openOwnerAssignment(),
     'obl-review-applicability':()=>{close();location.hash='obligations/'+current().obligation.id+'?tab=applicability';},
-    'obl-copy-reference':async()=>{await copyText(current().obligation.code);message('Obligation reference copied.');},
+    'obl-copy-reference':async()=>{await copyText(current().obligation.code);message('Obligation reference copied.', 'info');},
     'obl-retry-primary-business':(_data,trigger)=>refreshPrimaryBusinessOwner(trigger.closest('form'),unit=>people('BUSINESS_OWNER',unit)),
+    'obl-refresh-options':(_data,trigger)=>refreshSetupOptions(trigger.closest('#obligation-editor')),
+    'obl-browse-supporting-clauses':(_data,trigger: HTMLElement)=>{
+      const editor = trigger.closest<HTMLFormElement>('#obligation-editor');
+      if (editor) return openSupportingClauseExplorer(editor, state.view.obligationClauses || [], trigger);
+    },
+    'obl-remove-supporting-clause':(_data,trigger: HTMLElement)=>{
+      const editor = trigger.closest<HTMLFormElement>('#obligation-editor');
+      trigger.closest('[data-obl-row=citations]')?.remove();
+      editor?.querySelector<HTMLElement>('[data-action=obl-browse-supporting-clauses]')?.focus();
+    },
     'obl-add-row':({kind,role},trigger)=>{
       const form=trigger.closest('form');if(!form)return;
       let target=form.querySelector(`[data-obl-list="${kind}"]`),markup='';
@@ -529,7 +624,7 @@ export function obligationHandlers(context){
       if(!form.isConnected||location.hash.slice(1).split('?')[0]!=='obligations/'+id)return;
       close();const query=new URLSearchParams(location.hash.split('?')[1]);query.set('tab','owners');if(result.change_id)query.set('ownership_change',result.change_id);const target='obligations/'+result.id+'?'+query;
       if(location.hash.slice(1)===target)await context.render();else location.hash=target;
-      message(!result.changed?'Owner assignments are unchanged.':result.submitted_for_review?'Ownership change submitted for Compliance review. Obligation revision unchanged.':'Draft owner assignments saved.');
+      message(!result.changed?'Owner assignments are unchanged.':result.submitted_for_review?'Ownership change submitted for Compliance review. Obligation revision unchanged.':'Draft owner assignments saved.', result.changed ? 'success' : 'info');
     },
     'obl-ownership-decision-form':async form=>{
       const id=current(form.elements.obligation_id.value).obligation.id;
@@ -542,12 +637,22 @@ export function obligationHandlers(context){
       const sending=submitter?.dataset.saveIntent==='review',approver=form.elements.wizard_final_approver as HTMLSelectElement;
       approver.required=sending;form.elements.wizard_submission_comments.required=sending;
       prepareValidation(form);for(let i=0;i<setupSteps.length;i++)if(!validateWizardStep(form,i)){
-        if(i===setupSteps.length-1){const value=readInput(form);form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(value,state.view.obligationClauses.find(clause=>clause.id===value.primary_clause_id));if(!form.dataset.approverLookupState)void refreshSetupApprovers(form);}
+        if(i===setupSteps.length-1){form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(readInput(form),state.view.obligationClauses);if(!form.dataset.approverLookupState)void refreshSetupApprovers(form);}
         return;
       }
       if(sending&&form.dataset.approverLookupState!=='ready'){showWizardStep(form,6,true);throw new Error('Wait for eligible final approvers to load, or retry the lookup before sending.');}
       const payload=readInput(form);
       if(sending){
+        const citations=[payload.primary_clause_id,...payload.supporting_clause_ids];
+        const pending=state.view.obligationClauses.some(clause=>citations.includes(clause.id)&&clause.interpretation_status!=='APPROVED');
+        if(pending){
+          const currentClauses=await api('/clauses');
+          if(!form.isConnected)return;
+          if(citations.some(id=>!currentClauses.some(clause=>clause.id===id&&clause.interpretation_status==='APPROVED'))){
+            showWizardStep(form,0,true);
+            throw new Error('Approve the bank interpretation on every cited clause before sending this obligation for review. You can save a Draft now.');
+          }
+        }
         const requirements=[!payload.owners.some(owner=>owner.owner_role==='REGULATORY'&&owner.primary_owner_flag)?['Add a primary Regulatory owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='BUSINESS'&&owner.primary_owner_flag)?['Choose a primary Business owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='CONTROL')?['Add at least one Check owner before sending.',4]:null,!payload.applicability.length?['Add a department assessment before sending.',2]:null,!payload.processes.length?['Link at least one process before sending.',3]:null].filter(Boolean);
         if(requirements.length){showWizardStep(form,requirements[0][1] as number,true);throw new Error(requirements[0][0] as string);}
       }

@@ -24,26 +24,10 @@
   container-type: inline-size;
   padding: clamp(16px, 2.4vw, 28px);
   margin-bottom: 20px;
-  border: 1px solid #e6e1d7;
+  border: 1px solid var(--line);
   border-radius: 16px;
-  background: #f5f3ed;
+  background: var(--soft);
 }
-.obligation-exception-heading {
-  display: flex;
-  align-items: start;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 12px 20px;
-  margin-bottom: 24px;
-}
-.obligation-exception-heading h1 {
-  margin: 0 0 8px;
-  color: var(--ink);
-  font-size: clamp(23px, 2.8vw, 36px);
-  line-height: 1.2;
-  letter-spacing: -.035em;
-}
-.obligation-exception-heading p { margin: 0; color: var(--muted); line-height: 1.55; }
 .obligation-exception-cards {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -90,7 +74,6 @@
 }
 @container (max-width: 620px) {
   .obligation-exception-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .obligation-exception-heading { margin-bottom: 16px; }
   .obligation-exception-card { min-height: 104px; padding: 12px 10px 12px 13px; }
   .obligation-exception-card span { font-size: 12px; }
   .obligation-exception-card strong { font-size: 27px; }

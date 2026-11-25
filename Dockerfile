@@ -20,7 +20,8 @@ RUN npm --prefix frontend run build:bundle
 
 FROM python-base AS backend
 COPY backend/requirements.txt ./backend/requirements.txt
-RUN python -m pip install --no-cache-dir -r backend/requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade pip==26.3 \
+    && python -m pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/__init__.py ./backend/
 COPY backend/app/ ./backend/app/
 COPY backend/alembic.ini ./backend/
@@ -28,7 +29,7 @@ COPY backend/alembic/ ./backend/alembic/
 COPY backend/templates/ ./backend/templates/
 COPY --from=frontend-build /app/backend/static/swagger/ ./backend/static/swagger/
 RUN install -d -m 0777 /run/portal-socket
-ARG PORTAL_IMAGE_TAG=2026.11.23-r2
+ARG PORTAL_IMAGE_TAG=2026.11.24-r3
 LABEL org.opencontainers.image.title="Compliance by Design backend" org.opencontainers.image.version="${PORTAL_IMAGE_TAG}"
 ENV PORTAL_RELEASE=${PORTAL_IMAGE_TAG} PORTAL_SERVE_FRONTEND=false
 USER 10001:10001
@@ -39,7 +40,7 @@ FROM nginx:1.30-alpine AS frontend
 RUN install -d -m 0777 /run/portal-edge
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 COPY --from=frontend-build /app/frontend/dist/ /srv/portal/assets/
-ARG PORTAL_IMAGE_TAG=2026.11.23-r2
+ARG PORTAL_IMAGE_TAG=2026.11.24-r3
 LABEL org.opencontainers.image.title="Compliance by Design frontend" org.opencontainers.image.version="${PORTAL_IMAGE_TAG}"
 USER 10001:10001
 ENTRYPOINT ["nginx"]

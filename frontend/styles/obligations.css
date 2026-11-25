@@ -27,15 +27,40 @@
 .obligation-wizard .wizard-step.active:hover { background:var(--selection); }
 .obligation-progress-note { margin:26px 12px 0; color:var(--muted); font-size:12px; line-height:1.7; }
 .obligation-wizard .wizard-step-panel { border:1px solid var(--line); border-radius:14px; background:#fff; min-width:0; padding:30px; scroll-margin-top:20px; }
-.obligation-wizard .wizard-step-panel>.eyebrow { margin:0 0 24px; }
+.obligation-step-tools { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 14px; margin:0 0 24px; }
+.obligation-step-tools .eyebrow { margin:0; }
 .obligation-wizard .wizard-step-panel>h2 { font-size:20px; margin:0 0 10px; }
 .obligation-step-hint { color:var(--muted); font-size:14px; margin:0 0 26px; }
 .obligation-wizard .wizard-body .form-grid { margin-top:0; }
 .obligation-source-context { margin:24px 0; }
 .obligation-source-context .detail-field label { font-size:12px; }
 .obligation-wizard .note { margin:20px 0 0; }
-.obligation-supporting { margin-top:22px; }
-.obligation-supporting>summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--primary); }
+.supporting-clause-selections,
+.supporting-clause-results { list-style:none; padding:0; }
+.supporting-clause-selections { display:grid; gap:8px; margin:14px 0 0; }
+.supporting-clause-selections:empty { margin-bottom:8px; }
+.supporting-clause-selection { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; }
+.supporting-clause-selection>div { min-width:0; overflow-wrap:anywhere; }
+.supporting-clause-selection small,.supporting-clause-results small { display:block; margin-top:4px; color:var(--muted); }
+.supporting-clause-selection .tag { margin-top:4px; }
+.supporting-clause-tools { display:flex; flex-wrap:wrap; align-items:end; justify-content:space-between; gap:8px 16px; margin-bottom:16px; }
+.supporting-clause-tools .field { flex:1 1 260px; min-width:0; margin:0; }
+.supporting-clause-tools [data-clause-selection-count] { margin:0 0 10px; color:var(--primary-dark); font-weight:650; }
+.supporting-clause-explorer { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 3fr); gap:14px; }
+.supporting-clause-results,.supporting-clause-preview { min-width:0; margin:0; border:1px solid var(--line); border-radius:9px; overflow:auto; max-height:50vh; }
+.supporting-clause-results>li { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:8px; padding:8px; }
+.supporting-clause-results>li+li { border-top:1px solid var(--line); }
+.supporting-clause-results input { margin:10px 0 0; width:18px; height:18px; accent-color:var(--primary); }
+.supporting-clause-results button { border:0; border-radius:6px; padding:6px 8px; background:transparent; color:var(--text); text-align:start; overflow-wrap:anywhere; }
+.supporting-clause-results button:is(:hover,[aria-pressed=true]) { background:var(--selection); color:var(--primary-dark); }
+.supporting-clause-preview { padding:14px; background:var(--soft); overflow-wrap:anywhere; }
+.supporting-clause-preview h3 { margin:0 0 6px; }
+.supporting-clause-preview h4 { margin:14px 0 6px; }
+.supporting-clause-preview .tag+.source-wording { margin-top:6px; }
+@media (max-width:680px) {
+  .supporting-clause-explorer { grid-template-columns:minmax(0,1fr); }
+  .supporting-clause-results { max-height:32vh; }
+}
 .obligation-editor-group { margin:24px 0 0; }
 .obligation-editor-group:first-child { margin-top:0; }
 .obligation-business-accountability { padding:22px; border:1px solid var(--plum-line); border-radius:12px; background:#fff; }
@@ -119,7 +144,7 @@
   .obligation-wizard .wizard-footer { align-items:stretch; }
   .obligation-footer-back,.obligation-footer-forward { width:100%; }
   .obligation-footer-forward .btn { flex:1 1 100px; }
-  .obligation-wizard .wizard-step-panel>.eyebrow { margin-bottom:18px; }
+  .obligation-step-tools { margin-bottom:18px; }
   .obligation-save-note { text-align:left; }
   .obligation-group-heading>.btn { width:100%; }
 }

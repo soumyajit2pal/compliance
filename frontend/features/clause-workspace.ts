@@ -4,7 +4,7 @@ import { pagedCollection } from '../ui/widgets.ts';
 import { compareSourceClauses } from '../core/clause-order.ts';
 import { selectSourceEdition, sourceEditionStatus } from '../core/source-editions.ts';
 import { state } from '../core/state.ts';
-import { has } from '../core/access.ts';
+import { covered, has } from '../core/access.ts';
 
 type ClauseRow = Record<string, any>;
 interface WorkingViewOptions {
@@ -19,6 +19,7 @@ interface WorkingViewOptions {
   sourceDocument?: { id: string; name: string };
   emptyAction?: string;
   provenance?: ClauseRow[];
+  interpretationPanel?: string;
 }
 
 export function recordClauseRows(record): ClauseRow[] {
@@ -34,6 +35,7 @@ export function recordClauseRows(record): ClauseRow[] {
       instrument_code: instrument.code,
       instrument_title: instrument.title,
       instrument_short_title: instrument.short_title,
+      regulatory_owner_unit_id: instrument.regulatory_owner_unit_id,
       regulator_code: instrument.regulator_code,
       regulator_name: instrument.regulator_name,
       official_reference_number: instrument.official_reference_number,
@@ -104,7 +106,7 @@ function hierarchy(rows: ClauseRow[], allRows: ClauseRow[], selected: ClauseRow,
   return `<aside class="panel clause-hierarchy-panel">${controls}<details class="clause-hierarchy-disclosure" ${window.matchMedia('(max-width: 900px)').matches ? '' : 'open'}><summary><span><strong>Instrument &amp; clause hierarchy</strong><small>${rows.length} matching ${rows.length === 1 ? 'clause / para' : 'Clauses / Para'}</small></span>${icon('down')}</summary><nav class="clause-hierarchy" aria-label="Instrument and clause hierarchy">${pagedCollection(groups,{pageKey:'clause-tree',label:'instruments',summary:false,revealIndex:ordered.findIndex(group=>group[0].instrument_id===selected?.instrument_id),empty:'<p class="clause-hierarchy-empty">No clauses match this selection.</p>'})}</nav></details></aside>`;
 }
 
-export function renderClauseWorkingView({ rows, allRows, editionId, allEditions = false, navigationControls = '', selectedId, pathFor, editAction = '', sourceDocument, emptyAction = '', provenance = [] }: WorkingViewOptions) {
+export function renderClauseWorkingView({ rows, allRows, editionId, allEditions = false, navigationControls = '', selectedId, pathFor, editAction = '', sourceDocument, emptyAction = '', provenance = [], interpretationPanel = '' }: WorkingViewOptions) {
   // Record tabs stay pinned to one edition; the global workspace opts into all editions.
   if (!allEditions) rows = rows.filter((row) => row.instrument_version_id === editionId);
   const selected = rows.find((row) => row.id === selectedId) || rows[0];
@@ -113,13 +115,17 @@ export function renderClauseWorkingView({ rows, allRows, editionId, allEditions 
   const parent = allRows.find((row) => row.id === selected.parent_clause_id && row.instrument_id === selected.instrument_id && row.instrument_version_id === selected.instrument_version_id);
   const carry=provenance.find(row=>row.target_clause_id===selected.id);
   const original=carry&&allRows.find(row=>row.id===carry.source_clause_id);
-  return `<div class="clause-working-layout" id="clause-working-view">${navigation}${renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument })}</div>`;
+  return `<div class="clause-working-layout" id="clause-working-view">${navigation}${renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument, interpretationPanel })}</div>`;
 }
 
-export function renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument, ancestors = [] }) {
+export function renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument, ancestors = [], interpretationPanel = '' }) {
   const flags = ['mandatory', 'conditional', 'reporting', 'disclosure', 'retention'].filter((flag) => selected[flag + '_flag']);
   const versionQuery = new URLSearchParams({ version: selected.instrument_version_id, tab: 'versions' });
   const workflowQuery = new URLSearchParams({ version: selected.instrument_version_id, tab: 'workflow' });
+  const sourceApproved = selected.approval_status === 'APPROVED' && selected.version_approval_status === 'APPROVED';
+  const interpretationQuery = new URLSearchParams({ tab: 'clauses', version: selected.instrument_version_id, clause: selected.id, interpretation: 'history' });
+  const interpretationLink = sourceApproved && !interpretationPanel && covered(selected.regulatory_owner_unit_id, ['AUTHOR', 'REVIEWER', 'APPROVER', 'CCO'])
+    ? `<a class="text-link" href="#repository/${esc(selected.instrument_id)}?${esc(interpretationQuery.toString())}">Open bank interpretation review ${icon('arrow')}</a>` : '';
   return `<div class="clause-working-content">
     <article class="panel clause-working-detail" id="working-clause-detail" aria-labelledby="working-clause-heading">
       ${ancestors.length ? `<nav class="clause-reader-path" aria-label="Clause path"><ol>
@@ -132,11 +138,14 @@ export function renderClauseDetail({ selected, parent, carry, original, pathFor,
       <div class="clause-wording-columns">
         ${carry?`<div class="carry-provenance full">Carried forward from ${original?`<a class="text-link" href="#${esc(pathFor(original))}">${esc(original.code)} · v${esc(versionLabel(original.version_number))}</a>`:'an earlier source clause'}. ${esc(carry.basis)} New citations and independent review apply to this edition.</div>`:''}
         <section class="clause-wording-panel original"><h3>Original regulatory text</h3>${preservedText('clause-working-text original-wording', selected.clause_text)}<p class="clause-wording-note">Source wording is retained as supplied by the regulator.</p></section>
-        <section class="clause-wording-panel bank-interpretation"><h3>Bank’s internal interpretation</h3>${preservedText('clause-working-text', selected.internal_interpretation || 'Interpretation pending. Add the bank’s explanation while this source edition is Draft.')}<p class="clause-wording-note">A separate explanation linked to this exact source edition.</p></section>
+        <section class="clause-wording-panel bank-interpretation"><h3>Bank’s internal interpretation</h3>
+          <p class="clause-wording-note">Interpretation ${badge(selected.interpretation_status || 'PENDING')}</p>
+          ${preservedText('clause-working-text', selected.internal_interpretation || 'The bank’s interpretation has yet to be recorded for this clause.')}${interpretationLink}</section>
       </div>
       <dl class="clause-working-facts"><div><dt>Instrument</dt><dd><a class="text-link" href="#repository/${esc(selected.instrument_id)}">${esc(selected.instrument_code)} ${icon('arrow')}</a><small>${esc(selected.instrument_short_title || selected.instrument_title)}</small></dd></div><div><dt>Clause requirements</dt><dd>${flags.length ? flags.map((flag) => `<span class="clause-control-chip">${esc(title(flag))}</span>`).join('') : 'No clause requirements marked'}</dd></div><div><dt>Parent clause</dt><dd>${parent ? `<a class="text-link" href="#${esc(pathFor(parent))}">${esc(selected.parent_code || 'Parent clause')}${icon('arrow')}</a>` : 'Top-level clause'}</dd></div><div><dt>Source edition approval</dt><dd>${badge(sourceEditionStatus({ approval_status: selected.version_approval_status, cancelled_draft: selected.version_cancelled_draft }))}${selected.version_is_effective_current ? '<span class="clause-current-note">Current source</span>' : ''}</dd></div></dl>
       <div class="clause-working-links">${sourceDocument ? `<button type="button" class="btn small" data-action="source-document-preview" data-id="${esc(sourceDocument.id)}" data-name="${esc(sourceDocument.name)}">${icon('file')}<span>Source document</span></button>` : ''}<a class="btn small" href="#repository/${esc(selected.instrument_id)}?${esc(versionQuery.toString())}">${icon('book')}<span>Source edition</span></a><a class="text-link" href="#repository/${esc(selected.instrument_id)}?${esc(workflowQuery.toString())}">Review workflow ${icon('arrow')}</a></div>
       ${state.identity?.menu.some(item=>item.id==='obligations')?`<div class="clause-working-actions"><a class="btn small" href="#obligations?clause=${esc(selected.id)}">View linked obligations</a>${has('AUTHOR')&&selected.approval_status==='APPROVED'&&selected.version_approval_status==='APPROVED'?`<a class="btn small primary" href="#obligations/new?clause=${esc(selected.id)}">Create obligation from this clause</a>`:''}</div>`:''}
     </article>
+    ${interpretationPanel}
   </div>`;
 }

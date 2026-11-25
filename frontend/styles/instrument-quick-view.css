@@ -43,6 +43,7 @@
 .library-instrument-cell > a { flex: 1 1 170px; min-width: 0; }
 .library-instrument-cell .library-quick-view-trigger { flex: 0 0 auto; min-height: 36px; padding: 6px 9px; gap: 6px; font-size: 12px; color: var(--primary-dark); border-color: var(--plum-line); }
 .library-quick-view-trigger .icon { width: 16px; height: 16px; }
+.library-record-links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 4px; }
 .data-table tbody tr:has([data-instrument-preview]) { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .data-table tbody tr:has([data-instrument-preview]):focus-within > td { background: var(--soft); }
 @media (hover: hover) {
@@ -52,7 +53,10 @@
 .data-table tbody tr:has([data-instrument-preview][aria-expanded=true]) > td:first-child { box-shadow: inset 3px 0 var(--primary); }
 .data-table a[data-instrument-preview][aria-expanded=true] .record-title { color: var(--primary); }
 .library-quick-view-trigger[aria-expanded=true] { background: var(--selection); border-color: var(--primary); }
-@media (pointer: coarse) { .library-instrument-cell .library-quick-view-trigger { min-height: 44px; } }
+@media (pointer: coarse) {
+  .library-instrument-cell .library-quick-view-trigger, .library-record-links > a { min-height: 44px; }
+  .library-record-links > a { display: inline-flex; align-items: center; }
+}
 .instrument-quick-view-backdrop { position: fixed; inset: 0; z-index: 449; background: rgb(40 25 55 / 24%); }
 @media(max-width:900px) {
   .instrument-quick-view { width: 100%; border-left: 0; }

@@ -40,11 +40,15 @@ function nextStep(d,p,today){
     return {heading:'Waiting for '+names.join(', '),text:({COMPLIANCE_REVIEW:'Compliance review is pending.',BUSINESS_VALIDATION:'Named owner responses are pending.',FINAL_APPROVAL:'Independent final approval is pending.'})[p.stage]+' No response is needed from you at this stage.'};
   }
   if(o.approval_status==='REJECTED')return {heading:'This proposal was rejected',text:'Read the decision basis in History & decisions.'+(p.canRevise?' Create a new Draft revision if a replacement is needed.':' No response is needed from you.')};
+  if(o.approval_status==='DRAFT'&&d.issues?.includes('UNAPPROVED_SOURCE'))return {
+    heading:'Source approval needed before review',
+    text:'You can keep preparing this Draft. Every linked clause, its source edition and the bank interpretation must be approved before submission.',
+  };
   return {heading:p.canEdit?'Complete the Draft and submit for review':'Draft preparation is in progress',text:p.canEdit?'Check the setup below, then choose an independent final approver when submitting.':'The author prepares and submits this proposal. No response is needed from you.'};
 }
 function workflowActions(d,p){
   const o=d.obligation;
-  let result=p.canEdit?editLink(d,'source','Edit Draft')+button('obl-submit','Submit for review','','primary'):'';
+  let result=p.canEdit?editLink(d,'source','Edit Draft')+(d.issues?.includes('UNAPPROVED_SOURCE')?'':button('obl-submit','Submit for review','','primary')):'';
   if(p.ownerChangeTasks?.length)result+=workflowLink('obligations/'+o.id+'?tab=owners','View ownership request');
   if(p.canActivate)result+=button('obl-activate','Activate approved obligation',activationChecklistItems(d,p,localDate()).length?'disabled aria-describedby="obligation-readiness-title"':'','primary');
   for(const task of p.mine){

@@ -1,5 +1,7 @@
 /** Shared, DOM-preserving wizard navigation for native portal forms. */
 import { icon } from './icons.ts';
+import { unavailableChoiceMessage } from './refresh-options.ts';
+import { unavailableSelection } from './reference-options.ts';
 
 export function showWizardStep(form: HTMLFormElement, requested: number, focus = false) {
   const panels = [...form.querySelectorAll<HTMLElement>('[data-step]')];
@@ -30,7 +32,13 @@ export function validateWizardStep(form: HTMLFormElement, index: number) {
   const controls = form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
     `[data-step="${index}"] input,[data-step="${index}"] select,[data-step="${index}"] textarea`,
   );
-  const invalid = [...controls].find(control => control.willValidate && !control.validity.valid);
+  const invalid = [...controls].find(control => {
+    if (!control.willValidate) return false;
+    if (unavailableSelection(control)) {
+      control.setCustomValidity(unavailableChoiceMessage);
+    }
+    return !control.validity.valid;
+  });
   if (!invalid) return true;
   showWizardStep(form, index);
   for (let parent = invalid.parentElement; parent && parent !== form; parent = parent.parentElement)

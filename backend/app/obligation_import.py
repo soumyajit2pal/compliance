@@ -160,7 +160,7 @@ def stage(db,actor,filename,data,source_system,storage=None,replaces_batch_id=No
             raise HTTPException(409,'A reference is already staged or loaded in this source system. Open its preview; use a linked correction for unloaded rows and a governed revision for loaded obligations.')
         if not errors:
             try:
-                payload=map_payload(db,group);service.validate(db,actor,payload)
+                payload=map_payload(db,group);service.validate(db,actor,payload,draft=True)
                 clean=lambda value:re.sub(r'\s+',' ',value).strip().casefold()
                 fingerprint=(payload.primary_clause_id,clean(payload.title),clean(payload.statement))
                 possible=db.execute(sa.select(m.compliance_obligation).where(m.compliance_obligation.c.primary_clause_id==payload.primary_clause_id)).mappings()
@@ -172,7 +172,9 @@ def stage(db,actor,filename,data,source_system,storage=None,replaces_batch_id=No
         profiles[reference]={'errors':errors,'normalised':payload.model_dump(mode='json') if payload and not errors else None,
             'reference':reference,'legacy_reference':parent['raw'].get('legacy_reference') if parent else None}
     invalid=sum(bool(profiles[str(r['raw'].get('import_reference') or '').strip()]['errors']) for r in original)
-    db.execute(m.migration_batch.insert().values(id=identifier,code='OBL-IMPORT-'+identifier,source_file=Path(filename).name[:500],
+    source_path=Path(filename)
+    source_file=source_path.stem[:500-len(source_path.suffix)]+source_path.suffix
+    db.execute(m.migration_batch.insert().values(id=identifier,code='OBL-IMPORT-'+identifier,source_file=source_file,
         file_hash=hashlib.sha256(data).hexdigest(),uploaded_by=actor.id,uploaded_at=now(),source_count=len(original),pending_count=len(original)-invalid,
         rejected_count=invalid,record_status='OBL_STAGED',reconciliation_notes=json.dumps({'kind':'obligation_import','source_system':system,'replaces_batch_id':replaces_batch_id})))
     parent_seen=set()
@@ -187,7 +189,7 @@ def stage(db,actor,filename,data,source_system,storage=None,replaces_batch_id=No
             validation_status='CORRECTION_REQUIRED' if profile['errors'] else 'CONTENT_VALIDATION_PENDING',validation_errors=json.dumps(profile,default=str)))
     if storage:
         from .source_documents import preserve_bytes
-        preserve_bytes(db,storage,identifier,data,staging=True)
+        preserve_bytes(db,storage,identifier,source_file,data,staging=True)
     if replaces_batch_id:
         old_notes=notes[replaces_batch_id];old_notes['corrected_by_batch_id']=identifier
         db.execute(m.migration_batch.update().where(m.migration_batch.c.id==replaces_batch_id).values(

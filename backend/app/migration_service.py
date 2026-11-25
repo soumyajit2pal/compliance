@@ -1,16 +1,16 @@
 """Immutable source snapshots, profiling, content validation and Draft-only loads."""
 import csv,io,json,hashlib,zipfile
-from datetime import date,datetime
+from datetime import date
 from collections import Counter
 import sqlalchemy as sa
 from fastapi import HTTPException
 from openpyxl import load_workbook
-from . import models as m,business_ids
+from . import models as m,business_ids,migration_work
 from .events import new_id,now,audit
 from . import repository as repo
 from .schemas import InstrumentInput,ClauseInput
 from .access import actor_for
-from .import_template import canonical_header,LABELS,RECORDS_SHEET,CLAUSES_SHEET,GUIDANCE_SHEETS,GUIDE_TITLE
+from .import_template import canonical_header,import_date,LABELS,RECORDS_SHEET,CLAUSES_SHEET,GUIDANCE_SHEETS,GUIDE_TITLE
 from .import_choices import current_master,materiality_code
 
 MAX_ROWS=10000
@@ -89,12 +89,9 @@ def normalise(db,raw,seen=None,*,source_attachment=None):
     def date_value(key,optional=False):
         value=data.get(key,'') if optional else required(key)
         if optional and not value:return None
-        try:return datetime.fromisoformat(value).date().isoformat()
-        except ValueError:pass
-        for pattern in ('%d/%m/%Y','%d-%m-%Y'):
-            try:return datetime.strptime(value,pattern).date().isoformat()
-            except ValueError:pass
-        errors.append('Invalid '+LABELS.get(key,key)+'; use DD/MM/YYYY or YYYY-MM-DD');return None
+        try:return import_date(value).isoformat()
+        except ValueError:
+            errors.append('Invalid '+LABELS.get(key,key)+'; use DD/MM/YYYY or YYYY-MM-DD');return None
     if kind=='instrument':
         primary_domain_id=lookup(m.regulatory_domain,'domain_code')
         secondary_domain_ids=[]
@@ -195,7 +192,9 @@ def stage(db,actor,filename,data,source_system,storage,source_files=()):
     rows=parse_source(filename,data)
     from . import combined_import
     if combined_import.is_combined(rows,source_files):
-        return combined_import.stage(db,actor,filename,data,rows,source_system,storage,source_files)
+        batch = combined_import.stage(db,actor,filename,data,rows,source_system,storage,source_files)
+        migration_work.request_review(db,batch['id'],actor.id)
+        return batch
     file_hash=hashlib.sha256(data).hexdigest()
     if db.execute(sa.select(m.migration_batch.c.id).where(m.migration_batch.c.file_hash==file_hash)).first():raise HTTPException(409,'This exact source file has already been staged. Open its existing batch.')
     identifier=new_id();seen=set();at=now()
@@ -212,13 +211,14 @@ def stage(db,actor,filename,data,source_system,storage,source_files=()):
             source_system=source_system,legacy_id=legacy,source_payload=json.dumps(raw,default=str),
             validation_status='CORRECTION_REQUIRED' if result['errors'] else 'CONTENT_VALIDATION_PENDING',validation_errors=json.dumps(result)))
     from .source_documents import preserve_bytes
-    preserve_bytes(db,storage,identifier,data,staging=True)
+    preserve_bytes(db,storage,identifier,filename,data,staging=True)
     audit(db,actor,'migration',identifier,'SOURCE_STAGED',new={'file':filename,'sha256':file_hash,'rows':len(rows)})
+    migration_work.request_review(db,identifier,actor.id)
     return {'id':identifier}
 
 
 def require_migration(actor,roles={'AUTHOR','REVIEWER'}):
-    if not any(g['role_code'] in roles and g['global_scope_flag'] for g in actor.grants): raise HTTPException(403,'A global content role is required for migration data.')
+    if not any(migration_work.has_global_role(actor,role) for role in roles): raise HTTPException(403,'A global content role is required for migration data.')
 
 def batch_detail(db,actor,identifier):
     require_migration(actor)
@@ -227,9 +227,16 @@ def batch_detail(db,actor,identifier):
     rows=[dict(r) for r in db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier).order_by(m.migration_row.c.sheet_name,m.migration_row.c.row_number)).mappings()]
     for row in rows:row['profile']=json.loads(row['validation_errors'] or '{}');row['source']=json.loads(row['source_payload'])
     populations=Counter(r['validation_status'] for r in rows)
-    result={'batch':batch,'rows':rows,'populations':dict(populations),'reconciled':len(rows)==batch['source_count']}
     from . import combined_import
-    if combined_import.manifest(batch):
+    combined=bool(combined_import.manifest(batch))
+    author=migration_work.has_global_role(actor,'AUTHOR')
+    uploader=actor.id==batch['uploaded_by']
+    uploader_name=db.execute(sa.select(m.user.c.full_name).where(m.user.c.id==batch['uploaded_by'])).scalar_one()
+    result={'batch':batch,'rows':rows,'populations':dict(populations),'reconciled':len(rows)==batch['source_count'],
+        'uploader_name':uploader_name,
+        'permissions':{'can_validate':migration_work.can_review(actor,batch),
+            'can_load':author and (uploader or not combined),'can_refresh':author and uploader and combined}}
+    if combined:
         result.update(combined_import.preview(batch,rows))
     return result
 
@@ -237,8 +244,17 @@ def validate_content(db,actor,identifier,storage=None):
     require_migration(actor,{'REVIEWER'});batch=repo.one(db,m.migration_batch,identifier,lock=True)
     if batch['record_status'].startswith('OBL_'):raise HTTPException(404,'Open this batch in Obligation imports.')
     if actor.id==batch['uploaded_by']: raise HTTPException(403,'A different Compliance reviewer must validate migrated content.')
+    if not migration_work.has_rows(db,identifier,migration_work.PENDING):return {'validated':0}
     from . import combined_import
-    if combined_import.manifest(batch):return combined_import.validate(db,actor,batch,storage)
+    if combined_import.manifest(batch):
+        result=combined_import.validate(db,actor,batch,storage)
+    else:
+        result=validate_legacy(db,actor,identifier)
+    if result['validated']:
+        migration_work.notify_ready(db,batch)
+    return result
+
+def validate_legacy(db,actor,identifier):
     count=0
     for row in db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier,m.migration_row.c.validation_status=='CONTENT_VALIDATION_PENDING')).mappings():
         result=normalise(db,json.loads(row['source_payload']))
@@ -248,11 +264,11 @@ def validate_content(db,actor,identifier,storage=None):
     audit(db,actor,'migration',identifier,'CONTENT_VALIDATED',new={'ready_rows':count})
     return {'validated':count}
 
-def load_batch(db,actor,identifier,storage=None):
+def load_batch(db,actor,identifier,storage=None,payload=None):
     require_migration(actor,{'AUTHOR'});batch=repo.one(db,m.migration_batch,identifier,lock=True)
     if batch['record_status'].startswith('OBL_'):raise HTTPException(404,'Open this batch in Obligation imports.')
     from . import combined_import
-    if combined_import.manifest(batch):return combined_import.load(db,actor,batch,storage)
+    if combined_import.manifest(batch):return combined_import.load(db,actor,batch,storage,payload)
     rows=db.execute(sa.select(m.migration_row).where(m.migration_row.c.batch_id==identifier,m.migration_row.c.validation_status=='MIGRATION_READY').order_by(m.migration_row.c.row_number).with_for_update()).mappings().all()
     count=0
     for row in rows:

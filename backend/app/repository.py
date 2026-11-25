@@ -302,6 +302,10 @@ def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False):
     audit(db,actor,'version',version_id,'CLAUSE_SAVED',new={**values,'clause_id':identifier})
     return {'id':identifier}
 
+def missing_interpretation_clauses(clauses):
+    return [clause for clause in clauses if not (clause['internal_interpretation'] or '').strip()]
+
+
 def submit(db,actor,version_id,payload):
     version,instrument=read_version(db,actor,version_id,lock=True);unit=instrument['regulatory_owner_unit_id'];actor.require({'AUTHOR'},unit)
     if version['created_by']!=actor.id or version['approval_status']!='DRAFT': raise HTTPException(409,'Only the maker can submit this Draft.')
@@ -317,12 +321,20 @@ def submit(db,actor,version_id,payload):
         domain=one(db,m.regulatory_domain,domain_id)
         if not domain['active_flag'] or not domain['domain_owner_unit_id']:
             raise HTTPException(422,'Every affected domain must have its bank-approved owning department assigned and review submissions enabled before this instrument can be submitted. Ask an Admin to complete setup in Administration → Master data → Regulatory domains → Set owner.')
-    if not db.execute(sa.select(m.regulatory_clause.c.id).where(m.regulatory_clause.c.instrument_version_id==version_id)).first():
+    clause = m.regulatory_clause.c
+    clauses = db.execute(sa.select(clause.id, clause.internal_interpretation)
+        .where(clause.instrument_version_id == version_id)).mappings().all()
+    if not clauses:
         raise HTTPException(422,'Add at least one source clause / para before submitting.')
     if not version['source_document_id']: raise HTTPException(422,'A source document is required.')
+    missing = missing_interpretation_clauses(clauses)
+    exception_reason = getattr(payload, 'interpretation_exception_reason', None)
+    if missing and (not exception_reason or not getattr(payload, 'confirm_interpretation_exception', False)):
+        raise HTTPException(422, 'Bank interpretation is missing for one or more clauses. Add it or request an exception with a reason and confirmation.')
+    exception_reason = exception_reason if missing else None
     workflow=new_id();at=now()
     db.execute(m.workflow_instance.insert().values(id=workflow,workflow_type='INSTRUMENT_VERSION',entity_type='version',entity_id=version_id,
-        current_stage='COMPLIANCE_REVIEW',started_by=actor.id,started_at=at))
+        current_stage='COMPLIANCE_REVIEW',started_by=actor.id,started_at=at,interpretation_exception_reason=exception_reason))
     for stage,assignee in [('COMPLIANCE_REVIEW',payload.reviewer_id),('FINAL_APPROVAL',payload.approver_id)]:
         db.execute(m.workflow_action.insert().values(id=new_id(),instance_id=workflow,stage=stage,assignee_user_id=assignee,due_at=at+timedelta(days=3)))
     db.execute(m.instrument_version.update().where(m.instrument_version.c.id==version_id).values(approval_status='IN_REVIEW',reviewed_by=None,reviewed_at=None,approved_by=None,approved_at=None))
@@ -330,6 +342,9 @@ def submit(db,actor,version_id,payload):
     if instrument['approval_status']!='APPROVED':
         db.execute(m.regulatory_instrument.update().where(m.regulatory_instrument.c.id==instrument['id']).values(approval_status='IN_REVIEW',reviewed_by=None,reviewed_at=None,approved_by=None,approved_at=None))
     history(db,actor,'version',version_id,'DRAFT','IN_REVIEW',payload.comments);audit(db,actor,'version',version_id,'SUBMITTED',new={'workflow_id':workflow},reason=payload.comments)
+    if exception_reason:
+        audit(db,actor,'version',version_id,'INTERPRETATION_EXCEPTION_REQUESTED',
+            new={'workflow_id':workflow,'clause_ids':[row['id'] for row in missing]},reason=exception_reason)
     notify(db,'version',version_id,payload.reviewer_id,'REVIEW_ASSIGNED',workflow+':REVIEW')
     return {'id':workflow}
 
@@ -397,12 +412,25 @@ def decide(db,actor,version_id,payload):
     if target=='APPROVED':
         if version['approval_status']!='REVIEWED': raise HTTPException(409,'Independent Compliance review must finish first.')
         values.update(approved_by=actor.id,approved_at=at)
+    clauses = []
+    if target in {'REVIEWED','APPROVED'}:
+        clause = m.regulatory_clause.c
+        clauses = db.execute(sa.select(clause.id, clause.internal_interpretation)
+            .where(clause.instrument_version_id == version_id)).mappings().all()
+        missing = missing_interpretation_clauses(clauses)
+        if missing:
+            if not workflow['interpretation_exception_reason']:
+                raise HTTPException(409,'This edition has missing interpretations and no exception request. Return it to Draft for correction or resubmission with an exception.')
+            if not getattr(payload, 'confirm_interpretation_exception', False):
+                raise HTTPException(422,'Confirm the interpretation exception before recording this decision.')
+            audit(db,actor,'version',version_id,'INTERPRETATION_EXCEPTION_'+target,
+                new={'workflow_id':workflow['id'],'clause_ids':[row['id'] for row in missing]},reason=payload.comments)
     db.execute(m.instrument_version.update().where(m.instrument_version.c.id==version_id).values(**values))
     clause_values=dict(values)
     if target in {'REVIEWED','APPROVED'}:
         # Empty interpretations remain pending for Week 4 activation controls.
-        for clause in db.execute(sa.select(m.regulatory_clause).where(m.regulatory_clause.c.instrument_version_id==version_id)).mappings():
-            interpretation=target if clause['internal_interpretation'] else 'PENDING'
+        for clause in clauses:
+            interpretation=target if (clause['internal_interpretation'] or '').strip() else 'PENDING'
             db.execute(m.regulatory_clause.update().where(m.regulatory_clause.c.id==clause['id']).values(**clause_values,interpretation_status=interpretation))
     else:
         if target=='DRAFT':clause_values['interpretation_status']='PENDING'
@@ -672,6 +700,31 @@ def listing(db,actor,filters):
     return result
 
 
+def add_approved_edition_summaries(db, rows):
+    """Find the latest approved edition for each authorised record awaiting a current edition."""
+    awaiting = {row['id']: row for row in rows if not row['current_version_id']}
+    identifiers = list(awaiting)
+    today = date.today()
+    editions = m.instrument_version.c
+    for start in range(0, len(identifiers), 900):
+        ranked = sa.select(
+            editions.instrument_id, editions.version_number, editions.effective_from,
+            sa.func.row_number().over(
+                partition_by=editions.instrument_id,
+                order_by=(editions.effective_from.desc(), editions.version_date.desc(),
+                          editions.created_at.desc(), editions.id),
+            ).label('edition_rank'),
+        ).where(editions.approval_status == 'APPROVED',
+                editions.instrument_id.in_(identifiers[start:start + 900])).subquery()
+        query = sa.select(ranked.c.instrument_id, ranked.c.version_number, ranked.c.effective_from).where(ranked.c.edition_rank == 1)
+        for edition in db.execute(query).mappings():
+            awaiting[edition['instrument_id']]['approved_edition'] = {
+                'version_number': edition['version_number'],
+                'effective_from': edition['effective_from'],
+                'upcoming': edition['effective_from'] > today,
+            }
+
+
 def library_stage(record):
     if record['regulatory_status']=='CURRENT':
         return 'current'
@@ -702,6 +755,7 @@ def source_edition_listing(db,actor,instrument_id=None):
 
 
 def clause_listing(db,actor):
+    from .clause_interpretations import apply_approved
     # Reuse the repository's instrument visibility rules before loading any clause data.
     visible_ids=[row['id'] for row in listing(db,actor,{})]
     if not visible_ids: return []
@@ -728,11 +782,12 @@ def clause_listing(db,actor):
         .order_by(m.regulatory_instrument.c.title,m.instrument_version.c.version_date.desc(),
             m.regulatory_clause.c.sequence_number,m.regulatory_clause.c.code)).mappings().all()
     legacy=business_ids.aliases(db,'clause',[row['id'] for row in rows])
-    return [{**dict(row),'legacy_codes':legacy.get(row['id'],[])} for row in rows]
+    return apply_approved(db, [{**dict(row),'legacy_codes':legacy.get(row['id'],[])} for row in rows])
 
 
 def detail(db,actor,identifier,include_implementation_progress=False):
     from .obligations import instrument_links
+    from .clause_interpretations import apply_approved
     row=read_instrument(db,actor,identifier)
     versions=[dict(v) for v in db.execute(sa.select(m.instrument_version).where(m.instrument_version.c.instrument_id==identifier).order_by(m.instrument_version.c.effective_from.desc())).mappings()]
     version_ids=[v['id'] for v in versions]
@@ -744,6 +799,7 @@ def detail(db,actor,identifier,include_implementation_progress=False):
             m.instrument_domain_map.c.effective_to.is_(None))
         .order_by(m.regulatory_domain.c.name)).mappings()]
     clauses=[dict(c) for c in db.execute(sa.select(m.regulatory_clause).where(m.regulatory_clause.c.instrument_version_id.in_(version_ids)).order_by(m.regulatory_clause.c.sequence_number)).mappings()]
+    apply_approved(db, clauses)
     legacy=business_ids.aliases(db,'clause',[c['id'] for c in clauses])
     for clause in clauses:clause['legacy_codes']=legacy.get(clause['id'],[])
     clause_ids=[c['id'] for c in clauses]
@@ -751,7 +807,7 @@ def detail(db,actor,identifier,include_implementation_progress=False):
         m.clause_relationship.c.source_clause_id.in_(clause_ids),
         m.clause_relationship.c.target_clause_id.in_(clause_ids)).order_by(
             m.clause_relationship.c.effective_from.desc())).mappings()] if clause_ids else []
-    tasks=[dict(t) for t in db.execute(sa.select(m.workflow_action,m.workflow_instance.c.current_stage,m.workflow_instance.c.record_status.label('workflow_status'),m.workflow_instance.c.entity_id)
+    tasks=[dict(t) for t in db.execute(sa.select(m.workflow_action,m.workflow_instance.c.current_stage,m.workflow_instance.c.record_status.label('workflow_status'),m.workflow_instance.c.entity_id,m.workflow_instance.c.interpretation_exception_reason)
         .join(m.workflow_instance,m.workflow_instance.c.id==m.workflow_action.c.instance_id).where(m.workflow_instance.c.entity_type=='version',m.workflow_instance.c.entity_id.in_(version_ids))).mappings()]
     metadata_corrections=[dict(r) for r in db.execute(sa.select(m.metadata_correction).where(
         m.metadata_correction.c.instrument_id==identifier).order_by(m.metadata_correction.c.created_at.desc())).mappings()]

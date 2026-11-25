@@ -1,6 +1,9 @@
 """Shared screen labels and field guidance for instrument register imports."""
 import csv
 import io
+from datetime import datetime
+from typing import get_args
+from .schemas import FamilyRelationshipType
 
 RECORDS_SHEET = 'Regulatory records'
 CLAUSES_SHEET = 'Clauses'
@@ -10,6 +13,7 @@ CHOICE_LABELS = ['Regulator', 'Primary regulatory domain', 'Instrument type', 'M
                  'Confidentiality', 'Regulatory owner department', 'Interpretation owner',
                  'Additional affected domains']
 MULTI_VALUE_FIELDS = {'Additional affected domains'}
+FAMILY_RELATIONSHIPS = get_args(FamilyRelationshipType)
 
 # key, screen label, required, guidance, illustrative value
 FIELDS = [
@@ -33,10 +37,17 @@ FIELDS = [
      'Optional. Enter each additional domain name or code from Choices, separated by semicolons. Do not repeat the primary domain.',
      'Fraud Risk Management; Information Technology and Cyber Security'),
     ('import_reference', 'Import reference', False, 'Required when linking clauses. Use one unique workbook reference per record, for example REG-001. Permanent portal IDs are generated automatically.', 'REG-001'),
-    ('source_file_name', 'Source file name', False, 'For a new record, enter the exact attached PDF, text or DOCX filename instead of a Source document ID.', 'example-source.txt'),
+    ('source_file_name', 'Source file name', False, 'For a new record, enter the exact filename of a supported source attachment instead of a Source document ID.', 'example-source.txt'),
     ('source_edition', 'Source edition', False, 'New records start at 1.0. For an existing Draft, enter its exact edition number as text.', '1.0'),
     ('existing_instrument_code', 'Existing instrument code', False, 'Optional clause-only target: enter the current or retained legacy instrument code and its exact Draft source edition. Other instrument fields and source inputs must be blank; existing content is retained.', ''),
+    ('family_parent_reference', 'Parent notification', False,
+     'For a new amendment, use the parent’s Import reference in this file or its existing portal instrument code. Fill all three relationship fields together.', 'REG-ORIGINAL'),
+    ('family_relationship_type', 'Relationship', False,
+     'Choose Amends, Clarifies, Supersedes or Repeals. The Author assigns a Reviewer and Final Approver when loading Drafts.', 'Amends'),
+    ('family_effective_from', 'Relationship effective date', False,
+     'Enter the date the relationship takes effect as an Excel date, DD/MM/YYYY or YYYY-MM-DD.', '01/11/2026'),
 ]
+FAMILY_FIELDS = frozenset(field[0] for field in FIELDS[-3:])
 CLAUSE_FIELDS = [
     ('import_reference', 'Import reference', True, 'Match the Regulatory records row, for example REG-001.', 'REG-001'),
     ('source_edition', 'Source edition', False, 'Leave blank to inherit the record edition, or enter the same edition as text. Cross-edition parents are not allowed.', '1.0'),
@@ -70,6 +81,18 @@ LABELS['source_clause_reference'] = 'Source clause / para number'
 def canonical_header(value):
     label = str(value or '').strip().rstrip('*').strip().casefold()
     return ALIASES.get(label, label)
+
+
+def import_date(value):
+    try:
+        return datetime.fromisoformat(value).date()
+    except ValueError:
+        for pattern in ('%d/%m/%Y', '%d-%m-%Y'):
+            try:
+                return datetime.strptime(value, pattern).date()
+            except ValueError:
+                continue
+        raise ValueError('Use DD/MM/YYYY or YYYY-MM-DD.') from None
 
 
 def csv_template():

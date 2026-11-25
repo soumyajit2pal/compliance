@@ -53,23 +53,47 @@ export function secondaryDomainPicker(rows, selectedIds = [], primaryId = '') {
   return `<fieldset class="domain-picker full" data-secondary-domain-picker>
     <legend>Additional affected domains</legend>
     <p id="secondary-domain-help">Select every other subject area this instrument affects. The required primary domain is assigned separately.</p>
-    <details>
+    <details data-primary-domain="${esc(primaryId)}">
       <summary><span data-domain-picker-summary>${count ? `${count} additional domain${count === 1 ? '' : 's'} selected` : 'Choose additional domains'}</span></summary>
       <div class="domain-picker-options" role="group" aria-describedby="secondary-domain-help">
-        ${choices.map((domain) => `<label><input type="checkbox" name="secondary_domain_ids" value="${esc(domain.id)}" ${selected.has(domain.id) ? 'checked' : ''}> <span>${esc(domain.name)}</span></label>`).join('') || '<p class="small muted">No other domains are available.</p>'}
+        ${secondaryDomainOptions(choices, selected)}
       </div>
     </details>
   </fieldset>`;
 }
 
+function secondaryDomainOptions(choices, selected: Set<unknown>) {
+  return choices.map(domain => `<label><input type="checkbox" name="secondary_domain_ids" value="${esc(domain.id)}" ${selected.has(domain.id) ? 'checked' : ''} ${domain.unavailable ? 'data-unavailable' : ''}> <span>${esc(domain.name)}</span></label>`).join('') || '<p class="small muted">No other domains are available.</p>';
+}
+
+export function refreshSecondaryDomains(form: HTMLFormElement, rows) {
+  const picker = form.querySelector('[data-secondary-domain-picker]');
+  const primary = form.querySelector<HTMLSelectElement>('[name="primary_domain_id"]');
+  const guidance = form.querySelector('[data-domain-guidance]');
+  if (primary && guidance) guidance.innerHTML = domainGuidance(rows.find(domain => domain.id === primary.value));
+  if (!picker) return;
+  const options = picker.querySelector('.domain-picker-options');
+  const current = [...options.querySelectorAll<HTMLInputElement>('input:checked')];
+  const selected = new Set(current.map(control => control.value));
+  const retained = current.filter(control => !rows.some(domain => domain.id === control.value)).map(control => ({
+    id: control.value, name: control.closest('label').querySelector('span').textContent.replace(/ · Unavailable$/, '') + ' · Unavailable', unavailable: true,
+  }));
+  options.innerHTML = secondaryDomainOptions([...rows, ...retained], selected);
+  syncSecondaryDomainPicker(form);
+}
+
 export function syncSecondaryDomainPicker(form) {
   const picker = form?.querySelector('[data-secondary-domain-picker]');
   if (!picker) return;
-  const primaryId = form.querySelector('[name="primary_domain_id"]')?.value || '';
+  const primaryId = form.querySelector('[name="primary_domain_id"]')?.value || picker.querySelector('details')?.dataset.primaryDomain || '';
   let count = 0;
   for (const checkbox of picker.querySelectorAll('input[name="secondary_domain_ids"]')) {
     const isPrimary = checkbox.value === primaryId;
     if (isPrimary) checkbox.checked = false;
+    if (!checkbox.checked && checkbox.hasAttribute('data-unavailable')) {
+      checkbox.closest('label').remove();
+      continue;
+    }
     checkbox.disabled = isPrimary;
     checkbox.closest('label').hidden = isPrimary;
     if (checkbox.checked) count += 1;

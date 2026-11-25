@@ -1,3 +1,4 @@
+import { documentAccept, documentHint } from '../../core/upload-policy.ts';
 import {captureCustom} from '../../ui/dropdown-fields.ts';
 import { detailFields } from '../../ui/widgets.ts';
 import { wizardActions, validateWizard } from './wizard.ts';
@@ -27,6 +28,9 @@ import { covered } from '../../core/access.ts';
 import { clausePayload, openClauseDialog } from '../clause-dialog.ts';
 import { openImplementationStage } from './implementation-progress.ts';
 import { workflowSubmit } from '../../ui/workflow-actions.ts';
+import { referenceSelect, referenceAssignee } from '../../ui/reference-options.ts';
+import { missingInterpretations, missingInterpretationLinks } from './workflow.ts';
+import { interpretationHandlers } from './interpretations.ts';
 
 function nextSourceVersion(versions) {
   const highestMajor = versions.reduce((highest, version) => {
@@ -80,7 +84,7 @@ function openSourceVersionForm(edit = false) {
         ${field('Effective from', input('effective_from', version?.effective_from || localDate(), 'date', 'required'))}
         ${initial ? '<input type="hidden" name="supersedes_version_id" value="">' : field('Supersedes version', select('supersedes_version_id', approvedVersions, version?.supersedes_version_id || instrument.current_version_id, 'name', 'required'))}
         ${sourceName ? `<div class="field full"><label>Current source document</label><p>${esc(sourceName)}</p></div>` : ''}
-        ${field(edit ? 'Replacement source document (optional)' : 'New source document', input('source_file', '', 'file', `${edit ? '' : 'required'} accept=".pdf,.txt,.docx"`), edit ? 'Leave empty to retain the source document. PDF, text or DOCX; maximum 20 MB.' : 'PDF, text or DOCX; maximum 20 MB.', 'full')}
+        ${field(edit ? 'Replacement source document (optional)' : 'New source document', input('source_file', '', 'file', `${edit ? '' : 'required'} ${documentAccept()}`), edit ? 'Leave empty to retain the source document. ' + documentHint() : documentHint(), 'full')}
         ${field('Change summary', area('change_summary', version?.change_summary || '', 'required minlength="5" maxlength="10000"'), 'Explain the source edition and any corrections.', 'full')}
         <label class="check-label"><input type="checkbox" name="consolidated_flag" ${version?.consolidated_flag ? 'checked' : ''}> Consolidated edition</label>
       </div>
@@ -94,9 +98,11 @@ function openSourceVersionForm(edit = false) {
 }
 
 export function repositoryHandlers({ render, loadIdentity, loginView }) {
+  const interpretations = interpretationHandlers(render);
   return {
     actions: {
       ...wizardActions(),
+      ...interpretations.actions,
       'implementation-stage': openImplementationStage,
       'clear-repository-filters': async () => {
         if (location.hash === '#repository') await render();
@@ -112,9 +118,6 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
         const authorCandidates = await choosePeople('AUTHOR', i.regulatory_owner_unit_id);
         const reviewers = await choosePeople('REVIEWER', i.regulatory_owner_unit_id, [state.identity.user.id]);
         const approvers = await choosePeople('APPROVER', i.regulatory_owner_unit_id, [state.identity.user.id]);
-        const units = state.masters.organisational_unit.filter((unit) => unit.active_flag &&
-          (!unit.effective_from || unit.effective_from <= localDate()) &&
-          (!unit.effective_to || unit.effective_to > localDate()) && covered(unit.id, ['AUTHOR']));
         modal(
           'Request metadata correction',
           `<div class="notice">Approved source content stays unchanged. Regulator, instrument type and primary domain are part of the permanent ID; issue/effective dates or source changes need a new source version. Confidentiality changes require administrator handling.</div>
@@ -124,13 +127,13 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
               ${field('Short title', input('short_title', i.short_title || '', 'text', 'maxlength="250"'))}
               ${field('Materiality', select('materiality', ['CRITICAL','HIGH','MEDIUM','LOW'].map((id) => ({id,name:title(id)})), i.materiality, 'name', 'required'))}
               ${field('Applicability date', input('applicability_date', i.applicability_date || '', 'date'))}
-              ${field('Regulatory owner unit', select('regulatory_owner_unit_id', units, i.regulatory_owner_unit_id, 'name', 'required'))}
-              ${field('Interpretation owner', select('interpretation_owner_user_id', authorCandidates, i.interpretation_owner_user_id, 'full_name', 'required'))}
+              ${field('Regulatory owner unit', referenceSelect('regulatory_owner_unit_id', 'organisational_unit', i.regulatory_owner_unit_id, 'required', undefined, {format: 'hierarchy', authorScope: true}))}
+              ${field('Interpretation owner', select('interpretation_owner_user_id', authorCandidates, i.interpretation_owner_user_id, 'full_name', 'required ' + referenceAssignee('AUTHOR', 'regulatory_owner_unit_id')))}
               ${field('Keywords', area('keywords', i.keywords || ''), 'Search terms used to find this instrument.', 'full')}
               ${secondaryDomainPicker(state.masters.regulatory_domain, (state.record.secondary_domains || []).map((domain) => domain.id), i.primary_domain_id)}
               ${field('Reason for correction', area('reason', '', 'required minlength="10" maxlength="10000"'), 'Explain why the approved register metadata is incorrect.', 'full')}
-              ${field('Compliance reviewer', select('reviewer_id', reviewers, '', 'full_name', 'required'))}
-              ${field('Final approver', select('approver_id', approvers, '', 'full_name', 'required'))}
+              ${field('Compliance reviewer', select('reviewer_id', reviewers, '', 'full_name', 'required ' + referenceAssignee('REVIEWER', '', true, i.regulatory_owner_unit_id)))}
+              ${field('Final approver', select('approver_id', approvers, '', 'full_name', 'required ' + referenceAssignee('APPROVER', '', true, i.regulatory_owner_unit_id)))}
             </div>
             <p class="small muted">The requester, reviewer and final approver must be different people. Changes take effect on final approval. The owner unit and interpretation owner must be valid together, and a proposed new owner unit must be within your Author scope.</p>`,
           'metadata-correction',
@@ -161,9 +164,15 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
           clauses: state.record.clauses.filter((row) => row.instrument_version_id === v.id),
         }], 'clause', c);
       },
-      'submit-version': async (_data, trigger: HTMLElement) => {
+      'submit-version': async ({ exception }, trigger: HTMLElement) => {
         const i = state.record.instrument,
           v = state.view.version;
+        const missing = missingInterpretations(state.record, v);
+        if (missing.length && exception !== 'true') throw new Error('Add the bank interpretations or open the exception request.');
+        const exceptionFields = missing.length ? `<p>These clauses will require a separate bank interpretation approval.</p>
+          ${missingInterpretationLinks(state.record, v, missing)}
+          ${field('Reason for requesting an exception', area('interpretation_exception_reason', '', 'required minlength="10" maxlength="10000"'))}
+          <label class="check-label"><input type="checkbox" name="confirm_interpretation_exception" required>I confirm these interpretations are pending and request approval of the source edition with this exception.</label>` : '';
         const [reviewers, approvers] = await Promise.all([
           choosePeople('REVIEWER', i.regulatory_owner_unit_id, [v.created_by]),
           choosePeople('APPROVER', i.regulatory_owner_unit_id, [v.created_by]),
@@ -175,12 +184,12 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
           return;
         }
         modal(
-          'Submit for Compliance review',
+          missing.length ? 'Request interpretation exception' : 'Submit for Compliance review',
           `${field('Compliance reviewer', select('reviewer_id', reviewers, '', 'full_name', 'required'), 'This person receives the first task in My decisions.')}
           ${field('Final approver', select('approver_id', approvers, '', 'full_name', 'required'), 'Choose a different person. Their task opens after the reviewer records their review.')}
-          ${field('Submission notes', area('comments', '', 'required minlength="3"'))}`,
+          ${field('Submission notes', area('comments', '', 'required minlength="3"'))}${exceptionFields}`,
           'submit-version',
-          'Send to Compliance reviewer',
+          missing.length ? 'Send exception for review' : 'Send to Compliance reviewer',
           'Edition ' + versionLabel(v.version_number) + ' · ' + i.code,
         );
         document.querySelector<HTMLFormElement>('#submit-version').dataset.versionId = v.id;
@@ -191,6 +200,14 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
         const isApproval = decision === 'APPROVE';
         const actionLabel = isReview ? 'Record Compliance review' : isApproval ? 'Approve source edition' : title(decision) + ' version';
         let extra = '';
+        const missing = missingInterpretations(state.record, v);
+        if ((isReview || isApproval) && missing.length) {
+          const active = state.record.tasks.find(task => task.entity_id === v.id && task.workflow_status === 'OPEN');
+          if (!active?.interpretation_exception_reason) throw new Error('Return this edition to Draft to resolve the missing interpretations.');
+          extra = `<div class="notice"><strong>Interpretation exception</strong><p>${esc(active.interpretation_exception_reason)}</p>
+            ${missingInterpretationLinks(state.record, v, missing)}</div>
+            <label class="check-label"><input type="checkbox" name="confirm_interpretation_exception" required>I ${isApproval ? 'approve' : 'accept for final approval'} the exception for the listed clauses.</label>`;
+        }
         if (decision === 'DELEGATE') {
           const task = state.record.tasks.find(
               (t) =>
@@ -274,6 +291,7 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
       },
     },
     forms: {
+      ...interpretations.forms,
       'cancel-draft': async (form) => {
         const result = await api('/versions/' + form.dataset.versionId + '/cancel', 'POST', Object.fromEntries(new FormData(form)));
         close();
@@ -367,16 +385,21 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
         await render();
       },
       'submit-version': async (form) => {
-        const values = Object.fromEntries(new FormData(form));
+        const data = new FormData(form);
+        const values = Object.fromEntries(data);
         if (values.reviewer_id === values.approver_id)
           throw new Error('Choose a different person for final approval.');
         await api(
           '/versions/' + form.dataset.versionId + '/submit',
           'POST',
-          values,
+          { ...values, confirm_interpretation_exception: data.has('confirm_interpretation_exception') },
         );
         close();
-        message('Submitted. The Compliance reviewer can open this edition from My decisions.');
+        if (data.has('confirm_interpretation_exception')) {
+          message('Submitted with an interpretation exception for Compliance review.', 'exception');
+        } else {
+          message('Submitted. The Compliance reviewer can open this edition from My decisions.');
+        }
         await render();
       },
       'metadata-correction': async (form) => {
@@ -402,9 +425,10 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
       },
       decision: async (form) => {
         const decision = form.dataset.decision;
+        const data = new FormData(form);
         await api('/versions/' + form.dataset.versionId + '/decision', 'POST', {
-          ...Object.fromEntries(new FormData(form)),
-          decision,
+          ...Object.fromEntries(data), decision,
+          confirm_interpretation_exception: data.has('confirm_interpretation_exception'),
         });
         close();
         const feedback = {

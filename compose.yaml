@@ -10,12 +10,12 @@ x-portal-user: &portal-user
 
 x-backend-release: &backend-release
   <<: *portal-user
-  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.23-r2}"
+  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.24-r3}"
   build:
     context: .
     target: backend
     args: &release-args
-      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.23-r2}"
+      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.24-r3}"
 
 services:
   haproxy:
@@ -46,7 +46,7 @@ services:
 
   frontend:
     <<: *portal-user
-    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.23-r2}"
+    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.24-r3}"
     build:
       context: .
       target: frontend
@@ -128,6 +128,7 @@ services:
       SESSION_COOKIE_SECURE: "true"
       LOGIN_ENCRYPTION_PRIVATE_KEY_FILE: /run/portal/login-private.pem
       REDIS_URL: redis://redis:6379/0
+      NOTIFICATION_WORKER_MODE: dedicated
     extra_hosts:
       - host.docker.internal:host-gateway
     volumes:
@@ -161,6 +162,50 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+
+  notification_worker:
+    <<: *backend-release
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "backend.app.notification_worker"]
+    environment:
+      APP_ENV_FILE: /run/portal/profile.env
+      LOG_DIR: /data/logs
+      LOG_FILE_NAME: notifications.log
+      UPLOAD_STORAGE_ROOT: /data/documents
+      REDIS_URL: redis://redis:6379/0
+      NOTIFICATION_WORKER_MODE: dedicated
+      DB_POOL_SIZE: "2"
+      DB_MAX_OVERFLOW: "1"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - type: bind
+        source: ${PORTAL_ENV_FILE:-./.env.docker}
+        target: /run/portal/profile.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PORTAL_LOGS:-./var/logs}
+        target: /data/logs
+        bind:
+          create_host_path: false
+    networks: [default, cache]
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.app.notification_worker", "--healthcheck"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    stop_grace_period: 90s
 
   redis:
     image: redis:7.4-alpine

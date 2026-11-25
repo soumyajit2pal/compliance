@@ -7,8 +7,9 @@ from . import delivery as d,delivery_schemas as c,delivery_reporting as reportin
 from .events import audit
 from .pagination import page_query,paginate
 from .storage import stored_path
-from .source_documents import MAX_SOURCE_BYTES
+from . import upload_policy
 from .access import READ_ROLES
+from . import mail_settings
 
 
 def install(app,get_db,current):
@@ -34,7 +35,8 @@ def install(app,get_db,current):
  async def evidence(identifier:str,request:Request,metadata:str=Form(...),file:UploadFile|None=File(default=None),db=Depends(get_db),actor=Depends(current)):
   try:payload=c.EvidenceInput.model_validate_json(metadata)
   except ValueError as exc:raise HTTPException(422,'Complete the required evidence metadata.') from None
-  data=await file.read(MAX_SOURCE_BYTES+1) if file else None
+  limits,_=upload_policy.configuration(db) if file else (None,None)
+  data=await upload_policy.read_upload(file,limits.evidence_mib) if file else None
   return d.add_evidence(db,actor,identifier,payload,request.app.state.settings.storage,file.filename if file else None,data)
  @app.post('/api/actions/{identifier}/evidence-links')
  def reuse(identifier:str,payload:c.Link,db=Depends(get_db),actor=Depends(current)):return d.attach(db,actor,identifier,payload)
@@ -61,11 +63,12 @@ def install(app,get_db,current):
  def evidence_file(identifier:str,request:Request,db=Depends(get_db),actor=Depends(current)):
   e=d.evidence_read(db,actor,identifier);d.fail(e['document_id'],'This evidence is held in the recorded external repository.',404);d.integrity(db,e,request.app.state.settings.storage)
   doc=repo.one(db,m.document,e['document_id']);audit(db,actor,'evidence',identifier,'DOWNLOADED')
-  return FileResponse(stored_path(request.app.state.settings.storage,doc['id']),filename=doc['file_name'],media_type=doc['content_type'],content_disposition_type='attachment')
+  return FileResponse(stored_path(request.app.state.settings.storage,doc['id'],doc['file_name']),filename=doc['file_name'],media_type=doc['content_type'],content_disposition_type='attachment')
  @app.get('/api/team-overview')
  def overview(request:Request,db=Depends(get_db),actor=Depends(current)):
   result=reporting.build(db,actor,dict(request.query_params));cfg=request.app.state.settings
-  result['delivery']={'channel':'IN_APP','scheduler_enabled':cfg.reminders_enabled,'interval_seconds':cfg.reminder_interval_seconds,'email_configured':False}
+  mail=mail_settings.load(db,cfg)
+  result['delivery']={'channel':'IN_APP','scheduler_enabled':cfg.reminders_enabled,'interval_seconds':cfg.reminder_interval_seconds,'email_configured':mail['enabled'] and not mail['problem']}
   return result
  @app.get('/api/team-overview/export')
  def export(request:Request,metric:str,population_hash:str,db=Depends(get_db),actor=Depends(current)):

@@ -672,11 +672,7 @@ table:not(.data-table) td {
   font-size: 15px;
 }
 #message:not(:empty) {
-  background: var(--primary);
   font-size: 15px;
-}
-#message.error {
-  background: #92232f;
 }
 pre,
 code {

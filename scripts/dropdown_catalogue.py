@@ -15,7 +15,9 @@ DYNAMIC = {
     'features/obligations.ts': {"key(name+'_id')": 'product_id channel_id customer_segment_id geography_id', 'name': ''},
     'features/delivery.ts': {'key': ''},
     'features/regulation-registers.ts': {'name': ''},
-    'src/components/obligation-workspace.tsx': {'approvalName': 'assignment_approval assessment_approval'},
+    'src/components/obligation-workspace.tsx': {
+        'name': 'department assessment role response legal_entity owner assignment_approval assessment_approval',
+    },
     'features/obligation-setup.ts': {"'wizard_scope_process_'+index": 'wizard_scope_process'},
 }
 def collect():
@@ -29,12 +31,12 @@ def collect():
             if p.suffix not in {'.ts','.tsx','.js','.jsx','.html'}:
                 continue
             path = p.relative_to(ROOT / 'frontend').as_posix()
-            if path in {'ui/components.ts','ui/searchable-select.ts','src/components/searchable-select.tsx'}:
+            if path in {'ui/components.ts','ui/organisation-select.ts','ui/reference-options.ts','ui/searchable-select.ts','src/components/searchable-select.tsx'}:
                 continue
             source = p.read_text()
             def add(name):
                 found[name].add(path)
-            for match in re.finditer(r'(?<![\w.])(?:fixedSelect|select)\(\s*([^,\n]+?)\s*,', source):
+            for match in re.finditer(r'(?<![\w.])(?:organisationUnitSelect|referenceSelect|fixedSelect|select)\(\s*([^,\n]+?)\s*,', source):
                 arg = match[1]
                 if arg in DYNAMIC.get(path, {}):
                     for key in DYNAMIC[path][arg].split(): add(key)
@@ -47,7 +49,8 @@ def collect():
             for tag in re.findall(r'<(?:select|SearchableSelectField)\b([^>]+)>', source):
                 key = re.search(r'\bdata-choice-key="([\w-]+)"', tag) or re.search(r'\bname="([\w-]+)"', tag) or re.search(r'\bid="([\w-]+)"', tag)
                 if key: add(key[1])
-                elif 'name={name}' in tag and path=='src/components/obligation-workspace.tsx': pass
+                elif 'name={name}' in tag and path=='src/components/obligation-workspace.tsx':
+                    for name in DYNAMIC[path]['name'].split(): add(name)
                 else: raise ValueError(f'{path}: give the dropdown a stable data-choice-key or name')
     return {key:sorted(paths) for key,paths in sorted(found.items())}
 

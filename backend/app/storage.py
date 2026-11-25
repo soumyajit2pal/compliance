@@ -2,6 +2,7 @@
 import os
 import re
 import tempfile
+import unicodedata
 from pathlib import Path
 
 
@@ -19,7 +20,7 @@ def writable_directory(path: Path, setting: str) -> Path:
         raise RuntimeError(f'{setting} must identify a writable server directory.') from None
 
 
-def stored_path(root: Path, identifier: str, *, staging=False) -> Path:
+def _storage_slot(root: Path, identifier: str, *, staging=False) -> Path:
     if not re.fullmatch(r'[a-f0-9-]{32,36}', identifier):
         raise ValueError('Invalid storage identifier.')
     root = Path(root).resolve()
@@ -32,6 +33,44 @@ def stored_path(root: Path, identifier: str, *, staging=False) -> Path:
     if candidate.is_symlink() or not candidate.resolve().is_relative_to(root):
         raise RuntimeError('The stored file must remain inside UPLOAD_STORAGE_ROOT.')
     return candidate
+
+
+def readable_filename(filename: str) -> str:
+    """Keep a portable, single-component filename and preserve the extension."""
+    name = unicodedata.normalize('NFC', filename.replace('\\', '/').rsplit('/', 1)[-1])
+    name = ''.join('_' if char in '<>:"|?*' or unicodedata.category(char) in {'Cc', 'Cf', 'Cs'}
+                   else char for char in name).strip().rstrip(' .')
+    stem, dot, extension = name.rpartition('.')
+    stem = (stem if dot else extension).strip(' .')
+    if re.fullmatch(r'CON|PRN|AUX|NUL|(?:COM|LPT)[1-9¹²³]', stem.split('.', 1)[0], re.IGNORECASE):
+        stem = '_' + stem
+    suffix = (dot + extension).encode('utf-8')[:32].decode('utf-8', errors='ignore').rstrip(' .') if dot else ''
+    budget = 240 - len(suffix.encode('utf-8'))
+    prefix = stem.encode('utf-8')[:budget].decode('utf-8', errors='ignore').rstrip(' .')
+    return (prefix or 'upload') + suffix
+
+
+def stored_path(root: Path, identifier: str, filename: str, *, staging=False) -> Path:
+    slot = _storage_slot(root, identifier, staging=staging)
+    if not slot.is_dir():
+        return slot  # Retained uploads store the bytes directly under their ID.
+    path = slot / readable_filename(filename)
+    if path.is_symlink():
+        raise RuntimeError('The stored file must not be a symbolic link.')
+    return path
+
+
+def write_stored_file(root: Path, identifier: str, filename: str, data: bytes, *, staging=False) -> Path:
+    slot = _storage_slot(root, identifier, staging=staging)
+    path = slot / readable_filename(filename)
+    slot.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    slot.mkdir(mode=0o700)
+    try:
+        write_private(path, data)
+    except BaseException:
+        slot.rmdir()
+        raise
+    return path
 
 
 def prepare_storage(root: Path) -> None:

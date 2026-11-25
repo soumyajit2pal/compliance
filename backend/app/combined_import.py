@@ -11,17 +11,17 @@ from collections import Counter, defaultdict, deque
 import sqlalchemy as sa
 from fastapi import HTTPException
 
-from . import models as m, repository as repo,business_ids
+from . import models as m, repository as repo,business_ids, combined_family_links, notification_families
 from .access import actor_for
 from .events import audit, new_id, now
-from .import_template import canonical_header, CLAUSES_SHEET, CLAUSE_FIELDS, FIELDS
-from .schemas import ClauseInput, InstrumentInput
+from .import_template import canonical_header, CLAUSES_SHEET, CLAUSE_FIELDS, FIELDS, FAMILY_FIELDS
+from .schemas import ClauseInput, InstrumentInput, FamilyLinkInput
 from .source_documents import inspect_source, preserve_bytes, save_document
 from .storage import stored_path
+from .upload_policy import MAX_ATTACHMENTS, MAX_BUNDLE_MIB, MIB
 
 FORMAT = 'regulatory-clauses-v1'
-MAX_ATTACHMENTS = 50
-MAX_BUNDLE_BYTES = 100 * 1024 * 1024
+MAX_BUNDLE_BYTES = MAX_BUNDLE_MIB * MIB
 FLAGS = {key for key, *_ in CLAUSE_FIELDS if key.endswith('_flag')}
 
 
@@ -43,13 +43,13 @@ def manifest(batch):
 
 def is_combined(rows, attachments=()):
     return bool(attachments) or any(
-        any(canonical(raw).get(k) for k in ('import_reference', 'source_file_name', 'source_edition', 'existing_instrument_code'))
+        any(canonical(raw).get(k) for k in ('import_reference', 'source_file_name', 'source_edition', 'existing_instrument_code', *FAMILY_FIELDS))
         or (sheet == CLAUSES_SHEET and not canonical(raw).get('instrument_version_id'))
         for sheet, _, raw in rows)
 
 
 def read_attachment(storage, attachment):
-    path = stored_path(storage, attachment['id'], staging=attachment.get('kind') != 'document')
+    path = stored_path(storage, attachment['id'], attachment['file_name'], staging=attachment.get('kind') != 'document')
     if not path.is_file():
         raise HTTPException(409, 'An imported source file is unavailable. Contact the repository administrator.')
     data = path.read_bytes()
@@ -74,11 +74,12 @@ def referenced_files(rows):
     return {canonical(raw).get('source_file_name') for _, _, raw in rows if canonical(raw).get('source_file_name')}
 
 
-def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=None, check_attached=False):
+def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, storage=None, check_attached=False):
     from .migration_service import normalise
     results = []
     groups = defaultdict(list)
     records = defaultdict(list)
+    loaded_targets = loaded_targets or {}
     source_by_name = {s['file_name']: s for s in sources}
     reserved = set()
     has_clauses = any(sheet == CLAUSES_SHEET or canonical(raw).get('entity_type') == 'clause' for sheet, _, raw in rows)
@@ -103,13 +104,18 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=
             'parent_reference': data.get('parent_import_reference', ''), 'source': raw}
         results.append(result)
         groups[reference].append(result)
-        if reference in loaded_refs:
+        if kind == 'instrument':
+            records[reference].append(result)
+        if reference in loaded_targets:
             result['loaded_group'] = True
             continue
         if len(data) != len(raw):
             result['errors'].append('Duplicate columns refer to the same field')
-        if kind == 'instrument' and has_clauses and not data.get('import_reference'):
-            result['errors'].append('Enter an Import reference for each Regulatory records row when the workbook contains Clauses')
+        if kind == 'instrument' and not data.get('import_reference'):
+            if has_clauses:
+                result['errors'].append('Enter an Import reference for each Regulatory records row when the workbook contains Clauses')
+            elif any(data.get(key) for key in FAMILY_FIELDS):
+                result['errors'].append('Enter an Import reference for every record with a notification relationship')
         if not reference or len(reference) > 100:
             result['errors'].append('Enter an Import reference up to 100 characters')
         allowed = {f[0] for f in (CLAUSE_FIELDS if kind == 'clause' else FIELDS)} | {'entity_type'}
@@ -117,7 +123,6 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=
         if unknown:
             result['errors'].append('Unsupported populated columns: ' + ', '.join(unknown))
         if kind == 'instrument':
-            records[reference].append(result)
             existing = data.get('existing_instrument_code')
             edition = data.get('source_edition') or '1.0'
             result['edition_number'] = edition
@@ -224,7 +229,7 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=
                 result['errors'].append(checked_files[source['id']])
     identities = Counter(r.get('fingerprint') for r in results if r['entity_type'] == 'instrument' and not r.get('loaded_group') and r.get('fingerprint'))
     for reference, members in groups.items():
-        if reference in loaded_refs:
+        if reference in loaded_targets:
             continue
         headers = records[reference]
         clauses = [r for r in members if r['entity_type'] == 'clause']
@@ -291,6 +296,7 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=
             for r in members:
                 if not r['errors']:
                     r['errors'].append('This record and its clauses are pending corrections in another row of the group')
+    combined_family_links.validate_links(db, uploader, records, groups, loaded_targets, canonical)
     for r in results:
         r.pop('source', None)
         r.pop('existing_parents', None)
@@ -300,7 +306,7 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_refs=(), storage=
 
 def stage(db, actor, filename, data, rows, source_system, storage, source_files):
     if len(source_files) > MAX_ATTACHMENTS or len(data) + sum(len(v) for _, v in source_files) > MAX_BUNDLE_BYTES:
-        raise HTTPException(422, 'Import up to 50 source files, 20 MB per file and 100 MB for the complete upload.')
+        raise HTTPException(422, f'Import up to {MAX_ATTACHMENTS} source files and {MAX_BUNDLE_MIB} MiB in total.')
     sources, filenames = [], set()
     for name, content in source_files:
         details = inspect_source(name, content)
@@ -327,9 +333,9 @@ def stage(db, actor, filename, data, rows, source_system, storage, source_files)
             row_number=number, source_system=source_system, legacy_id=legacy, source_payload=json.dumps(raw, default=str),
             validation_status='CORRECTION_REQUIRED' if profile['errors'] else 'CONTENT_VALIDATION_PENDING',
             validation_errors=json.dumps(profile)))
-    preserve_bytes(db, storage, identifier, data, staging=True)
+    preserve_bytes(db, storage, identifier, filename, data, staging=True)
     for source, (_, content) in zip(sources, source_files):
-        preserve_bytes(db, storage, source['id'], content, staging=True)
+        preserve_bytes(db, storage, source['id'], source['file_name'], content, staging=True)
     audit(db, actor, 'migration', identifier, 'SOURCE_STAGED', new={
         'file': filename, 'sha256': bundle_hash, 'rows': len(rows), **notes})
     return {'id': identifier}
@@ -350,6 +356,9 @@ def preview(batch, rows):
             'status': members[0]['validation_status'] if len({r['validation_status'] for r in members}) == 1 else 'CORRECTION_REQUIRED',
             'row_ids': [r['id'] for r in members],
             'clause_row_ids': [r['id'] for r in sorted(members, key=lambda r: r['profile'].get('load_order', 100000)) if r['profile']['entity_type'] == 'clause']})
+        if record and record['profile'].get('family_link'):
+            groups[-1]['family_link'] = record['profile']['family_link']
+            groups[-1]['family_proposal'] = record['profile'].get('family_proposal')
     sources = {s['id']: s for s in notes['sources']}
     for row in rows:
         source = row['profile'].get('source_document')
@@ -362,16 +371,21 @@ def preview(batch, rows):
 def fresh_plan(db, batch, rows, storage):
     notes = manifest(batch)
     if storage:
-        workbook = stored_path(storage, batch['id'], staging=True)
+        workbook = stored_path(storage, batch['id'], batch['source_file'], staging=True)
         if not workbook.is_file() or hashlib.sha256(workbook.read_bytes()).hexdigest() != notes['workbook_sha256'] or digest([
                 notes['workbook_sha256'], sorted((s['file_name'], s['file_hash']) for s in notes['sources'])]) != batch['file_hash']:
             raise HTTPException(409, 'The original workbook or source manifest failed its integrity check.')
-    loaded = {json.loads(r['validation_errors'])['group_reference'] for r in rows if r['validation_status'] == 'LOADED'}
-    return plan(db, actor_for(db, batch['uploaded_by']), row_data(rows), manifest(batch)['sources'],
-        batch_id=batch['id'], loaded_refs=loaded, storage=storage, check_attached=True)
+    return plan(db, actor_for(db, batch['uploaded_by']), row_data(rows), notes['sources'],
+        batch_id=batch['id'], loaded_targets=loaded_targets(rows), storage=storage, check_attached=True)
+
+
+def loaded_targets(rows):
+    return {json.loads(row['validation_errors'])['group_reference']: row['target_entity_id'] for row in rows
+            if row['validation_status'] == 'LOADED' and row['target_entity_type'] == 'instrument'}
 
 
 def reprofile(db, actor, batch, storage):
+    from . import migration_work
     if actor.id != batch['uploaded_by']:
         raise HTTPException(403, 'Only the uploading Author can refresh this combined import.')
     rows = batch_rows(db, batch['id'], lock=True)
@@ -385,6 +399,8 @@ def reprofile(db, actor, batch, storage):
             validation_errors=json.dumps(profile)))
         count += 1
     audit(db, actor, 'migration', batch['id'], 'SOURCE_REPROFILED', new={'rows': count})
+    migration_work.request_review(db, batch['id'], actor.id,
+        already_pending=any(row['validation_status'] == migration_work.PENDING for row in rows))
     return {'profiled': count}
 
 
@@ -410,7 +426,7 @@ def approval_snapshot(profile):
     return {k: v for k, v in profile.items() if k not in {'validated_by', 'validated_at'}}
 
 
-def load(db, actor, batch, storage):
+def load(db, actor, batch, storage, payload=None):
     if actor.id != batch['uploaded_by']:
         raise HTTPException(403, 'Only the uploading Author can load this combined import.')
     rows = batch_rows(db, batch['id'], lock=True)
@@ -428,13 +444,18 @@ def load(db, actor, batch, storage):
             if row['validation_status'] != 'MIGRATION_READY' or profile['errors'] or not previous.get('validated_by') or previous['validated_by'] == actor.id or approval_snapshot(profile) != approval_snapshot(previous):
                 raise HTTPException(409, f"{row['sheet_name']} row {row['row_number']} changed eligibility. Refresh validation preview and obtain independent content validation again.")
             groups[profile['group_reference']].append((row, profile))
+    relationships = [(row, profile) for members in groups.values() for row, profile in members if profile.get('family_link')]
+    if relationships and (not payload or not payload.reviewer_id or not payload.approver_id
+                          or len({actor.id, payload.reviewer_id, payload.approver_id}) != 3):
+        raise HTTPException(422, 'Choose an independent Compliance Reviewer and Final Approver for the notification proposals.')
     # Verify every selected file before making any business target.
     for members in groups.values():
         for _, profile in members:
             if profile.get('source_attachment'):
                 read_attachment(storage, profile['source_attachment'])
-    count = 0
-    for members in groups.values():
+    instruments = loaded_targets(rows)
+    updates = {}
+    for reference, members in groups.items():
         record_row, record = next((r, p) for r, p in members if p['entity_type'] == 'instrument')
         values = dict(record['normalised'])
         if values.get('version_id'):
@@ -448,6 +469,7 @@ def load(db, actor, batch, storage):
                 values['source_document_id'] = document['id']
             created = repo.create_instrument(db, actor, InstrumentInput(**values),imported=True)
             instrument_id, version_id = created['id'], created['version_id']
+        instruments[reference] = instrument_id
         loaded_document_id = values['source_document_id']
         targets = {record_row['id']: ('instrument', instrument_id)}
         clause_ids = {}
@@ -465,14 +487,30 @@ def load(db, actor, batch, storage):
             previous = json.loads(row['validation_errors'])
             previous.update(target_instrument_id=instrument_id, target_version_id=version_id,
                 loaded_source_document_id=loaded_document_id)
-            db.execute(m.migration_row.update().where(m.migration_row.c.id == row['id']).values(
-                validation_status='LOADED', target_entity_type=kind, target_entity_id=target,
-                loaded_at=now(), validation_errors=json.dumps(previous)))
-            count += 1
+            updates[row['id']] = (kind, target, previous)
+    for row, profile in relationships:
+        link = profile['family_link']
+        child_id = instruments[profile['group_reference']]
+        parent_id = link.get('parent_id') or instruments.get(link['parent_reference'])
+        if not parent_id:
+            raise HTTPException(409, 'The parent notification is unavailable. Refresh the validation preview and try again.')
+        proposal = notification_families.propose_link(db, actor, parent_id, FamilyLinkInput(
+            child_id=child_id, relationship_type=link['relationship_type'], effective_from=link['effective_from'],
+            reviewer_id=payload.reviewer_id, approver_id=payload.approver_id,
+            basis=f"Reviewed import {batch['code']}, Regulatory records row {row['row_number']}. Parent notification {link['parent_reference']}."))
+        updates[row['id']][2]['family_proposal'] = {'id': proposal['id'], 'instrument_id': child_id}
+    for identifier, (kind, target, lineage) in updates.items():
+        db.execute(m.migration_row.update().where(m.migration_row.c.id == identifier).values(
+            validation_status='LOADED', target_entity_type=kind, target_entity_id=target,
+            loaded_at=now(), validation_errors=json.dumps(lineage)))
     loaded = db.execute(sa.select(sa.func.count()).select_from(m.migration_row).where(
         m.migration_row.c.batch_id == batch['id'], m.migration_row.c.validation_status == 'LOADED')).scalar_one()
     db.execute(m.migration_batch.update().where(m.migration_batch.c.id == batch['id']).values(
         loaded_count=loaded, pending_count=batch['source_count'] - loaded,
         record_status='LOADED' if loaded == batch['source_count'] else 'PARTIALLY_LOADED'))
-    audit(db, actor, 'migration', batch['id'], 'DRAFT_ROWS_LOADED', new={'loaded_rows': count, 'groups': len(groups)})
-    return {'loaded': count, 'groups': len(groups)}
+    result = {'loaded': len(updates), 'groups': len(groups)}
+    if relationships:
+        result['family_proposals'] = len(relationships)
+    audit(db, actor, 'migration', batch['id'], 'DRAFT_ROWS_LOADED',
+        new={'loaded_rows': result['loaded'], 'groups': result['groups'], 'family_proposals': len(relationships)})
+    return result

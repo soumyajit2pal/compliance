@@ -1,18 +1,22 @@
-import {customFields, captureCustom, formFields} from '../ui/dropdown-fields.ts';
+import { referenceSelect } from '../ui/reference-options.ts';
+import { fileLimitHint } from '../core/upload-policy.ts';
+import {customFieldGroup, captureCustom, formFields} from '../ui/dropdown-fields.ts';
 import { state } from '../core/state.ts';
 import { api, downloadProtected } from '../core/api.ts';
 import { dialog } from '../core/dom.ts';
-import { childIndex, subtreeIds } from '../core/hierarchy.ts';
+import { childIndex } from '../core/hierarchy.ts';
 import { esc, title, ref, badge, button, field, select, input, area, fixedSelect, localDate, message } from '../ui/components.ts';
 import { modal, close } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
 import { heading } from '../ui/layout.ts';
 import { domainStatus } from '../ui/domains.ts';
 import { organisationImportTree, type OrganisationImportRow } from '../ui/organisation-import-tree.ts';
+import { templateUploadModal } from '../ui/template-upload.ts';
 import { panel, table, tablePanel, tabs, note, searchForm, detailFields, pagedCollection } from '../ui/widgets.ts';
 
 const otherLookups = ['frequency', 'evidence_type', 'confidentiality_class', 'process', 'legal_entity', 'product', 'channel', 'customer_segment', 'geography', 'system', 'taxonomy_scheme', 'control_type', 'execution_mode', 'obligation_nature', 'role'];
 const organisationImportPath = '/admin/organisation-import';
+const organisationTemplateUrl = '/api' + organisationImportPath + '/template';
 const availableNow = (row) => row.active_flag &&
   (!row.effective_from || row.effective_from <= localDate()) &&
   (!row.effective_to || row.effective_to > localDate());
@@ -96,9 +100,13 @@ function organisationUploadDialog() {
       esc(config.lists[rule.source].options.filter(option => option.active).map(option => option.code).join(', ')),
     ]), { caption: 'Additional organisation fields', pageKey: 'org-import-fields', summary: false },
   )}</details>` : '';
-  modal('Upload organisation units', field('Excel workbook', input('file', '', 'file', 'accept=".xlsx" required'),
-    'Use the organisation template. Maximum 2,000 rows and 2 MB.') + instructions,
-  'organisation-import-upload', 'Preview import', 'The workbook adds new units by code and parent code.');
+  templateUploadModal('Upload organisation units', field('Excel workbook', input('file', '', 'file', 'accept=".xlsx" required'),
+    'Up to 2,000 rows. ' + fileLimitHint('organisation_mib')) + instructions, {
+    formId: 'organisation-import-upload',
+    submitLabel: 'Preview import',
+    excelTemplate: organisationTemplateUrl,
+    subtitle: 'The workbook adds new units by code and parent code.',
+  });
 }
 export async function renderMasters(_id, query = new URLSearchParams()) {
   const request = state.routeNumber;
@@ -153,11 +161,7 @@ export async function renderMasters(_id, query = new URLSearchParams()) {
           `<code>${esc(r.code)}</code>`,
           `<span class="record-title">${esc(r.name)}</span>`,
           key === 'domains'
-            ? esc(
-                r.domain_owner_unit_id
-                  ? ref('organisational_unit', r.domain_owner_unit_id)
-                  : 'Not assigned',
-              )
+            ? (r.domain_owner_unit_id ? esc(ref('organisational_unit', r.domain_owner_unit_id)) : badge('NOT_ASSIGNED'))
             : esc(r.classification || 'Controlled reference'),
           key === 'domains' ? domainStatus(r) : badge(r.active_flag ? 'ACTIVE' : 'INACTIVE'),
           `<div class="row">${editButton(source, r)}${key === 'domains' ? button('domain', 'Set owner', `data-id="${r.id}"`, 'small') : ''}</div>`,
@@ -178,7 +182,6 @@ async function masterDialog(key, id = '', parent = '') {
   if(request!==state.routeNumber || !state.identity) return;
   state.view.masterEdit = { key, id, definition };
   // Exclude the current record and all its descendants from a parent picker.
-  const excluded = definition.parent_field ? subtreeIds(state.masters[key], definition.parent_field, id) : new Set();
   const fields = definition.fields.map((f) => {
     let value = row?.[f.name] ?? (f.name === definition.parent_field ? parent : f.default) ?? '';
     if (!row && key === 'organisational_unit' && f.name === 'unit_type' && f.choices.includes('SUB_DEPARTMENT') &&
@@ -193,10 +196,11 @@ async function masterDialog(key, id = '', parent = '') {
       return `<div class="field"><label class="check-label"><input type="checkbox" name="${esc(f.name)}" ${value ? 'checked' : ''}> ${esc(label)}</label></div>`;
     }
     if (f.kind === 'reference') {
-      const choices = (state.masters[f.source] || []).filter((r) =>
-        (availableNow(r) || (row && r.id === value)) && !(f.name === definition.parent_field && excluded.has(r.id)) &&
-        (f.name !== 'domain_owner_unit_id' || r.unit_type === 'DEPARTMENT'));
-      control = select(f.name, choices.map(r => ({ ...r, option_label: r.code + ' · ' + r.name })), value, 'option_label', required);
+      control = referenceSelect(f.name, f.source, value, required, undefined, {
+        format: 'code',
+        ...(f.name === definition.parent_field && id ? {excludeTree: {id, parentField: definition.parent_field}} : {}),
+        ...(f.name === 'domain_owner_unit_id' ? {unitTypes: ['DEPARTMENT']} : {}),
+      });
     } else if (f.kind === 'select') control = fixedSelect(f.name, f.choices, value, required);
     else if (f.kind === 'textarea') control = area(f.name, value, `${required} maxlength="${f.max_length || 10000}"`);
     else control = input(f.name, value, f.kind === 'number' ? 'number' : f.kind === 'date' ? 'date' : 'text',
@@ -206,7 +210,7 @@ async function masterDialog(key, id = '', parent = '') {
     return field(f.label, control, hint, f.kind === 'textarea' ? 'full' : '');
   }).join('');
   modal((row ? 'Edit ' : 'Add ') + definition.label.toLowerCase(),
-    `<div class="form-grid">${fields}${customFields(formKey,answers)}${field('Reason for change', area('reason', '', 'required minlength="5" maxlength="2000"'), '', 'full')}</div>`,
+    `<div class="form-grid">${fields}${customFieldGroup(formKey,answers)}${field('Reason for change', area('reason', '', 'required minlength="5" maxlength="2000"'), '', 'full')}</div>`,
     'master-record', row ? 'Save changes' : 'Add record',
     key === 'organisational_unit' ? 'Parent changes also update descendant levels and organisation scope.' : 'Changes are retained in the audit history.');
 }
@@ -237,7 +241,7 @@ export function masterHandlers({ render }) {
   }
   return {
     actions: {
-      'organisation-import-template': () => downloadProtected('/api' + organisationImportPath + '/template'),
+      'organisation-import-template': () => downloadProtected(organisationTemplateUrl),
       'organisation-import-upload': organisationUploadDialog,
       'add-master': ({ key, parent }) => masterDialog(key, '', parent),
       'edit-master': ({ key, id }) => masterDialog(key, id),
@@ -248,13 +252,7 @@ export function masterHandlers({ render }) {
           'Configure domain ownership',
           `<div class="source-column mb16"><h4>REGULATORY DOMAIN</h4><p>${esc(d.code)} · ${esc(d.name)}</p></div><div class="form-grid">${field(
             'Bank-approved owning department',
-            select(
-              'domain_owner_unit_id',
-              state.masters.organisational_unit.filter((u) => u.active_flag && u.unit_type === 'DEPARTMENT'),
-              d.domain_owner_unit_id,
-              'name',
-              'required',
-            ),
+            referenceSelect('domain_owner_unit_id','organisational_unit',d.domain_owner_unit_id,'required',undefined,{unitTypes: ['DEPARTMENT']}),
           )}<label class="check-label"><input type="checkbox" name="active_flag" ${d.active_flag ? 'checked' : ''}> Allow submissions for Compliance review</label></div><div class="mt24"><h4 class="mb16">Current saved status</h4>${domainStatus(d)}</div><div class="mt24">${note('Choose the bank-approved owning department and tick “Allow submissions for Compliance review” when the domain is ready. Leaving it unticked keeps the domain available for Drafts only. Your changes take effect when you save. A department’s presence in the hierarchy does not nominate it as domain owner.')}</div>`,
           'domain',
           'Save master configuration',

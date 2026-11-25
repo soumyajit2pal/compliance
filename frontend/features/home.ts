@@ -8,7 +8,7 @@ import { stat, person } from '../ui/widgets.ts';
 import { canNavigate } from '../ui/layout.ts';
 
 function taskLink(t) {
-  if(['ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(t.workflow_kind))return t.action_path;
+  if(t.action_path)return t.action_path;
   if(t.workflow_kind==='OWNERSHIP_CHANGE')return 'obligations/'+t.obligation_id+'?tab=owners&ownership_change='+t.ownership_change_id;
   if(t.workflow_kind==='OBLIGATION')return 'obligations/'+t.obligation_id+'?tab=owners';
   if(t.workflow_kind==='FAMILY')return 'notification-families/'+t.instrument_id+'?proposal='+t.proposal_id;
@@ -16,6 +16,10 @@ function taskLink(t) {
   return 'repository/' + t.instrument_id + '?version=' + t.version_id + '&tab=workflow';
 }
 function taskPresentation(t) {
+  if(t.workflow_kind==='CLAUSE_INTERPRETATION')return {label:'Bank interpretation',description:'Review the proposed interpretation on the approved source clause.',action:'Open interpretation',icon:'file'};
+  if(t.workflow_kind==='MIGRATION_IMPORT')return t.kind==='DECISION'
+    ? {label:'Import content review',description:'Compare the imported rows with the authoritative source and confirm the review.',action:'Open import review',icon:'file'}
+    : {label:'Import ready to load',description:'Load the independently validated rows as Drafts.',action:'Open ready import',icon:'file'};
   if(t.workflow_kind==='LEAVE_DELEGATION')return {label:'Leave cover',description:'Check the existing roles, scope and dates before deciding.',action:'Review leave cover',icon:'users'};
   if(t.workflow_kind==='CONTROL')return {label:'Check and obligation link review',description:'Review the check or obligation link and record your named decision.',action:t.kind==='DRAFT'?'Continue preparation':'Review proposal',icon:'shield'};
   if(['ACTION','ACTION_EXTENSION'].includes(t.workflow_kind))return {label:t.workflow_kind==='ACTION_EXTENSION'?'Internal target request':'Assigned action',description:'Record the outcome and proof, then follow independent review.',action:t.kind==='DECISION'?'Review assigned work':'Continue work',icon:'checkSquare'};
@@ -27,7 +31,7 @@ function taskPresentation(t) {
   return {label:t.stage?title(t.stage):'Review & approval',description:'Read the source and record the decision for your assigned stage.',action:'Open decision',icon:'shield'};
 }
 function workTitle(task,sources) {
-  return (['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(task.workflow_kind)?task.title:sources.find(r=>r.id===task.instrument_id)?.title||task.title)||'Assigned work';
+  return (['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION','MIGRATION_IMPORT'].includes(task.workflow_kind)?task.title:sources.find(r=>r.id===task.instrument_id)?.title||task.title)||'Assigned work';
 }
 function dueLabel(task) {
   const overdue=task.due_at&&task.due_at.slice(0,10)<localDate();

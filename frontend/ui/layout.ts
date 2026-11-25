@@ -57,10 +57,14 @@ function navigation(key) {
   const model=navigationModel(state.identity,key,new URLSearchParams(location.hash.split('?')[1]||''));
   const navItem=(i)=>{
     const count=i.id==='tasks'?state.work?.length:i.id==='users'?state.adminAccess?.action_required||0:undefined;
-    return `<a class="nav-item ${i.id===model.selected?'active':''}" href="#${esc(i.href)}" ${i.id===model.selected?'aria-current="page"':''}>${icon(i.icon)}<span>${esc(i.label)}</span>${count!==undefined?`<span class="nav-count">${count}</span>`:''}</a>`;
+    return `<a class="nav-item ${i.id===model.selected?'active':''}" href="#${esc(i.href)}" data-nav-label="${esc(i.label)}" ${i.id===model.selected?'aria-current="page"':''}>${icon(i.icon)}<span class="nav-label">${esc(i.label)}</span>${count!==undefined?`<span class="nav-count">${count}</span>`:''}</a>`;
   };
   const primary=model.primary.map(navItem).join('');
-  const groups=model.groups.map(g=>`<details class="portal-nav-group" data-nav-group="${g.id}" ${g.id!=='administration'||g.items.some(i=>i.id===model.selected)?'open':''}><summary>${icon(g.icon)}<span>${esc(g.label)}</span>${icon('down')}</summary><div class="portal-nav-children">${g.items.map(navItem).join('')}</div></details>`).join('');
+  const groups=model.groups.map(g=>{
+    const current=g.items.some(i=>i.id===model.selected);
+    return `<details class="portal-nav-group" data-nav-group="${g.id}" ${g.id!=='administration'||current?'open':''}><summary>${icon(g.icon)}<span>${esc(g.label)}</span>${icon('down')}</summary><div class="portal-nav-children">${g.items.map(navItem).join('')}</div></details>
+      <button type="button" class="portal-nav-group-trigger${current?' active':''}" data-nav-group-trigger="${g.id}" data-nav-label="${esc(g.label)}" aria-label="${esc(g.label)}" aria-controls="portal-nav-flyout" aria-expanded="false">${icon(g.icon)}</button>`;
+  }).join('');
   return `<nav class="nav-scroll" aria-label="Portal navigation" data-nav-owner="${esc(state.identity.actual_user?.id||state.identity.user.id)}:${esc(state.identity.acting_for?.id||'own')}"><div class="portal-primary-nav">${primary}</div>${groups}</nav>`;
 }
 function scopeBanner() {
@@ -90,16 +94,25 @@ export function shell(contents, key, {showEmployeeWarning = true} = {}) {
   const unread = state.notifications?.filter((n) => !n.read_at).length || 0;
   document.body.classList.add('portal-mode');
   root.innerHTML = `<div class="app-shell${key === 'home' ? ' home-mode' : ''}" data-workspace="${esc(key)}"><aside id="portal-sidebar" class="sidebar" aria-label="Main navigation">
-    <a class="brand" href="#home"><img class="brand-mark" src="${brandIconUrl}" width="42" height="42" alt=""><span class="brand-name">Compliance<span>by Design</span></span></a>
+    <a class="brand" href="#home" data-nav-label="Compliance by Design"><img class="brand-mark" src="${brandIconUrl}" width="42" height="42" alt=""><span class="brand-name nav-label">Compliance<span>by Design</span></span></a>
     <button class="icon-button portal-nav-close" type="button" data-action="menu" aria-label="Close navigation">${icon('x')}</button>
     <div class="portal-bank"><img src="${assetUrl('assets/bank-of-maharashtra-wordmark.png')}" alt="Bank of Maharashtra"><span>Your compliance workspace</span></div>
     ${navigation(key)}
-    <div class="nav-bottom">${state.ready ? `<a class="portal-help" href="#help">${icon('book')}<span>Need a hand?<small>Step-by-step help</small></span>${icon('arrow')}</a><div class="portal-footer-links"><button type="button" data-action="profile">My role</button><span>·</span><a href="#applications">Other applications</a></div>` : ''}
+    <div class="nav-bottom">${state.ready ? `<a class="portal-help" href="#help" data-nav-label="Help &amp; workflow guide">${icon('book')}<span class="nav-label">Need a hand?<small>Step-by-step help</small></span>${icon('arrow','nav-help-arrow')}</a><div class="portal-footer-links"><button type="button" data-action="profile" data-nav-label="My role">${icon('users','nav-footer-icon')}<span class="nav-label">My role</span></button><span>·</span><a href="#applications" data-nav-label="Other applications">${icon('external','nav-footer-icon')}<span class="nav-label">Other applications</span></a></div>` : ''}
     <div class="profile"><span class="avatar">${esc(initials)}</span>${profileDetails}</div></div>
-  </aside><button class="portal-nav-scrim" type="button" data-action="menu" aria-label="Close navigation"></button>
-  <div class="main-shell"><header class="topbar"><div class="portal-location"><button class="icon-button mobile-menu" type="button" data-action="menu" aria-label="Open navigation" aria-controls="portal-sidebar" aria-expanded="false">${icon('menu')}</button><div class="breadcrumb"><a href="#home">My workspace</a><span>/</span><strong>${esc(label)}</strong></div></div>
+  </aside><button class="portal-nav-scrim" type="button" data-action="menu" aria-label="Close navigation"></button><span class="portal-nav-tooltip" aria-hidden="true" hidden></span>
+  <nav id="portal-nav-flyout" class="portal-nav-flyout" aria-labelledby="portal-nav-flyout-title" hidden><h2 id="portal-nav-flyout-title"></h2><div class="portal-nav-flyout-links"></div></nav>
+  <div class="main-shell"><header class="topbar"><div class="portal-location">
+    <button class="icon-button portal-nav-toggle" type="button" data-action="menu" aria-controls="portal-sidebar" aria-expanded="false">
+      ${icon('menu','portal-nav-menu')}${icon('panelCollapse','portal-nav-collapse')}${icon('panelExpand','portal-nav-expand')}
+      <span class="portal-nav-toggle-label">Open navigation</span>
+    </button><div class="breadcrumb"><a href="#home">My workspace</a><span>/</span><strong>${esc(label)}</strong></div></div>
   <div class="topbar-right">${state.ready ? `<button class="global-search" type="button" data-action="workspace-search" aria-label="Search the workspace">${icon('search')}<span>${canNavigate('repository') ? 'Find a notification or task' : 'Find a person or setting'}</span><span class="kbd">⌘ K</span></button><a class="portal-help-top" href="#help">${icon('book')}Help</a><a class="icon-button portal-notifications" href="#notifications" aria-label="Notifications">${icon('bell')}${unread ? '<i class="notification-dot"></i>' : ''}</a>` : ''}<button class="portal-person" type="button" data-action="profile"><span class="avatar">${esc(initials)}</span>${profileDetails}</button><button type="button" class="icon-button" data-action="logout" aria-label="Sign out" title="Sign out">${icon('logout')}</button></div></header>
-  <main class="content" id="main-content">${showEmployeeWarning ? employeeWarning(state.identity.user.employee_warning?{...state.identity.employee_profile,warning:state.identity.user.employee_warning}:state.identity.employee_profile) : ''}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main><footer class="page-footer"><span class="footer-brand"><img src="${brandIconUrl}" width="22" height="22" alt="">COMPLIANCE BY DESIGN</span><span>Approved history retained</span></footer></div></div>`;
+  <main class="content" id="main-content">${showEmployeeWarning ? employeeWarning(state.identity.user.employee_warning?{...state.identity.employee_profile,warning:state.identity.user.employee_warning}:state.identity.employee_profile) : ''}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main>
+  <footer class="page-footer">
+    <span class="footer-brand"><img src="${brandIconUrl}" width="22" height="22" alt="">COMPLIANCE BY DESIGN</span>
+    <span>© ${new Date().getFullYear()} Bank of Maharashtra. All rights reserved.</span>
+  </footer></div></div>`;
 }
 function adminAccessNotice() {
   const summary = state.identity?.roles.includes('ADMIN') ? state.adminAccess : null;
@@ -111,8 +124,9 @@ function adminAccessNotice() {
 export function heading(name, description, actions = '') {
   return `<div class="page-header workspace-page-header"><div class="page-header-copy"><span class="page-header-eyebrow">YOUR COMPLIANCE WORKSPACE</span><h1>${esc(name)}</h1>${description ? `<p>${esc(description)}</p>` : ''}</div>${actions ? `<div class="page-actions">${actions}</div>` : ''}</div>`;
 }
-export function pageHelp(name, text) {
-  return `<details class="portal-page-help"><summary>${icon('info')}<span>${esc(name)}</span><small>How to use this page</small>${icon('down')}</summary><div><p>${text}</p><p><a class="text-link" href="#help">Read the guide ${icon('arrow')}</a></p></div></details>`;
+export function pageHelp(name, text, topic: string) {
+  const guide = 'help?' + new URLSearchParams({topic});
+  return `<details class="portal-page-help"><summary>${icon('info')}<span>${esc(name)}</span><small>How to use this page</small>${icon('down')}</summary><div><p>${text}</p><p><a class="text-link" href="#${esc(guide)}">Read the guide ${icon('arrow')}</a></p></div></details>`;
 }
 
 function actingBanner(){const d=state.identity.acting_for;if(!d)return '';return `<aside class="scope-banner leave-acting-banner" role="status" aria-label="Active leave cover">${icon('users')}<span><strong>${esc(d.actual_user_name)}</strong> acting on behalf of <strong>${esc(d.principal_name)}</strong> · ${esc(title(d.role_code))} · ${esc(ref('organisational_unit',d.scope_unit_id))} · until ${esc(d.ends_on)}. Decisions record both names.</span>${buttonStop()}</aside>`;}

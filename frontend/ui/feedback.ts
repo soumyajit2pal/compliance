@@ -1,7 +1,12 @@
+import { icon } from './icons.ts';
+
 /** Keep feedback in the active native dialog's top layer, or in the page toast. */
 let messageTimer: number | undefined;
 const errorSelector = '#form-error, #login-error, [data-dialog-feedback="error"]';
 const fallbackError = 'The action could not be completed. Please try again.';
+type FeedbackTone = 'success' | 'info' | 'exception' | 'error';
+const feedbackIcons = { success: 'check', info: 'info', exception: 'alert', error: 'alert' };
+const isAlert = (tone: FeedbackTone) => tone === 'error' || tone === 'exception';
 
 export function clearMessage() {
   if (messageTimer !== undefined) window.clearTimeout(messageTimer);
@@ -24,8 +29,9 @@ function activeDialog() {
   return document.querySelector<HTMLDialogElement>('dialog[open]');
 }
 
-function showError(node: HTMLElement, text: string) {
+function showError(node: HTMLElement, text: string, tone: FeedbackTone) {
   clearMessage();
+  node.classList.toggle('exception', tone === 'exception');
   node.setAttribute('role', 'alert');
   node.setAttribute('aria-atomic', 'true');
   node.tabIndex = -1;
@@ -47,7 +53,10 @@ function dialogFeedback(modal: HTMLDialogElement, error: boolean) {
 }
 
 /** Show one persistent, focused error in its visible form; never behind a modal. */
-export function reportError(text: unknown, scope?: HTMLElement) {
+export function reportError(error: unknown, scope?: HTMLElement) {
+  const status = error && typeof error === 'object' && 'status' in error ? error.status : undefined;
+  const tone = [400, 409, 413, 415, 422, 429].some(code => code === status) ? 'exception' : 'error';
+  const text = error instanceof Error ? error.message : error;
   const value = typeof text === 'string' && text.trim() ? text : fallbackError;
   const modal = activeDialog();
   const enclosingDialog = scope?.closest<HTMLDialogElement>('dialog');
@@ -55,24 +64,25 @@ export function reportError(text: unknown, scope?: HTMLElement) {
   const inline = visibleScope ? scope.querySelector<HTMLElement>(errorSelector) : null;
   if (inline) {
     modal?.querySelector('[data-dialog-feedback="status"]')?.replaceChildren();
-    showError(inline, value);
-  } else if (modal) {
-    modal.querySelector('[data-dialog-feedback="status"]')?.replaceChildren();
-    showError(dialogFeedback(modal, true), value);
+    showError(inline, value, tone);
   } else {
-    message(value, true);
+    message(value, tone);
   }
 }
 
-export function message(text: unknown, error = false) {
-  const value = typeof text === 'string' ? text : error ? fallbackError : String(text ?? '');
+export function message(text: unknown, tone: FeedbackTone = 'success') {
+  const alert = isAlert(tone);
+  const value = typeof text === 'string' ? text : alert ? fallbackError : String(text ?? '');
   const modal = activeDialog();
   if (modal) {
-    if (error) reportError(value, modal);
-    else {
+    if (alert) {
+      modal.querySelector('[data-dialog-feedback="status"]')?.replaceChildren();
+      showError(dialogFeedback(modal, true), value || fallbackError, tone);
+    } else {
       clearMessage();
       clearFormError(modal);
       const node = dialogFeedback(modal, false);
+      node.classList.toggle('success', tone === 'success');
       node.setAttribute('role', 'status');
       node.setAttribute('aria-live', 'polite');
       node.textContent = value;
@@ -83,9 +93,10 @@ export function message(text: unknown, error = false) {
   clearMessage();
   const node = document.querySelector<HTMLElement>('#message');
   if (!node || !value) return;
-  node.className = error ? 'error' : '';
-  node.setAttribute('role', error ? 'alert' : 'status');
-  node.setAttribute('aria-live', error ? 'assertive' : 'polite');
-  node.textContent = value;
+  node.className = tone;
+  node.setAttribute('role', alert ? 'alert' : 'status');
+  node.setAttribute('aria-live', alert ? 'assertive' : 'polite');
+  node.innerHTML = icon(feedbackIcons[tone]);
+  node.append(document.createTextNode(value));
   messageTimer = window.setTimeout(clearMessage, 7000);
 }

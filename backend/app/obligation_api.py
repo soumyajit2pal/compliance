@@ -5,6 +5,8 @@ from typing import Literal
 from fastapi import Depends,Query,Request,Response,HTTPException,UploadFile,File,Form
 from fastapi.responses import FileResponse
 from .storage import stored_path
+from . import upload_policy
+from .upload_formats import validate_workbook
 import hashlib
 import sqlalchemy as sa
 from . import models as m,obligations as service,obligation_schemas as contracts
@@ -176,14 +178,16 @@ def install(app,get_db,current):
 
     @app.post('/api/obligation-imports')
     async def stage(request:Request,file:UploadFile=File(...),source_system:str=Form(...),replaces_batch_id:str|None=Form(default=None),db=Depends(get_db),actor=Depends(current)):
-        data=await file.read(20*1024*1024+1)
-        if len(data)>20*1024*1024:raise HTTPException(422,'Limit the workbook to 20 MB.')
+        imports.require(actor,{'AUTHOR'})
+        limits,_=upload_policy.configuration(db)
+        data=await upload_policy.read_upload(file,limits.workbook_mib)
+        validate_workbook(data)
         return imports.stage(db,actor,file.filename or '',data,source_system,request.app.state.settings.storage,replaces_batch_id)
 
     @app.get('/api/obligation-imports/{identifier}/source')
     def original(identifier:str,request:Request,db=Depends(get_db),actor=Depends(current)):
         data=imports.preview(db,actor,identifier)
-        path=stored_path(request.app.state.settings.storage,identifier,staging=True)
+        path=stored_path(request.app.state.settings.storage,identifier,data['batch']['source_file'],staging=True)
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=data['batch']['file_hash']:
             raise HTTPException(409,'The retained workbook is unavailable or failed its integrity check.')
         audit(db,actor,'obligation_import',identifier,'SOURCE_DOWNLOADED')

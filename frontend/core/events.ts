@@ -1,24 +1,30 @@
-import {activateNavigation,closeNavigation,toggleNavigation} from './navigation-state.ts';
+import {activateNavigation,closeNavigation,toggleNavigation,watchNavigationBreakpoint} from './navigation-state.ts';
 import {downloadProtected} from './api.ts';
 import {selectedDelegationId} from './delegation-context.ts';
 import { state } from './state.ts';
 import { withoutPaging } from './pagination.ts';
 import { dialog } from './dom.ts';
 import { render } from './router.ts';
-import { choosePeople } from './assignees.ts';
 import { selectDemoUser, clearDemoSelection } from '../features/auth.ts';
 import { syncLdapForm } from '../features/settings.ts';
-import { options, message } from '../ui/components.ts';
 import { close } from '../ui/dialog.ts';
 import { clearFormError, reportError } from '../ui/feedback.ts';
 import { domainGuidance, syncSecondaryDomainPicker } from '../ui/domains.ts';
 import { beginInteraction, isBusy } from '../ui/loading.ts';
 import { installDashboardInfo } from '../ui/dashboard-info.ts';
+import { installNavigationOverlays } from '../ui/navigation-overlays.ts';
+import { updateRelationshipHint } from '../ui/relationship-guidance.ts';
+import { installReferenceRefresh, refreshReferenceForm, refreshScopedAssignees, unavailableSelection, validateReferenceSelections } from '../ui/reference-options.ts';
+import { unavailableChoiceMessage } from '../ui/refresh-options.ts';
 
 /** Bind once; replacement views and dialogs use delegated events. */
 export function installEvents({ actions, forms }) {
   installDashboardInfo();
+  installNavigationOverlays();
+  installReferenceRefresh();
+  watchNavigationBreakpoint();
   actions.close = close;
+  actions['refresh-reference-options'] = (_data, trigger: HTMLElement) => refreshReferenceForm(trigger.closest('form'));
   const closeFilters = (details: HTMLDetailsElement, restoreFocus = false) => {
     const focusInside = details.contains(document.activeElement);
     details.open = false;
@@ -43,7 +49,7 @@ export function installEvents({ actions, forms }) {
   document.addEventListener('click', async (event) => {
     activateNavigation(event, () => { void render(); });
     const anchor=(event.target as Element)?.closest<HTMLAnchorElement>('a[href]');
-    if(selectedDelegationId()&&anchor){const url=new URL(anchor.href,location.href);if(url.origin===location.origin&&url.pathname.startsWith('/api/')){event.preventDefault();try{await downloadProtected(anchor.href);}catch(error){message(error.message,true);}return;}}
+    if(selectedDelegationId()&&anchor){const url=new URL(anchor.href,location.href);if(url.origin===location.origin&&url.pathname.startsWith('/api/')){event.preventDefault();try{await downloadProtected(anchor.href);}catch(error){reportError(error);}return;}}
     document.querySelectorAll<HTMLDetailsElement>('.filter-more[open]').forEach((details) => {
       if (!details.contains(event.target as Node)) closeFilters(details);
     });
@@ -55,7 +61,7 @@ export function installEvents({ actions, forms }) {
     try {
       await actions[target.dataset.action]?.(target.dataset, target);
     } catch (error) {
-      message(error.message, true);
+      reportError(error);
     } finally {
       finish();
     }
@@ -65,6 +71,7 @@ export function installEvents({ actions, forms }) {
     if (!forms[form.id]) return;
     event.preventDefault();
     if (isBusy(form)) return;
+    if (!form.hasAttribute('data-wizard') && !validateReferenceSelections(form)) return;
     clearFormError(form);
     const finish = beginInteraction(event.submitter instanceof HTMLElement ? event.submitter : form, form.id === 'login' ? 'Signing in…'
       : form.id.includes('search') ? 'Searching…'
@@ -74,7 +81,7 @@ export function installEvents({ actions, forms }) {
     try {
       await forms[form.id](form, event.submitter);
     } catch (error) {
-      reportError(error.message, form);
+      reportError(error, form);
     } finally {
       finish();
     }
@@ -83,11 +90,13 @@ export function installEvents({ actions, forms }) {
   document.addEventListener('input', syncLdapForm);
   document.addEventListener('change', async (event) => {
     const control = event.target as HTMLElement;
+    const target = control as HTMLInputElement | HTMLSelectElement;
+    if (target.validationMessage === unavailableChoiceMessage && !unavailableSelection(target)) target.setCustomValidity('');
     const finish = beginInteraction(control, 'Loading options…');
     try {
       syncLdapForm(event);
       selectDemoUser(event);
-      const target = event.target as HTMLInputElement | HTMLSelectElement;
+      if (target instanceof HTMLSelectElement) updateRelationshipHint(target);
       if (target.name === 'primary_domain_id' && target.closest('#instrument')) {
         const guidance = target.closest('form')?.querySelector<HTMLElement>('[data-domain-guidance]');
         if (guidance)
@@ -105,28 +114,8 @@ export function installEvents({ actions, forms }) {
         password.required = !password.disabled && !(target.closest('form') as HTMLFormElement).dataset.existing;
         if (password.disabled) password.value = '';
       }
-      if (target.name === 'regulatory_owner_unit_id' && target.closest('#instrument')) {
-        try {
-          const users = await choosePeople('AUTHOR', target.value);
-          (target.closest('form')?.querySelector<HTMLSelectElement>('[name=interpretation_owner_user_id]')).innerHTML =
-            options(users, state.identity.user.id, 'full_name');
-          for(const [field,role] of [['family_reviewer_id','REVIEWER'],['family_approver_id','APPROVER']]){
-            const control=target.closest('form').querySelector<HTMLSelectElement>('[name='+field+']');
-            if(control)control.innerHTML=options(await choosePeople(role,target.value,[state.identity.user.id]),'','full_name');
-          }
-        } catch (error) {
-          message(error.message, true);
-        }
-      }
-      if (target.name === 'regulatory_owner_unit_id' && target.closest('#metadata-correction')) {
-        try {
-          const users = await choosePeople('AUTHOR', target.value);
-          const owner = target.closest('form')?.querySelector<HTMLSelectElement>('[name=interpretation_owner_user_id]');
-          if (owner) owner.innerHTML = options(users, '', 'full_name');
-        } catch (error) {
-          message(error.message, true);
-        }
-      }
+      if (target instanceof HTMLSelectElement && target.name === 'regulatory_owner_unit_id' &&
+          target.closest('#instrument, #metadata-correction')) await refreshScopedAssignees(target);
       if (target.name === 'selected_source_version') {
         const [path, qs = ''] = location.hash.slice(1).split('?');
         const query = withoutPaging(new URLSearchParams(qs));
@@ -159,7 +148,7 @@ export function installEvents({ actions, forms }) {
         }
       }
     } catch (error) {
-      message(error.message, true);
+      reportError(error);
     } finally {
       finish();
     }

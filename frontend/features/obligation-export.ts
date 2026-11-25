@@ -55,7 +55,7 @@ export function obligationExportHandlers() {
         const url=URL.createObjectURL(blob), anchor=document.createElement('a');
         anchor.href=url;anchor.download=filename;document.body.append(anchor);anchor.click();anchor.remove();
         window.setTimeout(()=>URL.revokeObjectURL(url),1000);
-        close();message('Export download started.');
+        close();message('Export download started.', 'info');
       } catch (error) {
         if (controller.signal.aborted) return;
         throw error;

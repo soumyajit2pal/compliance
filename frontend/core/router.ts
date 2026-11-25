@@ -17,7 +17,8 @@ import { renderHelp } from '../features/help.ts';
 import { canNavigate, shell } from '../ui/layout.ts';
 import { panel, note } from '../ui/widgets.ts';
 import { icon } from '../ui/icons.ts';
-import { esc, empty, link, title, message } from '../ui/components.ts';
+import { esc, empty, link, title } from '../ui/components.ts';
+import { reportError } from '../ui/feedback.ts';
 import { SessionExpired, api } from './api.ts';
 import { beginActivity } from '../ui/loading.ts';
 import { obligationView, workspaceAlias } from './obligation-workspace.ts';
@@ -28,7 +29,11 @@ import {controlsPage,controlMappingsPage,evidencePage} from '../features/control
 
 import {delegationsPage} from '../features/delegations.ts';
 import {employeeSettingsPage} from '../features/employee-settings.ts';
+import {emailSettingsPage} from '../features/email-settings.ts';
+import {uploadSettingsPage} from '../features/upload-settings.ts';
 const pages = {
+  'email-settings':emailSettingsPage,
+  'upload-settings':uploadSettingsPage,
   'employee-api':employeeSettingsPage,
   'audit-trail': (_id, query) => auditTrailPage(query),
   'approval-workflow-log': (_id, query) => auditTrailPage(query, true),
@@ -122,7 +127,7 @@ export async function render() {
         page,
       );
     }
-    message(error.message, true);
+    reportError(error);
   } finally {
     finish();
   }

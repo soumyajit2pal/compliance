@@ -40,8 +40,10 @@ def resolve(db,request,settings,limited=False):
         raise HTTPException(401,'Your session has ended. Please sign in again.')
     actor=actor_for(db,session['user_id'])
     request.state.audit_actor = actor
-    if request.method not in {'GET','HEAD','OPTIONS'} and not hmac.compare_digest(request.headers.get('X-CSRF-Token',''),session['csrf_token']):
-        raise HTTPException(403,'The form has expired. Refresh and try again.')
+    if request.method not in {'GET','HEAD','OPTIONS'}:
+        supplied = request.headers.get('X-CSRF-Token', '')
+        if not supplied.isascii() or not hmac.compare_digest(supplied, session['csrf_token']):
+            raise HTTPException(403,'The form has expired. Refresh and try again.')
     if not limited and (actor.user['must_change_password_flag'] or actor.user['needs_email_confirmation_flag'] or actor.user['needs_department_selection_flag']):
         raise HTTPException(403,'Complete the first-sign-in steps before opening the workspace.')
     if not limited and employee_identity.blocked(actor.user):

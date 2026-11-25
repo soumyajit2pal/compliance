@@ -47,7 +47,7 @@ export async function tasksPage(page, query = new URLSearchParams()) {
   if (tab === 'returned') rows=rows.filter(t=>t.return_reason);
   if (tab === 'draft') rows = rows.filter((t) => t.kind === 'DRAFT');
   rows.sort((a, b) => (a.due_at || '9999').localeCompare(b.due_at || '9999'));
-  const taskPath = (task) => ['ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(task.workflow_kind)?task.action_path:task.workflow_kind === 'OWNERSHIP_CHANGE'
+  const taskPath = (task) => task.action_path || (task.workflow_kind === 'OWNERSHIP_CHANGE'
     ? 'obligations/'+task.obligation_id+'?tab=owners&ownership_change='+task.ownership_change_id
     : task.workflow_kind === 'OBLIGATION'
     ? 'obligations/'+task.obligation_id+'?tab=workflow'
@@ -55,8 +55,11 @@ export async function tasksPage(page, query = new URLSearchParams()) {
     ? 'notification-families/'+task.instrument_id+'?proposal='+task.proposal_id
     : task.workflow_kind === 'METADATA_CORRECTION'
     ? 'repository/' + task.instrument_id + '?tab=workflow&correction=' + task.correction_id
-    : 'repository/' + task.instrument_id + '?version=' + task.version_id + '&tab=workflow';
+    : 'repository/' + task.instrument_id + '?version=' + task.version_id + '&tab=workflow');
   const nextAction = (task) => {
+    if (task.workflow_kind === 'MIGRATION_IMPORT') return task.kind === 'DECISION'
+      ? workflowLink(taskPath(task), 'Open import review')
+      : link(taskPath(task), 'Open ready import', 'btn small');
     if (page !== 'approvals') return task.kind === 'DECISION'
       ? workflowLink(taskPath(task), 'Open assigned work')
       : link(taskPath(task), 'Open assigned work', 'btn small');
@@ -70,18 +73,19 @@ export async function tasksPage(page, query = new URLSearchParams()) {
   return (
     pageHelp(
       page === 'approvals' ? 'Know which decisions are yours' : 'Your personal work',
-      'A role grants eligibility. A named, in-scope assignment is still needed before work appears here.',
+      'Work appears here when it is assigned to you or your role can act on an item in a shared queue.',
+      page === 'approvals' ? 'decisions' : 'work-evidence',
     ) +
     heading(
       rbi?(page==='approvals'?'My RBI decisions':'My RBI assignments'):page === 'approvals' ? 'My decisions' : 'My tasks',
       rbi?'Your named assignments linked to RBI instruments you can access.':page === 'approvals'
-        ? 'Open your assigned record to review it and record your decision.'
-        : 'Personal assignments that your role and organisation scope permit you to perform.',
+        ? 'Open an available review or approval and record your decision.'
+        : 'Assignments and shared tasks you can act on within your role and organisation scope.',
       `<div class="actions">${rbi?link(rbiWorkflowPath,'RBI workflow guide','btn'):''}${link('tasks','All my tasks','btn '+(page==='tasks'&&!rbi?'primary':''))}${link('approvals','My decisions','btn '+(page==='approvals'&&!rbi?'primary':''))}${state.identity.menu.some(i=>i.id==='actions')?link('actions','Compliance work tracker','btn'):''}</div>`,
     ) +
-    note(
-      'Department visibility does not assign its work to you. Open a register for the team population; this list contains your named actionable work.',
-    ) +
+    note(all.some(task => task.shared)
+      ? 'Independent import reviews appear in a shared Reviewer queue. Once an eligible Reviewer validates a batch, that review closes for everyone.'
+      : 'Department visibility does not assign its work to you. Open a register to see the team’s work.') +
     tabs(
       [
         ['all', page === 'approvals' ? 'My decision tasks' : 'All assigned work', all.length],
@@ -104,19 +108,19 @@ export async function tasksPage(page, query = new URLSearchParams()) {
         [
           'Assigned record',
           'Workflow stage',
-          'Named recipient',
+          'Who can act',
           'Department',
           'Due date',
           'Next step',
         ],
         rows.map((t) => [
           recordCell(
-            ['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(t.workflow_kind)?t.code:sources.get(t.instrument_id)?.code || t.kind,
-            ['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION'].includes(t.workflow_kind)?t.title:sources.get(t.instrument_id)?.title || t.title,
+            ['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION','MIGRATION_IMPORT'].includes(t.workflow_kind)?t.code:sources.get(t.instrument_id)?.code || t.kind,
+            ['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION','MIGRATION_IMPORT'].includes(t.workflow_kind)?t.title:sources.get(t.instrument_id)?.title || t.title,
             taskPath(t),
           )+(t.return_reason?`<small class="portal-overdue">Returned: ${esc(t.return_reason)}</small>`:''),
           badge(t.kind === 'DRAFT' ? 'DRAFT' : t.stage || 'DECISION'),
-          person(state.identity.user.full_name),
+          t.shared ? 'Shared Reviewer queue' : person(state.identity.user.full_name),
           esc(ref('organisational_unit', t.department_id||sources.get(t.instrument_id)?.regulatory_owner_unit_id)),
           date(t.due_at) +
             (t.due_at && t.due_at.slice(0, 10) < localDate()
