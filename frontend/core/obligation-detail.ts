@@ -145,12 +145,7 @@ export function activationChecklistItems(d,policy,today){
   }
   return items;
 }
-/** Database audit timestamps are UTC, including Oracle's timezone-less timestamp strings. */
-export function timestamp(value) {
-  if(!value)return null;
-  const normalized=/^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(value)&&!/(Z|[+-]\d\d:\d\d)$/i.test(value)?value.replace(' ','T')+'Z':value;
-  const parsed=new Date(normalized);return Number.isNaN(parsed.getTime())?null:parsed;
-}
+export { timestamp } from './bank-time.ts';
 export function decisionLabel(value) {
   return ({REVIEW:'Compliance review completed',ACCEPT:'Ownership and applicability accepted',OBJECT:'Changes requested by owner',APPROVE:'Final approval granted',RETURN:'Returned to author',REJECT:'Rejected',WITHDRAW:'Withdrawn to Draft',DELEGATED:'Review task delegated'})[value]||value;
 }

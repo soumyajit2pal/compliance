@@ -1,8 +1,8 @@
 """Effective role scopes, independent of home department and technical Admin."""
 from dataclasses import dataclass,field
-from datetime import date
 import sqlalchemy as sa
 from fastapi import HTTPException
+from .bank_time import today as bank_today
 from . import models as m
 
 REGULATORY_ROLES = {'AUTHOR','REVIEWER','APPROVER','CCO'}
@@ -32,7 +32,7 @@ class Actor:
         if blocked(self.user):return False
         if self.actual_actor and (not self.actual_actor.covers(unit_id,roles) or not self.principal_actor.covers(unit_id,roles)):return False
         def effective(unit):
-            today=date.today()
+            today=bank_today()
             return unit and unit['active_flag'] and (not unit.get('effective_from') or unit['effective_from']<=today) and (not unit.get('effective_to') or unit['effective_to']>today)
         for g in self.grants:
             if g['role_code'] not in roles: continue
@@ -56,7 +56,7 @@ class Actor:
 def actor_for(db, user_id, delegation_context=None):
     user = db.execute(sa.select(m.user).where(m.user.c.id==user_id,m.user.c.active_flag==1)).mappings().first()
     if not user: raise HTTPException(401,'Please sign in again.')
-    today=date.today()
+    today=bank_today()
     grants=db.execute(sa.select(m.user_role,m.role.c.code.label('role_code')).join(m.role,m.role.c.id==m.user_role.c.role_id)
         .where(m.user_role.c.user_id==user_id,m.role.c.active_flag==1,m.user_role.c.effective_from<=today,
           sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>today))).mappings().all()

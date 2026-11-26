@@ -1,3 +1,4 @@
+import { date as bankDate } from '../../core/bank-time.ts';
 import { type FormEvent, type ReactNode } from 'react';
 import { type PageInfo, withoutPaging } from '../../core/pagination.ts';
 import { ownerRoles, ownerResponse, assignmentApproval } from '../../core/obligation-detail.ts';
@@ -31,7 +32,7 @@ interface Props {
   data: {items: Group[]; pagination: PageInfo; summary: Record<string, number>; counts: Counts};
 }
 const labels = {applicability: 'Applicability', accountability: 'Accountability'};
-const date = (value?: string) => value ? new Date(value.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}) : 'Not recorded';
+const date = (value?: string) => bankDate(value, 'Not recorded');
 const Badge = ({label, tone = 'neutral'}: {label: string; tone?: string}) => <span className={'tag badge ' + tone}>{label}</span>;
 const Fact = ({label, children}: {label: string; children: ReactNode}) => <div><dt>{label}</dt><dd>{children}</dd></div>;
 

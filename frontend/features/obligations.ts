@@ -1,3 +1,4 @@
+import { bankDateAfter } from '../core/bank-time.ts';
 import { referenceSelect, acceptReferenceSnapshot, refreshReferenceControls } from '../ui/reference-options.ts';
 import {customFieldGroup, captureCustom} from '../ui/dropdown-fields.ts';
 import { state } from '../core/state.ts';
@@ -70,7 +71,7 @@ const current=(expectedId='')=>{
 };
 const recordContext=()=>input('obligation_id',current().obligation.id,'hidden');
 const check=(name,label,value=false)=>`<label class="check-row"><input type="checkbox" name="${esc(name)}" ${value?'checked':''}>${esc(label)}</label>`;
-const later=()=>{const d=new Date();d.setDate(d.getDate()+365);return d.toLocaleDateString('en-CA');};
+
 let rowSequence=0;
 let ownerPopupSequence=0;
 
@@ -178,7 +179,7 @@ function rowControls(kind,value:any={}){
       ctl('conditions',area(key('conditions'),value.conditions,'maxlength="10000"'),'Which activities are included, and which are excluded?')+
       input(key('process_id'),value.process_id||'','hidden','data-obl-field="process_id"');
     fields+='<details class="full obligation-extra-details"><summary>Product, channel, customer and review details</summary><div class="form-grid">'+
-      ['product','channel','customer_segment','geography'].map(name=>ctl(name+'_id',referenceSelect(key(name+'_id'),name,value[name+'_id']),title(name))).join('')+ctl('next_review_date',input(key('next_review_date'),value.next_review_date||later(),'date',`required ${value.setup_new?'data-setup-review-auto="1"':''}`),'Next department assessment review')+'</div></details>';
+      ['product','channel','customer_segment','geography'].map(name=>ctl(name+'_id',referenceSelect(key(name+'_id'),name,value[name+'_id']),title(name))).join('')+ctl('next_review_date',input(key('next_review_date'),value.next_review_date||bankDateAfter(365),'date',`required ${value.setup_new?'data-setup-review-auto="1"':''}`),'Next department assessment review')+'</div></details>';
   }
   if(kind==='processes')fields=ctl('process_id',referenceSelect(key('process_id'),'process',value.process_id,'required'),'Process')+
     ctl('relevance_type',select(key('relevance_type'),processRelationshipChoices,value.relevance_type||'DIRECT','name','required'),'How this process relates to the obligation','For example, Customer onboarding is Direct when it performs the identity check required by the obligation.')+
@@ -260,7 +261,7 @@ async function editor(identifier,query){
       option_status:c.interpretation_status==='APPROVED'?'':'Interpretation pending'}));
   if(!isCurrent())return "";
   state.view.obligationClauses=clauses;
-  let value:any={effective_from:localDate(),next_review_date:later(),criticality:'MEDIUM',obligation_nature:'ONGOING',owners:[],applicability:[],processes:[],supporting_clause_ids:[]};
+  let value:any={effective_from:localDate(),next_review_date:bankDateAfter(365),criticality:'MEDIUM',obligation_nature:'ONGOING',owners:[],applicability:[],processes:[],supporting_clause_ids:[]};
   const editing=Boolean(identifier&&identifier!=='new');
   if(editing){
     const d=await api('/obligations/'+identifier);if(!isCurrent())return '';state.view.obligation=d;value=d.input;
@@ -568,7 +569,7 @@ export function obligationHandlers(context){
         if(role==='CONTROL'){target=form.querySelector('[data-control-owner-list]');markup=rowControls(kind,{owner_role:'CONTROL',org_unit_id:form.elements.business_owner_unit_id.value||'',people:[],setup_fixed_role:true});}
         else{target=form.querySelector('[data-other-owner-list]');markup=popupOwnerRow({},true);}
       }else if(kind==='applicability'){
-        const value={legal_entity_id:active('legal_entity').length===1?active('legal_entity')[0].id:'',next_review_date:form.elements.next_review_date.value||later(),setup_new:true};markup=setupDepartmentCard(rowControls(kind,value),value,true);
+        const value={legal_entity_id:active('legal_entity').length===1?active('legal_entity')[0].id:'',next_review_date:form.elements.next_review_date.value||bankDateAfter(365),setup_new:true};markup=setupDepartmentCard(rowControls(kind,value),value,true);
       }else markup=rowControls(kind);
       target?.insertAdjacentHTML('beforeend',markup);
       if(kind==='owners')invalidateSetupReview(form);

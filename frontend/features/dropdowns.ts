@@ -1,7 +1,7 @@
 import {editButton} from './masters.ts';
 import {api} from '../core/api.ts';
 import {state} from '../core/state.ts';
-import {area,button,esc,field,input,link,message,select,title} from '../ui/components.ts';
+import { dateTime, area,button,esc,field,input,link,message,select,title} from '../ui/components.ts';
 import {close,modal} from '../ui/dialog.ts';
 import {heading} from '../ui/layout.ts';
 import {searchForm,table,tablePanel,tabs,detailFields} from '../ui/widgets.ts';
@@ -63,7 +63,7 @@ export async function dropdownsPage(_id,query) {
   const search=searchForm('view-filter','Search '+(tab==='fields'?'fields and forms':tab==='lists'?'choice lists':'dropdowns and screens')+'…',q,'<input type="hidden" name="tab" value="'+esc(tab)+'">');
   let body,action='';
   if(tab==='history') {
-    body=table(['Revision','Change','Published by','When','Reason'],(c.recent||[]).map(e=>[esc(e.revision),esc(e.label),esc(e.actor_name),esc(e.event_at.replace('T',' ')+' UTC'),esc(e.reason)]),{empty:'No changes published',caption:'Latest 30 published changes'});
+    body=table(['Revision','Change','Published by','When','Reason'],(c.recent||[]).map(e=>[esc(e.revision),esc(e.label),esc(e.actor_name),esc(dateTime(e.event_at)),esc(e.reason)]),{empty:'No changes published',caption:'Latest 30 published changes'});
   } else if(tab==='lists') {
     action=edit('lists','','Add choice list');
     body=table(['Choice list','Active options','Used by',''],listKeys.filter(k=>matches(k,c.lists[k].label)).map(k=>[esc(c.lists[k].label),String(c.lists[k].options.filter(o=>o.active).length),esc(fields.filter(([,v])=>v.source===k).map(([,v])=>v.label).join(', ')||'No fields yet'),edit('lists',k)]),{empty:'No matching choice lists'});

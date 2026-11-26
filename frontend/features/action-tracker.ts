@@ -1,3 +1,4 @@
+import { bankTimeZone, localDate as bankToday } from '../core/bank-time.ts';
 import { referenceSelect } from '../ui/reference-options.ts';
 /** Read-only projections of the authenticated action register. */
 import {workRelationshipExplanation} from './work-context.ts';
@@ -12,9 +13,8 @@ import { icon } from '../ui/icons.ts';
 const stages=[['OPEN','Open'],['IN_PROGRESS','In progress'],['PENDING_VALIDATION','In review'],['COMPLETED','Completed']];
 const statuses=[...stages,['DRAFT','Draft'],['CANCELLED','Cancelled']];
 const filters=['department','criticality','status','obligation','owner','domain','from','to','mine'];
-const dayFormat=new Intl.DateTimeFormat('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'});
-const monthFormat=new Intl.DateTimeFormat('en-IN',{month:'long',year:'numeric',timeZone:'UTC'});
-const bankToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date());
+const dayFormat=new Intl.DateTimeFormat('en-IN',{day:'2-digit',month:'short',year:'numeric',timeZone:bankTimeZone});
+const monthFormat=new Intl.DateTimeFormat('en-IN',{month:'long',year:'numeric',timeZone:bankTimeZone});
 function dateValue(value){
  const iso=String(value||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(iso))return null;
  const date=new Date(iso+'T12:00:00Z');return Number.isFinite(date.valueOf())&&date.toISOString().slice(0,10)===iso?date:null;

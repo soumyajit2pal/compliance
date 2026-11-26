@@ -1,5 +1,5 @@
 import {customDetails} from '../ui/dropdown-fields.ts';
-import {auditActor} from '../ui/components.ts';
+import { dateTime, auditActor} from '../ui/components.ts';
 import {state} from '../core/state.ts';
 /** Obligation reading experience, shared with existing summary, table and pagination components. */
 import { esc,title,ref,badge,button,link,date,localDate,statusTag } from '../ui/components.ts';
@@ -16,7 +16,7 @@ import { workflowActionGroup, workflowButton, workflowLink } from '../ui/workflo
 const sectionNames={owners:'owners',applicability:'where it applies',sources:'sources & processes',history:'history & decisions',evidence:'evidence requirement',requirement:'requirement'};
 const compactEmpty=(text)=>`<p class="obligation-empty-state">${esc(text)}</p>`;
 const fields=(entries)=>`<dl class="obligation-definition-list">${entries.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${value||'Not recorded'}</dd></div>`).join('')}</dl>`;
-const when=(value)=>{const parsed=timestamp(value);return parsed?new Intl.DateTimeFormat('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZoneName:'short'}).format(parsed):'Date not recorded';};
+const when = value => dateTime(value, 'Date not recorded');
 const revisionOf=(d,id)=>d.versions.find(v=>v.id===id)?.version_number;
 function editLink(d,section,label,css='small'){return link('obligations/'+d.obligation.id+'?edit=1&section='+section,label,'btn '+css);}
 function viewLink(d,section,label=''){return link('obligations/'+d.obligation.id+'?tab='+(['evidence','requirement'].includes(section)?'overview':section),label||'View '+sectionNames[section],'btn small');}

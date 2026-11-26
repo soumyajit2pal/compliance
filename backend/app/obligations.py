@@ -3,10 +3,11 @@
 All mutations use the continuing obligation's row lock and the caller transaction.
 Approved wording is revised into a new version, never edited in place.
 """
-from datetime import date,timedelta
+from datetime import timedelta
 import json
 import sqlalchemy as sa
 from fastapi import HTTPException
+from .bank_time import today
 from . import models as m,repository as repo,business_ids
 from .access import actor_for,READ_ROLES,REGULATORY_ROLES
 from .events import audit,history,notify,new_id,now,record_audit
@@ -182,7 +183,7 @@ def save_children(db,actor,row,payload):
     for table in [m.obligation_clause_map,m.obligation_process_map]:db.execute(table.delete().where(table.c.obligation_id==identifier))
     for assessment in payload.applicability:
         db.execute(m.obligation_applicability.insert().values(id=new_id(),obligation_id=identifier,**assessment.model_dump(),**period,
-            assessed_by=actor.id,assessed_date=date.today(),created_by=actor.id))
+            assessed_by=actor.id,assessed_date=today(),created_by=actor.id))
     for process in payload.processes:
         db.execute(m.obligation_process_map.insert().values(id=new_id(),obligation_id=identifier,**process.model_dump(),**period))
     for clause_id in [payload.primary_clause_id,*payload.supporting_clause_ids]:
@@ -258,11 +259,11 @@ def issues(db,actor,row,eligibility=None,stage=None):
             clause,edition,instrument=source(db,actor,mapping['clause_id'])
             if clause['approval_status']!='APPROVED' or clause['interpretation_status']!='APPROVED' or edition['approval_status']!='APPROVED':result.append('UNAPPROVED_SOURCE')
             if edition['effective_from']>row['effective_from'] or edition['effective_to'] and edition['effective_to']<=row['effective_from']:result.append('SOURCE_PERIOD_MISMATCH')
-            if edition['effective_to'] and edition['effective_to']<=date.today():result.append('SOURCE_REASSESSMENT_REQUIRED')
+            if edition['effective_to'] and edition['effective_to']<=today():result.append('SOURCE_REASSESSMENT_REQUIRED')
     except HTTPException:result.append('MISSING_OR_UNAVAILABLE_CLAUSE')
     if any(a['applicability_status']=='PARTIALLY_APPLICABLE' for a in apps):result.append('PARTIAL_APPLICABILITY')
     if any(a['applicability_status']=='NOT_APPLICABLE' and a['approval_status']!='APPROVED' for a in apps):result.append('UNAPPROVED_NON_APPLICABILITY')
-    if any(a['next_review_date']<date.today() for a in apps) or row['next_review_date']<date.today():result.append('REVIEW_OVERDUE')
+    if any(a['next_review_date']<today() for a in apps) or row['next_review_date']<today():result.append('REVIEW_OVERDUE')
     if row['criticality'] in {'CRITICAL','HIGH'}:result.append('HIGH_CRITICAL')
     if stage is None:stage=db.execute(sa.select(m.workflow_instance.c.current_stage).where(m.workflow_instance.c.entity_type=='obligation',m.workflow_instance.c.entity_id==row['id'],m.workflow_instance.c.record_status=='OPEN')).scalar()
     if stage=='BUSINESS_VALIDATION':result.append('PENDING_BUSINESS_VALIDATION')
@@ -424,13 +425,13 @@ def decide(db,actor,identifier,payload):
     history(db,actor,'obligation',identifier,stage,next_stage or closed or stage,payload.comments)
     audit(db,actor,'obligation',identifier,decision,new={'task_id':task['id'] if task else None,
         'workflow_id':workflow['id'],'workflow_stage':stage,'next_stage':next_stage or closed or stage},reason=payload.comments)
-    if decision=='APPROVE' and row['effective_from']<=date.today():activate(db,actor,identifier)
+    if decision=='APPROVE' and row['effective_from']<=today():activate(db,actor,identifier)
     return {'status':next_stage or closed or stage}
 
 
 def activate(db,actor,identifier):
     row=read(db,actor,identifier,True);actor.require({'APPROVER'},row['regulatory_owner_unit_id'])
-    if row['approval_status']!='APPROVED' or row['effective_from']>date.today() or row['effective_to'] and row['effective_to']<=date.today():
+    if row['approval_status']!='APPROVED' or row['effective_from']>today() or row['effective_to'] and row['effective_to']<=today():
         raise HTTPException(409,'Only a currently effective approved obligation can be activated.')
     if row['record_status']=='ACTIVE':return {'status':'ACTIVE'}
     if row['record_status']!='DRAFT':raise HTTPException(409,'A superseded or retired version cannot be activated again.')
@@ -469,7 +470,7 @@ def revision_input(db,row,reason):
     latest=max(approved,key=lambda r:r['version_number'])['id'] if approved else None
     if row['approval_status']=='APPROVED' and row['id']!=latest or row['approval_status']=='REJECTED' and row['supersedes_obligation_id']!=latest:
         raise HTTPException(409,'Start the revision from the latest operative or future-approved version, or its rejected replacement.')
-    data=input_for(db,row);data.update(effective_from=max(date.today(),row['effective_from']),effective_to=None,change_reason=reason,expected_revision=None)
+    data=input_for(db,row);data.update(effective_from=max(today(),row['effective_from']),effective_to=None,change_reason=reason,expected_revision=None)
     data['next_review_date']=max(data['next_review_date'],data['effective_from'])
     for assessment in data['applicability']:assessment['next_review_date']=max(assessment['next_review_date'],data['effective_from'])
     predecessor=row['id'] if row['approval_status']=='APPROVED' else row['supersedes_obligation_id']

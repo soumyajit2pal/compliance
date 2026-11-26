@@ -1,9 +1,9 @@
 """Actionable regulatory imports for the current reviewer and uploader."""
-from datetime import date
 
 import sqlalchemy as sa
 from fastapi import HTTPException
 
+from .bank_time import today as bank_today
 from . import models as m
 from .access import actor_for
 from .events import new_id, notify
@@ -33,7 +33,7 @@ def has_rows(db, batch_id, status):
 
 
 def reviewers(db, uploader):
-    today = date.today()
+    today = bank_today()
     grant, role, user = m.user_role.c, m.role.c, m.user.c
     candidates = db.execute(sa.select(grant.user_id).distinct()
         .join(m.role, role.id == grant.role_id).join(m.user, user.id == grant.user_id)

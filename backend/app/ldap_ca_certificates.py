@@ -15,9 +15,8 @@ from typing import Any
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from zoneinfo import ZoneInfo
+from .bank_time import IST
 
-IST = ZoneInfo("Asia/Kolkata")
 
 
 MAX_CERTIFICATE_BYTES = 1024 * 1024

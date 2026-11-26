@@ -1,8 +1,8 @@
 /** Shared read-only summary for the workspace and mapped Excel validation preview. */
 import {classificationName} from '../ui/dropdown-fields.ts';
-import { esc,ref,title,badge,date,statusTag,link,localDate } from '../ui/components.ts';
+import { dateTime, esc,ref,title,badge,date,statusTag,link,localDate } from '../ui/components.ts';
 import { detailFields,table,recordCell } from '../ui/widgets.ts';
-import { ownerRoles,ownerResponse,assignmentApproval,statusLabel,processRelationshipLabel,timestamp } from '../core/obligation-detail.ts';
+import { ownerRoles,ownerResponse,assignmentApproval,statusLabel,processRelationshipLabel } from '../core/obligation-detail.ts';
 
 /** One field definition feeds the reader, wizard review and import preview. */
 const narrativeFields=[['statement','Requirement','What needs to be done'],['internal_interpretation','Internal interpretation','Bank’s interpretation'],['evidence_standard','Evidence requirement','Evidence required'],['breach_consequence','Breach consequence','Breach consequence']];
@@ -38,8 +38,7 @@ export function ownershipSummary(rows,tableOptions={},context:any={}){
     const last=tasks.filter(t=>t.owner_id===r.id).at(-1);
     const decision=r.validation_decision||(last?(last.decision||'PENDING'):r.owner_role==='REGULATORY'&&r.user_id===version?.created_by?'PROPOSED_BY_MAKER':r.owner_role==='COMPLIANCE_REVIEWER'&&['REVIEWED','APPROVED'].includes(r.approval_status)?'REVIEW_ACCEPTED':'NOT_STARTED');
     const response=ownerResponse({...r,validation_decision:decision},r.validation_task||last),approval=assignmentApproval(r.approval_status);
-    const recorded=timestamp(r.created_at);
-    const recordedOn=recorded?new Intl.DateTimeFormat('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZoneName:'short'}).format(recorded):'Date not recorded';
+    const recordedOn = dateTime(r.created_at, 'Date not recorded');
     return [...(context.register?[registerObligation(r,context,'owners')]:[]),...(history?[esc('Revision '+(version?.version_number||'not recorded'))+'<small>Saved on '+esc(recordedOn)+'</small>']:[]),
       esc(ownerRoles[r.owner_role]||title(r.owner_role))+(r.primary_owner_flag?'<small>Primary owner</small>':''),
       esc(r.department_name||ref('organisational_unit',r.org_unit_id)),r.user_id?esc(r.owner_name||ref('user',r.user_id)):'Not assigned',

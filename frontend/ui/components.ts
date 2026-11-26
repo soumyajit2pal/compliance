@@ -1,4 +1,5 @@
 import { state } from '../core/state.ts';
+export { date, dateTime, localDate } from '../core/bank-time.ts';
 
 export const esc = (value) =>
   String(value ?? '').replace(
@@ -53,15 +54,6 @@ const badgeTones = new Map([
 export const statusTag = (label, tone = 'neutral') => `<span class="tag badge ${['green', 'amber', 'red', 'blue', 'purple', 'neutral'].includes(tone) ? tone : 'neutral'}">${esc(label)}</span>`;
 export const badge = (value) => statusTag(title(value), badgeTones.get(value) ??
   (/PENDING|IN_REVIEW|REVIEWED|REVIEW_REQUIRED|AWAITING/.test(value) ? 'amber' : 'neutral'));
-export const date = (value) =>
-  value
-    ? new Intl.DateTimeFormat('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }).format(new Date(value))
-    : '—';
-export const localDate = () => new Date().toLocaleDateString('en-CA');
 export const ref = (name, id) =>
   state.masters?.[name]?.find((r) => r.id === id)?.name ||
   state.masters?.[name]?.find((r) => r.id === id)?.full_name ||

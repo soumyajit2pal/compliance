@@ -5,6 +5,7 @@ import re
 import sqlalchemy as sa
 from fastapi import HTTPException
 from pydantic import Field, ValidationError, field_validator, model_validator
+from .bank_time import today
 from .business_dropdowns import BUSINESS_MASTERS
 from . import models as m, repository as repo
 from .schemas import Input
@@ -161,7 +162,20 @@ LABELS = {
 }
 
 
-def catalogue():
+def default_domain_owner(db):
+    unit = m.organisational_unit.c
+    day = today()
+    return db.execute(sa.select(unit.id).where(
+        unit.code == 'COMPLIANCE',
+        unit.unit_type == 'DEPARTMENT',
+        unit.active_flag == 1,
+        unit.effective_from <= day,
+        sa.or_(unit.effective_to.is_(None), unit.effective_to > day),
+    )).scalar_one_or_none()
+
+
+def catalogue(db):
+    domain_owner_id = default_domain_owner(db)
     result = []
     for key, (label, model, parent, _level) in DEFINITIONS.items():
         schema = model.model_json_schema()
@@ -177,7 +191,8 @@ def catalogue():
             fields.append(dict(name=name, label=LABELS.get(name, name.replace('_', ' ').capitalize()),
                 kind=kind, required=name in schema.get('required', []),
                 source=REFERENCES.get(name), choices=details.get('enum', []),
-                default=spec.get('default'), max_length=details.get('maxLength'),
+                default=domain_owner_id if name == 'domain_owner_unit_id' else spec.get('default'),
+                max_length=details.get('maxLength'),
                 minimum=details.get('minimum'), maximum=details.get('maximum'),
                 immutable=name == 'code'))
         result.append(dict(key=key, label=label, fields=fields, parent_field=parent,
@@ -221,7 +236,7 @@ def validate_sub_department_conversion(db, identifier):
     references = (
         (m.user.c.org_unit_id == identifier, 'Move users’ home departments before converting this unit to a Sub-department.'),
         (sa.and_(roles.scope_org_unit_id == identifier,
-                 sa.or_(roles.effective_to.is_(None), roles.effective_to > date.today())),
+                 sa.or_(roles.effective_to.is_(None), roles.effective_to > today())),
          'Move current and scheduled role assignments before converting this unit to a Sub-department.'),
         (m.regulatory_domain.c.domain_owner_unit_id == identifier,
          'Assign another owning department to the linked regulatory domains before converting this unit.'),
@@ -278,6 +293,8 @@ def save(db, actor, key, payload, identifier=None):
         raise HTTPException(422, 'Unsupported master fields: ' + ', '.join(sorted(unknown)))
     merged = {k: old[k] for k in model.model_fields if old and k in old}
     merged.update(payload.values)
+    if key == 'regulatory_domain' and not old and not merged.get('domain_owner_unit_id'):
+        merged['domain_owner_unit_id'] = default_domain_owner(db)
     try:
         values = model.model_validate(merged).model_dump()
     except ValidationError as exc:

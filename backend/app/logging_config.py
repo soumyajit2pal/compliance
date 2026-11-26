@@ -12,7 +12,7 @@ import os
 import re
 import traceback
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from .bank_time import IST
 from .storage import writable_directory
 
 request_id = contextvars.ContextVar('cbd_request_id', default='-')
@@ -85,7 +85,7 @@ class ContextFilter(logging.Filter):
 
 class SafeFormatter(logging.Formatter):
     def formatTime(self, record, datefmt=None):
-        return datetime.fromtimestamp(record.created, ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S IST')
+        return datetime.fromtimestamp(record.created, IST).strftime('%Y-%m-%d %H:%M:%S IST')
 
     def formatException(self, info):
         # Raw driver/validation exception messages can contain SQL, bind data,

@@ -3,7 +3,7 @@ import { api } from '../core/api.ts';
 import { state } from '../core/state.ts';
 import { has } from '../core/access.ts';
 import { apiPageQuery } from '../core/pagination.ts';
-import { esc,field,input,button,link,badge,date,message } from '../ui/components.ts';
+import { dateTime, esc,field,input,button,link,badge,date,message } from '../ui/components.ts';
 import { heading } from '../ui/layout.ts';
 import { panel,table,tablePanel,note,detailFields } from '../ui/widgets.ts';
 import { modal,close } from '../ui/dialog.ts';
@@ -48,7 +48,7 @@ export async function obligationImportsPage(query){
       `<a class="btn" href="${excelTemplate}" download>Download Excel template</a>`+(has('AUTHOR')?button('obl-import-new','Upload obligations','','primary'):''))+
     note('Fill Obligations, Owners, Applicability and Processes using one import reference per atomic requirement. An independent Reviewer validates the import before the uploader loads ready Drafts.')+
     tablePanel(table(['Source workbook','Date','Status','Source rows','Loaded','Not loaded'],result.items.map(b=>[
-      link('obligations/imports?batch='+b.id,b.source_file),date(b.uploaded_at),badge(b.record_status.replace(/^OBL_/,'')),esc(b.source_count),esc(b.loaded_count),esc(b.rejected_count),
+      link('obligations/imports?batch='+b.id,b.source_file),dateTime(b.uploaded_at),badge(b.record_status.replace(/^OBL_/,'')),esc(b.source_count),esc(b.loaded_count),esc(b.rejected_count),
     ]),{pageKey: 'obligation-imports', pagination: result.pagination, columnOptionsUrl}));
 }
 

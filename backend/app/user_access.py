@@ -1,6 +1,6 @@
 """Administrator account readiness, effective roles and access notifications."""
-from datetime import date
 import sqlalchemy as sa
+from .bank_time import today as bank_today
 from . import models as m
 from .events import notify, new_id
 
@@ -29,7 +29,7 @@ def access_state(user,assignments):
 
 
 def assignment_rows(db):
-    today = date.today()
+    today = bank_today()
     rows = db.execute(sa.select(m.user_role, m.role.c.active_flag.label('role_active_flag'),
         m.role.c.code.label('role_code'), m.organisational_unit.c.active_flag.label('scope_active_flag'),
         m.organisational_unit.c.effective_from.label('scope_effective_from'),
@@ -83,8 +83,8 @@ def notify_administrators(db, identifier, kind, *, include_user=False):
     recipients = set(db.execute(sa.select(m.user.c.id).join(m.user_role, m.user_role.c.user_id == m.user.c.id)
         .join(m.role, m.role.c.id == m.user_role.c.role_id)
         .where(m.user.c.active_flag == 1, m.role.c.active_flag == 1, m.role.c.code == 'ADMIN',
-               m.user_role.c.effective_from <= date.today(),
-               sa.or_(m.user_role.c.effective_to.is_(None), m.user_role.c.effective_to > date.today()))).scalars())
+               m.user_role.c.effective_from <= bank_today(),
+               sa.or_(m.user_role.c.effective_to.is_(None), m.user_role.c.effective_to > bank_today()))).scalars())
     if include_user:
         recipients.add(identifier)
     event = new_id()

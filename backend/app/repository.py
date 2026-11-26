@@ -3,6 +3,7 @@ from datetime import date,timedelta
 import hashlib,json,re
 import sqlalchemy as sa
 from fastapi import HTTPException
+from .bank_time import today as bank_today, to_ist
 from . import models as m,business_ids
 from .access import READ_ROLES,REGULATORY_ROLES,actor_for,can_read_instrument
 from .events import now,new_id,audit,history,notify,record_audit
@@ -46,7 +47,7 @@ def source_version_label(value):
 def active(db,table,identifier,*,lock=False):
     row=one(db,table,identifier,lock=lock)
     if 'active_flag' in row and not row['active_flag']: raise HTTPException(422,'Choose an active reference record.')
-    if row.get('effective_from') and row['effective_from']>date.today() or row.get('effective_to') and row['effective_to']<=date.today():
+    if row.get('effective_from') and row['effective_from']>bank_today() or row.get('effective_to') and row['effective_to']<=bank_today():
         raise HTTPException(422,'Choose a reference record effective on the current date.')
     return row
 
@@ -57,7 +58,7 @@ def next_counter(db,entity):
 
 def next_code(db,entity):
     row=next_counter(db,entity)
-    return f"{row['prefix']}-{date.today().year}-{row['next_value']:06d}"
+    return f"{row['prefix']}-{bank_today().year}-{row['next_value']:06d}"
 
 def next_instrument_code(db,regulator_code,domain_code,instrument_type_code,issue_date):
     return business_ids.instrument(db,regulator_code,domain_code,instrument_type_code,issue_date)
@@ -353,9 +354,9 @@ def activate(db,actor,version_id):
     # All promotions serialize on the continuing instrument, including simultaneous requests.
     instrument=one(db,m.regulatory_instrument,instrument['id'],lock=True)
     version=one(db,m.instrument_version,version_id,lock=True)
-    if version['approval_status']!='APPROVED' or version['effective_from']>date.today(): raise HTTPException(409,'Only an approved, effective version can become current.')
+    if version['approval_status']!='APPROVED' or version['effective_from']>bank_today(): raise HTTPException(409,'Only an approved, effective version can become current.')
     if version['current_version_flag']: return {'id':version_id,'current':True}
-    if version['effective_to'] is not None and version['effective_to']<=date.today(): raise HTTPException(409,'This version has already been superseded.')
+    if version['effective_to'] is not None and version['effective_to']<=bank_today(): raise HTTPException(409,'This version has already been superseded.')
     old=None
     if instrument['current_version_id']:
         old=one(db,m.instrument_version,instrument['current_version_id'])
@@ -447,7 +448,7 @@ def decide(db,actor,version_id,payload):
         notify(db,'version',version_id,version['created_by'],decision,workflow['id']+':'+decision)
     history(db,actor,'version',version_id,version['approval_status'],target,payload.comments)
     audit(db,actor,'version',version_id,decision,old={'status':version['approval_status']},new={'status':target},reason=payload.comments)
-    if target=='APPROVED' and version['effective_from']<=date.today():
+    if target=='APPROVED' and version['effective_from']<=bank_today():
         # Approval can be retained while activation waits for a competing source to be resolved.
         current=one(db,m.regulatory_instrument,instrument['id'])['current_version_id']
         if current==version['supersedes_version_id'] or (current is None and version['supersedes_version_id'] is None): activate(db,actor,version_id)
@@ -558,7 +559,7 @@ def _apply_metadata_correction(db,actor,instrument,correction,at):
         raise HTTPException(409,'This request is based on older metadata. Return it and submit a fresh correction against the current record.')
     new_unit=_validate_metadata_proposal(db,instrument,changes)
     if 'secondary_domain_ids' in changes:
-        desired=set(changes['secondary_domain_ids']);today=at.date()
+        desired=set(changes['secondary_domain_ids']);today=to_ist(at).date()
         mappings=db.execute(sa.select(m.instrument_domain_map).where(
             m.instrument_domain_map.c.instrument_id==instrument['id'],
             m.instrument_domain_map.c.domain_role=='SECONDARY',
@@ -704,7 +705,7 @@ def add_approved_edition_summaries(db, rows):
     """Find the latest approved edition for each authorised record awaiting a current edition."""
     awaiting = {row['id']: row for row in rows if not row['current_version_id']}
     identifiers = list(awaiting)
-    today = date.today()
+    today = bank_today()
     editions = m.instrument_version.c
     for start in range(0, len(identifiers), 900):
         ranked = sa.select(

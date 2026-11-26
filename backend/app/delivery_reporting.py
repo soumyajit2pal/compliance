@@ -1,6 +1,7 @@
 """One authorised population per measure; export uses its exact fingerprint."""
 import csv,hashlib,io,json
-from datetime import timedelta
+from datetime import date, timedelta
+from .bank_time import TIME_ZONE, to_ist
 import sqlalchemy as sa
 from . import delivery as d,models as m,obligations as obl,repository as repo
 from .access import REGULATORY_ROLES,READ_ROLES
@@ -50,9 +51,9 @@ def evidence_status_counts(db, actor, actions, filters):
     status_filters = {'owner': evidence.uploaded_by, 'status': evidence.evidence_status}
     conditions = [column == filters[key] for key, column in status_filters.items() if filters.get(key)]
     if filters.get('from'):
-        conditions.append(evidence.period_to >= d.date.fromisoformat(filters['from']))
+        conditions.append(evidence.period_to >= date.fromisoformat(filters['from']))
     if filters.get('to'):
-        conditions.append(evidence.period_to <= d.date.fromisoformat(filters['to']))
+        conditions.append(evidence.period_to <= date.fromisoformat(filters['to']))
 
     link = m.evidence_link.c
     candidates = sa.select(evidence.id, evidence.evidence_status).join(
@@ -78,7 +79,7 @@ def build(db,actor,filters=None):
  if cco_measures:actor.require({'CCO'})
  for key in ['from','to']:
   if filters.get(key):
-   try:d.date.fromisoformat(filters[key])
+   try:date.fromisoformat(filters[key])
    except ValueError:raise d.HTTPException(422,'Use YYYY-MM-DD report dates.') from None
  d.fail(not filters.get('from') or not filters.get('to') or filters['from']<=filters['to'],'The date range is reversed.')
  obls=obl.listing(db,actor);actions=d.listing(db,actor);sources=repo.listing(db,actor,{})
@@ -189,7 +190,7 @@ def build(db,actor,filters=None):
   }
   for key,rows in cco_rows.items():
    metrics[key]=metric_data(CCO_DEFINITIONS[key],[r for r in rows if match(r,scoped_fields)])
- report={'generated_at':now().isoformat()+'Z','business_date':day,'timezone':'Asia/Kolkata','filters':{k:filters[k] for k in ['domain','department','owner','criticality','status','from','to'] if filters.get(k)},'metrics':metrics,'date_semantics':'Source effective date; obligation next-review date; action internal target; evidence period end. Current operational snapshot, not historical reconstruction.'}
+ report={'generated_at':to_ist(now()).isoformat(),'business_date':day,'timezone':TIME_ZONE,'filters':{k:filters[k] for k in ['domain','department','owner','criticality','status','from','to'] if filters.get(k)},'metrics':metrics,'date_semantics':'Source effective date; obligation next-review date; action internal target; evidence period end. Current operational snapshot, not historical reconstruction.'}
  if filters.get('audience')=='department':
   report['evidence_status']=evidence_status_counts(db,actor,actions,filters)
  if cco_view:

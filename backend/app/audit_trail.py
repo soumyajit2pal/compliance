@@ -6,7 +6,7 @@ from ipaddress import ip_address
 from datetime import date, datetime, time, timedelta, timezone
 from itertools import islice
 from urllib.parse import urlencode
-from zoneinfo import ZoneInfo
+from .bank_time import IST as BANK_ZONE
 
 import sqlalchemy as sa
 from fastapi import Depends, HTTPException, Query
@@ -54,7 +54,6 @@ ENTITY_LABELS = {kind: label for _, types in ALL_RECORD_TYPES.values() for kind,
 AUTH_ACTIONS = {'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT'}
 ACCESS_CHANGE_ACTIONS = {'ACCOUNT_CREATED', 'ACCESS_UPDATED', 'LDAP_ACCOUNT_REQUESTED', 'LDAP_ACCESS_REQUESTED'}
 REQUEST_TYPES = {'requests': 'API requests', 'authentication': 'Authentication', 'access-changes': 'Access changes'}
-BANK_ZONE = ZoneInfo('Asia/Kolkata')
 PAGE_SIZE = 25
 EXPORT_LIMIT = 5000
 NO_CACHE = {'Cache-Control': 'no-store'}

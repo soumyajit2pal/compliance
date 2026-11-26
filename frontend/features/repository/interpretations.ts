@@ -1,7 +1,7 @@
 import { api } from '../../core/api.ts';
 import { choosePeople } from '../../core/assignees.ts';
 import { state } from '../../core/state.ts';
-import { area, badge, button, date, esc, field, message, preservedText, ref, select, title } from '../../ui/components.ts';
+import { dateTime, area, badge, button, date, esc, field, message, preservedText, ref, select, title } from '../../ui/components.ts';
 import { close, modal } from '../../ui/dialog.ts';
 import { workflowActionGroup, workflowButton, workflowSubmit } from '../../ui/workflow-actions.ts';
 
@@ -21,9 +21,9 @@ export function interpretationPanel(clause, register, selectedId) {
     const decisions = request.decisions.map(decision => workflowButton('decide-clause-interpretation',
       decisionLabels[decision], decision, `data-id="${esc(request.id)}" data-decision="${esc(decision)}"`)).join('');
     const history = request.decisions_history.map(task => `<li><strong>${esc(title(task.decision))}</strong> · ${esc(ref('user', task.acted_by))}
-      · ${date(task.acted_at)}<p>${esc(task.comments || '')}</p></li>`).join('');
+      · ${dateTime(task.acted_at)}<p>${esc(task.comments || '')}</p></li>`).join('');
     return `<details class="obligation-extra-details" ${request.id === selectedId || request.record_status === 'OPEN' ? 'open' : ''}>
-      <summary>${esc(ref('user', request.started_by))} · ${date(request.created_at)} ${badge(status)}</summary>
+      <summary>${esc(ref('user', request.started_by))} · ${dateTime(request.created_at)} ${badge(status)}</summary>
       <div>${request.assigned_to ? `<p>Assigned to ${esc(ref('user', request.assigned_to))}</p>` : ''}
         <p>${esc(request.reason)}</p>${preservedText('clause-working-text', request.interpretation)}
         ${history ? `<ul>${history}</ul>` : ''}${decisions ? workflowActionGroup(decisions) : ''}

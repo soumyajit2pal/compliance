@@ -1,11 +1,11 @@
 """Bounded browsing reads. The legacy clause catalogue still serves authoring integrations."""
-from datetime import date
 from collections import deque
 from typing import Literal
 
 import sqlalchemy as sa
 from fastapi import Depends, HTTPException, Query
 
+from .bank_time import today as bank_today
 from . import business_ids, clause_search, models as m, repository as repo
 from .access import READ_ROLES
 from .pagination import paginate, page_metadata
@@ -26,7 +26,7 @@ def _ids(column, identifiers):
 
 
 def _current_editions(visible_ids):
-    today = date.today()
+    today = bank_today()
     ranked = sa.select(edition.c.id, sa.func.row_number().over(
         partition_by=edition.c.instrument_id,
         order_by=(
@@ -108,9 +108,9 @@ def edition_text(row):
         display = 'Current approved'
     elif row['version_cancelled_draft']:
         display = 'Cancelled draft'
-    elif status == 'APPROVED' and row['version_effective_from'] > date.today():
+    elif status == 'APPROVED' and row['version_effective_from'] > bank_today():
         display = 'Approved Future effective'
-    elif status == 'APPROVED' and row['version_effective_to'] and row['version_effective_to'] <= date.today():
+    elif status == 'APPROVED' and row['version_effective_to'] and row['version_effective_to'] <= bank_today():
         display = 'Approved Historical'
     else:
         display = label(status)

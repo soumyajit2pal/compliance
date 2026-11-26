@@ -3,7 +3,6 @@ import csv
 import io
 from datetime import date,datetime
 from itertools import groupby
-from zoneinfo import ZoneInfo
 import sqlalchemy as sa
 from fastapi import HTTPException
 from openpyxl import Workbook
@@ -12,6 +11,7 @@ from openpyxl.styles import Alignment,Border,Font,PatternFill,Side
 from openpyxl.utils import get_column_letter
 from . import models as m,obligations as service,regulation_registers as registers
 from .access import REGULATORY_ROLES
+from .bank_time import IST, to_ist
 from .obligation_workspace import workspace_rows
 
 REGISTER_FILTERS={'q','domain','department','status','criticality','owner','exception','instrument','clause','tab'}
@@ -138,7 +138,8 @@ def export_data(db,actor,view,filters,identifier=None,related=False):
 
 def csv_cell(value):
     if value is None:return ''
-    if isinstance(value,(date,datetime)):return value.isoformat()
+    if isinstance(value,datetime):return to_ist(value).isoformat()
+    if isinstance(value,date):return value.isoformat()
     if not isinstance(value,str):return value
     if value.startswith(('\t','\r','\n')) or value.lstrip(' \t\r\n\ufeff').startswith(('=','+','-','@')):return "'"+value
     return value
@@ -234,9 +235,13 @@ def workbook_bytes(datasets,metadata,grouped=False):
                 if isinstance(value,str):
                     if len(value)>32767:raise HTTPException(422,'A value exceeds the Excel cell limit. Choose CSV to retain the full text.')
                     cell.value=ILLEGAL_CHARACTERS_RE.sub('\ufffd',value);cell.data_type='s'
-                else:cell.value=value
+                elif isinstance(value,datetime):
+                    cell.value=to_ist(value).replace(tzinfo=None)
+                    cell.number_format='yyyy-mm-dd hh:mm:ss "IST"'
+                else:
+                    cell.value=value
+                    if isinstance(value,date):cell.number_format='yyyy-mm-dd'
                 cell.alignment=Alignment(vertical='top',wrap_text=True)
-                if isinstance(value,(date,datetime)):cell.number_format='yyyy-mm-dd'
         sheet.auto_filter.ref=sheet.dimensions
         for cell in sheet[1]:cell.font=Font(bold=True,color='FFFFFF');cell.fill=PatternFill('solid',fgColor='705389');cell.alignment=Alignment(wrap_text=True,vertical='center')
         sheet.row_dimensions[1].height=32
@@ -250,7 +255,7 @@ def workbook_bytes(datasets,metadata,grouped=False):
 def build(db,actor,view,format,query,identifier=None):
     filters={key:value for key,value in query.items() if key in (REGISTER_FILTERS if view=='register' else WORKSPACE_FILTERS) and value}
     datasets,count,names=export_data(db,actor,view,filters,identifier,related=format=='xlsx' and view=='register')
-    generated=datetime.now(ZoneInfo('Asia/Kolkata'))
+    generated=datetime.now(IST)
     mode='exceptions' if view=='register' and filters.get('tab')=='reports' else view
     metadata=[['View',mode.capitalize()],['Generated at (IST)',generated.isoformat(timespec='seconds')],['Obligation revisions',count],['Scope','Selected obligation revision' if identifier else 'All authorised matching records across all pages'],['Use','Reporting export; not an import template'],['Related records','Register Excel includes current recorded assignments/assessments and gaps. Pending ownership requests are not applied assignments.'],['Approvals','Owner acceptance, assignment approval and applicability approval remain separate.'],['End dates','Effective-to dates are exclusive.'],['Excel text','Text is stored as text. Unsupported XML control characters are replaced with the replacement symbol.']]
     lookup_filters={'domain':'regulatory_domain','department':'organisational_unit','owner':'user','legal_entity':'legal_entity'}

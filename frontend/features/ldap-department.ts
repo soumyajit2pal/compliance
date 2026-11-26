@@ -1,4 +1,4 @@
-import {esc,field,button} from '../ui/components.ts';
+import { dateTime, esc,field,button} from '../ui/components.ts';
 import {icon} from '../ui/icons.ts';
 import {note,table} from '../ui/widgets.ts';
 import {ldapDepartmentState} from '../core/ldap-readiness.ts';
@@ -32,11 +32,7 @@ export function reviewValues(data) {
 }
 
 export function reviewTime(value) {
-  if (!value) return 'Unavailable';
-  const utc = /(?:Z|[+-]\d\d:\d\d)$/i.test(value) ? value : value + 'Z';
-  const instant = new Date(utc);
-  if (Number.isNaN(instant.getTime())) return esc(value);
-  return esc(new Intl.DateTimeFormat('en-GB', {day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'UTC'}).format(instant)) + ' UTC';
+  return esc(dateTime(value, 'Unavailable'));
 }
 
 export function departmentGate(data, refresh = null) {

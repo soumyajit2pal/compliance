@@ -1,7 +1,7 @@
 import {state} from '../core/state.ts';
 import {api} from '../core/api.ts';
 import {heading} from '../ui/layout.ts';
-import {esc,field,input,select,button,message} from '../ui/components.ts';
+import { dateTime, esc,field,input,select,button,message} from '../ui/components.ts';
 import {panel,note} from '../ui/widgets.ts';
 
 export async function employeeSettingsPage(){
@@ -25,7 +25,7 @@ export async function employeeSettingsPage(){
  </div><p class="small muted">Credentials are encrypted in the database.</p>` )}</div>
  <div class="mt24">${panel('Test without saving',field('Test PF number',input('test_pf_no','','text','inputmode="numeric" pattern="[0-9]{1,40}" maxlength="40" autocomplete="off"'))+button('employee-api-test','Test current settings')+'<p id="employee-api-test-result" role="status"></p>')}</div>
  <p class="inline-error" id="form-error" role="alert"></p><div class="wizard-footer"><span class="small muted">Employee details do not grant roles or approve department changes.</span><button class="btn primary" type="submit">Save API settings</button></div></form>
- <div class="mt24">${panel('Refresh health',`<p>Successful: ${esc(data.health.counts.SUCCESS||0)} · Incomplete: ${esc(data.health.counts.PARTIAL||0)} · Failed: ${esc(data.health.counts.FAILED||0)}</p><p class="small muted">Last attempt: ${esc(data.health.last_attempt_at||'NA')} UTC · Last full success: ${esc(data.health.last_success_at||'NA')} UTC</p>`+button('employee-api-retry','Retry pending lookups')+button('reload','Refresh status')+note('A failed lookup retains the last successful employee details. New profiles show NA for unavailable API fields. Historical department observations and approval history are retained. Existing access rules continue.'))}</div>`;
+ <div class="mt24">${panel('Refresh health',`<p>Successful: ${esc(data.health.counts.SUCCESS||0)} · Incomplete: ${esc(data.health.counts.PARTIAL||0)} · Failed: ${esc(data.health.counts.FAILED||0)}</p><p class="small muted">Last attempt: ${esc(dateTime(data.health.last_attempt_at,'NA'))} · Last full success: ${esc(dateTime(data.health.last_success_at,'NA'))}</p>`+button('employee-api-retry','Retry pending lookups')+button('reload','Refresh status')+note('A failed lookup retains the last successful employee details. New profiles show NA for unavailable API fields. Historical department observations and approval history are retained. Existing access rules continue.'))}</div>`;
 }
 function payload(form:HTMLFormElement){
  const f=form.elements as any,v=Object.fromEntries(new FormData(form)) as any;

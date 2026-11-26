@@ -247,12 +247,14 @@ export function masterHandlers({ render }) {
       'edit-master': ({ key, id }) => masterDialog(key, id),
       domain: ({ id }) => {
         const d = state.masters.regulatory_domain.find((r) => r.id === id);
+        const defaultOwner = state.view.masterCatalogue.find(item => item.key === 'regulatory_domain')
+          ?.fields.find(field => field.name === 'domain_owner_unit_id')?.default;
         state.view.domain = id;
         modal(
           'Configure domain ownership',
           `<div class="source-column mb16"><h4>REGULATORY DOMAIN</h4><p>${esc(d.code)} · ${esc(d.name)}</p></div><div class="form-grid">${field(
             'Bank-approved owning department',
-            referenceSelect('domain_owner_unit_id','organisational_unit',d.domain_owner_unit_id,'required',undefined,{unitTypes: ['DEPARTMENT']}),
+            referenceSelect('domain_owner_unit_id','organisational_unit',d.domain_owner_unit_id ?? defaultOwner,'required',undefined,{unitTypes: ['DEPARTMENT']}),
           )}<label class="check-label"><input type="checkbox" name="active_flag" ${d.active_flag ? 'checked' : ''}> Allow submissions for Compliance review</label></div><div class="mt24"><h4 class="mb16">Current saved status</h4>${domainStatus(d)}</div><div class="mt24">${note('Choose the bank-approved owning department and tick “Allow submissions for Compliance review” when the domain is ready. Leaving it unticked keeps the domain available for Drafts only. Your changes take effect when you save. A department’s presence in the hierarchy does not nominate it as domain owner.')}</div>`,
           'domain',
           'Save master configuration',

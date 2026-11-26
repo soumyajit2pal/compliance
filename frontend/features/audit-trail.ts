@@ -2,7 +2,7 @@ import type { PageCursors } from '../core/pagination.ts';
 import { api, downloadProtected } from '../core/api.ts';
 import { pageRequest, sizeParam } from '../core/pagination.ts';
 import { apiColumnFilters, readColumnFilters, writeColumnFilters } from '../core/table-filters.ts';
-import { esc, field, input, select, statusTag, title } from '../ui/components.ts';
+import { dateTime, esc, field, input, select, statusTag, title } from '../ui/components.ts';
 import { dashboardInfo } from '../ui/dashboard-info.ts';
 import { close, modal } from '../ui/dialog.ts';
 import { icon } from '../ui/icons.ts';
@@ -73,12 +73,6 @@ const auditMeasures = [
   {key: 'access_changes', label: 'Access changes', event: 'access-changes', description: 'Recorded account access and employee profile review events in the selected date range.'},
   {key: 'failed', label: 'Failed events', outcome: 'failed', description: 'Requests that returned an HTTP error and retained failed sign-ins in the selected date range.'},
 ] as const;
-const listTime = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23',
-});
-const detailTime = new Intl.DateTimeFormat('en-IN', {
-  timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'medium', hourCycle: 'h23',
-});
 
 function filterParams(query: URLSearchParams, workflow: boolean) {
   const result = new URLSearchParams();
@@ -101,7 +95,7 @@ function requestLabel(entry: AuditEntry) {
 function entryRow(entry: AuditEntry, workflow: boolean) {
   const change = entry.changes[0];
   const extra = entry.changes.length > 1 ? `<small>+${entry.changes.length - 1} more</small>` : '';
-  const when = `<time datetime="${esc(entry.when)}">${esc(listTime.format(new Date(entry.when)))}</time>`;
+  const when = `<time datetime="${esc(entry.when)}">${esc(dateTime(entry.when))}</time>`;
   const actor = person(entry.actor, [workflow ? null : entry.actor_username,
     entry.represented ? 'On behalf of ' + entry.represented : null].filter(Boolean).join(' · '));
   const record = `<div class="audit-record">${entry.record_code ? `<span class="record-code">${esc(entry.record_code)}</span>` : ''}
@@ -206,7 +200,7 @@ export function auditTrailHandlers() {
         const entry: AuditDetail = await api('/' + (workflow ? workflowPath : auditPath) + '/' + encodeURIComponent(id));
         if (!trigger.isConnected || currentHash !== location.hash) return;
         const facts = [
-          ['When', detailTime.format(new Date(entry.when)) + ' IST'],
+          ['When', dateTime(entry.when, undefined, true)],
           ['Actor', entry.actor],
           ...(entry.represented ? [['On behalf of', entry.represented]] : []),
           ['Record type', entry.record_type],

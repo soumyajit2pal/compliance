@@ -1,8 +1,9 @@
 """Authorised notification families, source-cited deadlines and implementation decisions."""
 import hashlib,json
-from datetime import date,datetime,time,timedelta
+from datetime import datetime,time,timedelta
 import sqlalchemy as sa
 from fastapi import HTTPException
+from .bank_time import today, to_ist
 from . import models as m,repository as repo
 from .access import READ_ROLES,REGULATORY_ROLES,actor_for
 from .events import new_id,now,audit,history,notify
@@ -12,7 +13,7 @@ KINDS={'link':m.notification_link,'deadline':m.regulatory_deadline,
 RESOLVED={'COMPLETED','NO_IMPACT'}
 
 def approved_at(row,when):
-    return row['approval_status']=='APPROVED' and row.get('approved_at') and row['approved_at'].date()<=when
+    return row['approval_status']=='APPROVED' and row.get('approved_at') and to_ist(row['approved_at']).date()<=when
 
 def approved_source(versions,instrument_id,when,current_id=None):
     available=[row for row in versions if row['instrument_id']==instrument_id and approved_at(row,when) and
@@ -128,7 +129,7 @@ def delivery_snapshot(db,instrument_id,version_id,unit_id,when):
     for action in actions:
         items=[dict(row) for row in db.execute(sa.select(m.evidence_item).join(m.evidence_link,m.evidence_link.c.evidence_id==m.evidence_item.c.id)
             .where(m.evidence_link.c.action_id==action['id'],m.evidence_link.c.linked_at<cutoff,
-                m.evidence_item.c.evidence_status.in_(['ACCEPTED','EXPIRED','SUPERSEDED'] if when<date.today() else ['ACCEPTED']),
+                m.evidence_item.c.evidence_status.in_(['ACCEPTED','EXPIRED','SUPERSEDED'] if when<today() else ['ACCEPTED']),
                 m.evidence_item.c.verified_at<cutoff,m.evidence_item.c.retention_end_date>=when,
                 m.evidence_item.c.verified_by!=m.evidence_item.c.uploaded_by)).mappings()]
         evidence[action['id']]=items
@@ -154,11 +155,11 @@ def propose_assessment(db,actor,scope_id,payload):
     if not scope_visible(actor,instrument,scope['org_unit_id']):raise HTTPException(404,'Implementation scope is unavailable.')
     actor.require({'BUSINESS_OWNER'},scope['org_unit_id'])
     if scope['owner_user_id']!=actor.id:raise HTTPException(403,'Only the named implementation owner can propose this assessment.')
-    if scope['effective_from']>date.today():raise HTTPException(422,'This business scope is not effective yet.')
+    if scope['effective_from']>today():raise HTTPException(422,'This business scope is not effective yet.')
     previous=[dict(row) for row in db.execute(sa.select(m.notification_assessment).where(m.notification_assessment.c.scope_id==scope_id)).mappings()]
     if any(row['approval_status'] in {'IN_REVIEW','REVIEWED'} for row in previous):raise HTTPException(409,'An implementation assessment is already pending.')
     values={'scope_id':scope_id,'revision':max([row['revision'] for row in previous],default=0)+1,**payload.model_dump(exclude={'reviewer_id','approver_id'})}
-    values['action_snapshot']=validate_assessment(db,actor,scope,values,date.today())
+    values['action_snapshot']=validate_assessment(db,actor,scope,values,today())
     return submit_proposal(db,actor,'assessment',values,payload,instrument['regulatory_owner_unit_id'])
 
 def validate_clause_relation(db,actor,row,identifier=None):
@@ -220,7 +221,7 @@ def decide(db,actor,kind,identifier,payload):
             scope=repo.one(db,m.notification_scope,row['scope_id'],lock=True)
             owner=actor_for(db,scope['owner_user_id'])
             if not owner.covers(scope['org_unit_id'],{'BUSINESS_OWNER'}):raise HTTPException(422,'The named implementation owner no longer has effective authority.')
-            validate_assessment(db,actor,scope,row,date.today())
+            validate_assessment(db,actor,scope,row,today())
         else:validate_clause_relation(db,actor,row,identifier)
     at=now();values={'approval_status':target}
     if target=='REVIEWED':values.update(reviewed_by=actor.id,reviewed_at=at)
@@ -311,7 +312,7 @@ def library(db,actor,when,search,domain_id,paging,columns=None):
     from . import delivery,implementation_progress,obligations
     from .pagination import paginate
     from .table_filters import column_choices, fields, filter_rows
-    when=when or date.today()
+    when=when or today()
     visible,parents,chains=visible_family_chains(db,actor,when)
     groups={}
     for key,lineage in chains.items():
@@ -375,7 +376,7 @@ def library(db,actor,when,search,domain_id,paging,columns=None):
 
 
 def view(db,actor,identifier=None,when=None,search='',include_implementation_progress=False):
-    when=when or date.today()
+    when=when or today()
     visible,parents,chains=visible_family_chains(db,actor,when)
     if identifier and identifier not in visible:raise HTTPException(404,'Notification family is outside your authorised scope.')
     visible_chain=chains.__getitem__
@@ -387,7 +388,7 @@ def view(db,actor,identifier=None,when=None,search='',include_implementation_pro
     scopes=[r for r in scopes if scope_visible(actor,visible[r['instrument_id']],r['org_unit_id'])]
     assessments=[dict(r) for r in db.execute(sa.select(m.notification_assessment).where(m.notification_assessment.c.scope_id.in_([s['id'] for s in scopes]))).mappings()] if scopes else []
     deadline_rows=[dict(r) for r in db.execute(sa.select(m.regulatory_deadline).where(m.regulatory_deadline.c.instrument_id.in_(list(visible)))).mappings()] if visible else []
-    deadline_rows=[r for r in deadline_rows if version_by_id.get(r['source_version_id'],{}).get('instrument_id') in visible and r['created_at'].date()<=when]
+    deadline_rows=[r for r in deadline_rows if version_by_id.get(r['source_version_id'],{}).get('instrument_id') in visible and to_ist(r['created_at']).date()<=when]
     def deadline(item):
         levels=[sorted([r for r in deadline_rows if r['instrument_id']==candidate and approved_at(r,when)],key=lambda r:(r['effective_from'],r['created_at'],r['id'])) for candidate in visible_chain(item)]
         def resolve(position):
@@ -402,7 +403,7 @@ def view(db,actor,identifier=None,when=None,search='',include_implementation_pro
         original=levels[0][0] if levels[0] else levels[depth][0] if depth is not None else next((events[0] for events in levels if events),None)
         return {'current':current,'original':original,'next':next_row,'inherited':depth is not None and depth>0}
     def scope_status(scope,source):
-        proposals=[r for r in assessments if r['scope_id']==scope['id'] and r['created_at'].date()<=when] if scope.get('id') else []
+        proposals=[r for r in assessments if r['scope_id']==scope['id'] and to_ist(r['created_at']).date()<=when] if scope.get('id') else []
         accepted=sorted([r for r in proposals if approved_at(r,when)],key=lambda r:r['revision'],reverse=True)
         actions,evidence,snapshot=delivery_snapshot(db,scope['instrument_id'],source['id'] if source else '',scope['org_unit_id'],when)
         status='PENDING'
@@ -448,7 +449,7 @@ def view(db,actor,identifier=None,when=None,search='',include_implementation_pro
     for kind,table in KINDS.items():
         for row in db.execute(sa.select(table)).mappings():
             row=dict(row)
-            if row['created_at'].date()>when:continue
+            if to_ist(row['created_at']).date()>when:continue
             try:target,_=proposal_context(db,actor,kind,row)
             except HTTPException:continue
             if target['id'] in keys or kind=='link' and row['parent_id'] in keys:

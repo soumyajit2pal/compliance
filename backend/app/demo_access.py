@@ -4,8 +4,8 @@ Completing first sign-in or choosing a private password does not hide an account
 Private passwords remain hashed and must be entered manually. No credential or
 first-sign-in flag is changed by listing/selecting an account.
 """
-from datetime import date
 import sqlalchemy as sa
+from .bank_time import today
 from . import models as m
 from .reference_data import ROLE_SEED_USERS
 from .security import verify_password
@@ -35,8 +35,8 @@ def available_demo_users(db):
         .join(m.role, m.role.c.id == m.user_role.c.role_id)
         .outerjoin(m.organisational_unit, m.organisational_unit.c.id == m.user_role.c.scope_org_unit_id)
         .where(m.user_role.c.user_id.in_(eligible),
-            m.role.c.active_flag == 1, m.user_role.c.effective_from <= date.today(),
-            sa.or_(m.user_role.c.effective_to.is_(None), m.user_role.c.effective_to > date.today()))).mappings().all()
+            m.role.c.active_flag == 1, m.user_role.c.effective_from <= today(),
+            sa.or_(m.user_role.c.effective_to.is_(None), m.user_role.c.effective_to > today()))).mappings().all()
     result = []
     for username in reserved:
         user = next((u for u in eligible.values() if u['username'] == username), None)

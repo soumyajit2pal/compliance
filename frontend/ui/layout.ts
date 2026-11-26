@@ -1,3 +1,4 @@
+import { localDate } from '../core/bank-time.ts';
 import { assetUrl } from '../core/assets.ts';
 import brandIconUrl from '../assets/compliance-by-design-audit-checklist.png';
 import { state } from '../core/state.ts';
@@ -111,7 +112,7 @@ export function shell(contents, key, {showEmployeeWarning = true} = {}) {
   <main class="content" id="main-content">${showEmployeeWarning ? employeeWarning(state.identity.user.employee_warning?{...state.identity.employee_profile,warning:state.identity.user.employee_warning}:state.identity.employee_profile) : ''}${state.ready ? actingBanner() + scopeBanner() + adminAccessNotice() : ''}${contents}</main>
   <footer class="page-footer">
     <span class="footer-brand"><img src="${brandIconUrl}" width="22" height="22" alt="">COMPLIANCE BY DESIGN</span>
-    <span>© ${new Date().getFullYear()} Bank of Maharashtra. All rights reserved.</span>
+    <span>© ${localDate().slice(0, 4)} Bank of Maharashtra. All rights reserved.</span>
   </footer></div></div>`;
 }
 function adminAccessNotice() {

@@ -1,5 +1,6 @@
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
+import { bankDateAfter, businessDate } from '../core/bank-time.ts';
 import { has } from '../core/access.ts';
 import { esc, title, date, localDate, link } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
@@ -34,7 +35,7 @@ function workTitle(task,sources) {
   return (['OBLIGATION','OWNERSHIP_CHANGE','ACTION','ACTION_EXTENSION','CONTROL','LEAVE_DELEGATION','MIGRATION_IMPORT'].includes(task.workflow_kind)?task.title:sources.find(r=>r.id===task.instrument_id)?.title||task.title)||'Assigned work';
 }
 function dueLabel(task) {
-  const overdue=task.due_at&&task.due_at.slice(0,10)<localDate();
+  const overdue=task.due_at&&businessDate(task.due_at)<localDate();
   return `<span class="home-due ${overdue?'is-overdue':''}">${icon(overdue?'alert':'calendar')}${task.due_at?(overdue?'Overdue · ':'Due ')+date(task.due_at):'No due date'}</span>`;
 }
 export async function homePage() {
@@ -44,11 +45,10 @@ export async function homePage() {
     (a.due_at || '9999').localeCompare(b.due_at || '9999'),
   );
   const decisions = tasks.filter((t) => t.kind === 'DECISION');
-  const week = new Date();
-  week.setDate(week.getDate() + 7);
-  const end = week.toLocaleDateString('en-CA');
+  const today = localDate();
+  const end = bankDateAfter(7);
   const due = tasks.filter(
-    (t) => t.due_at && t.due_at.slice(0, 10) >= localDate() && t.due_at.slice(0, 10) <= end,
+    (t) => t.due_at && businessDate(t.due_at) >= today && businessDate(t.due_at) <= end,
   );
   let users = [],
     sources = [];

@@ -1,8 +1,8 @@
 """Current database values for an authorised import download; no seed fallback."""
 from collections import defaultdict
-from datetime import date
 from typing import get_args
 import sqlalchemy as sa
+from .bank_time import today as bank_today
 from . import models as m
 from .access import Actor
 from .schemas import InstrumentInput
@@ -11,7 +11,7 @@ MATERIALITY_CODES = get_args(InstrumentInput.model_fields['materiality'].annotat
 
 
 def current_master(row):
-    today = date.today()
+    today = bank_today()
     return (row.get('active_flag', 1) and
             (not row.get('effective_from') or row['effective_from'] <= today) and
             (not row.get('effective_to') or row['effective_to'] > today))
@@ -39,7 +39,7 @@ def database_choices(db, actor):
     all_units = {row['id']: dict(row) for row in db.execute(sa.select(m.organisational_unit)).mappings()}
     units = [row for row in all_units.values() if current_master(row)
         and actor.covers(row['id'], {'AUTHOR', 'REVIEWER'})]
-    today = date.today()
+    today = bank_today()
     grants = db.execute(sa.select(m.user_role, m.role.c.code.label('role_code'))
         .join(m.role, m.role.c.id == m.user_role.c.role_id)
         .where(m.role.c.code == 'AUTHOR', m.role.c.active_flag == 1,

@@ -9,8 +9,9 @@ import posixpath
 import zipfile
 import xml.etree.ElementTree as ET
 from itertools import zip_longest
-from datetime import datetime, timezone
+from datetime import datetime
 from defusedxml.ElementTree import fromstring
+from .bank_time import IST, to_ist
 from .config import ROOT
 from .import_choices import database_choices
 from .import_template import CHOICE_LABELS, FIELDS, MULTI_VALUE_FIELDS, GUIDE_REFRESH_ROW
@@ -100,7 +101,7 @@ def fill_reference_lists(layout,choices,validations,references):
 
 def fill_choices(layout, values, generated_at=None):
     """Populate a trusted layout; an empty database list stays empty."""
-    generated_at = generated_at or datetime.now(timezone.utc)
+    generated_at = to_ist(generated_at) if generated_at is not None else datetime.now(IST)
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(layout)) as source:
         paths = _sheet_paths(source)
@@ -154,7 +155,7 @@ def fill_choices(layout, values, generated_at=None):
             if row.get('r') in {str(GUIDE_REFRESH_ROW), str(GUIDE_REFRESH_ROW + 1)}:
                 guide_data.remove(row)
         for number, items in [(GUIDE_REFRESH_ROW, ['Database choices',
-                'Refreshed from Oracle: ' + generated_at.strftime('%d/%m/%Y %H:%M UTC'),
+                'Refreshed from Oracle: ' + generated_at.strftime('%d/%m/%Y %H:%M IST'),
                 'These choices are a snapshot at download time. Import checks the current database again.']),
                 (GUIDE_REFRESH_ROW + 1, ['Refresh the lists', 'Download a fresh template when starting a new import.',
                 'Choose an interpretation owner for the selected department. A listed person may cover only some departments.'])]:

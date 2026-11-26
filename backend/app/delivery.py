@@ -4,11 +4,11 @@ Definition governance remains in obligations/repository. Delivery locks the cont
 obligation first, then the action, and rechecks named, effective authority on writes.
 """
 import hashlib,json
-from datetime import date,datetime,timedelta
-from zoneinfo import ZoneInfo
+from datetime import timedelta
 from urllib.parse import urlparse
 import sqlalchemy as sa
 from fastapi import HTTPException
+from .bank_time import today
 from . import models as m,repository as repo,obligations as obl
 from .access import actor_for,READ_ROLES,REGULATORY_ROLES
 from .events import audit,history,notify,new_id,now,record_audit
@@ -18,7 +18,6 @@ from .storage import stored_path
 OWNER_ROLES={'BUSINESS_OWNER','CONTROL_OWNER','EVIDENCE_OWNER','AUTHOR'}
 OPEN={'OPEN','IN_PROGRESS','PENDING_VALIDATION'}
 BLOCKING={'UNAPPROVED_SOURCE','SOURCE_PERIOD_MISMATCH','SOURCE_REASSESSMENT_REQUIRED','PROCESS_REASSESSMENT_REQUIRED','PRODUCT_REASSESSMENT_REQUIRED','OBLIGATION_REASSESSMENT_REQUIRED','CONTENT_VALIDATION_PENDING','INVALID_OWNER_ACCESS','MISSING_OR_UNAVAILABLE_CLAUSE','MISSING_EVIDENCE_STANDARD','UNAPPROVED_NON_APPLICABILITY'}
-def today():return datetime.now(ZoneInfo('Asia/Kolkata')).date()
 def fail(condition,message,status=422):
     if not condition:raise HTTPException(status,message)
 def allrows(db,table,condition=None):

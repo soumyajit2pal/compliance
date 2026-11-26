@@ -1,3 +1,4 @@
+import { bankTimeZone } from '../../core/bank-time.ts';
 import { referenceSelect } from '../../ui/reference-options.ts';
 import { has } from '../../core/access.ts';
 import {
@@ -26,7 +27,7 @@ const libraryStages=[
 ];
 
 const editionDate = new Intl.DateTimeFormat('en-IN', {
-  day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+  day: 'numeric', month: 'short', year: 'numeric', timeZone: bankTimeZone,
 });
 
 function versionCell(record) {

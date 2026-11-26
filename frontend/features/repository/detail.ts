@@ -5,8 +5,7 @@ import { libraryReturnPath } from '../../core/library-navigation.ts';
 import { selectSourceEdition, sourceEditionStatus } from '../../core/source-editions.ts';
 import { instrumentWorkspacePath } from '../../core/source-navigation.ts';
 import { covered } from '../../core/access.ts';
-import {
-  esc,
+import { dateTime, esc,
   auditActor,
   title,
   badge,
@@ -68,7 +67,7 @@ function correctionSummary(row) {
     `<div><strong>${esc(correctionLabel(key))}</strong><span>${esc(correctionValue(key, before[key]))} <span aria-label="changes to">→</span> ${esc(correctionValue(key, proposed[key]))}</span></div>`).join('')}</div>`;
 }
 function activity(events, pageKey = 'record-activity') {
-  return pagedCollection(events.map((r) => `<div class="runtime-audit-event">${icon('activity')}<div><strong>${esc(title(r.action || r.new_status || r.stage))}</strong><p>${esc(r.reason || r.comments || '')}</p><small>${date(r.event_at || r.changed_at)}${r.actor_user_id ? ' · ' + auditActor(r) : ''}</small>${r.old_value || r.new_value ? `<details><summary>Retained change details</summary><pre>${esc(r.old_value || '')}\n${esc(r.new_value || '')}</pre></details>` : ''}</div></div>`), {pageKey, className:'runtime-audit-list', label:'events', summary:false, empty:'<p class="small muted">No activity recorded in this view.</p>'});
+  return pagedCollection(events.map((r) => `<div class="runtime-audit-event">${icon('activity')}<div><strong>${esc(title(r.action || r.new_status || r.stage))}</strong><p>${esc(r.reason || r.comments || '')}</p><small>${dateTime(r.event_at || r.changed_at)}${r.actor_user_id ? ' · ' + auditActor(r) : ''}</small>${r.old_value || r.new_value ? `<details><summary>Retained change details</summary><pre>${esc(r.old_value || '')}\n${esc(r.new_value || '')}</pre></details>` : ''}</div></div>`), {pageKey, className:'runtime-audit-list', label:'events', summary:false, empty:'<p class="small muted">No activity recorded in this view.</p>'});
 }
 function regulatoryPositionDescription(status) {
   return {
@@ -232,7 +231,7 @@ export function renderRecord(q) {
       (selection.pending.length > 1 ? ' Multiple pending editions were retained from earlier data. Their makers must cancel the extra Drafts before another edition can be submitted.' : ''), 'warn');
   if (v.cancelled_draft)
     editionNotice += note('<strong>Draft cancelled.</strong> ' + esc(v.cancellation_reason) +
-      '<br>Cancelled by ' + esc(ref('user', v.cancelled_by)) + ' · ' + date(v.cancelled_at) +
+      '<br>Cancelled by ' + esc(ref('user', v.cancelled_by)) + ' · ' + dateTime(v.cancelled_at) +
       '. This edition is retained read-only with its source, clauses and earlier workflow history.');
   if (['IN_REVIEW', 'REVIEWED'].includes(v.approval_status)) {
     editionNotice += note('This edition is locked during review. The maker can withdraw it to Draft, or the assigned reviewer/approver can return it for correction. Editing then requires a fresh review.');
@@ -300,7 +299,7 @@ export function renderRecord(q) {
       (canDecide ? workflowActionGroup(decide(review?'REVIEW':'APPROVE',review?'Record review':'Approve correction')+
         decide('RETURN','Return for correction')+decide('REJECT','Reject')+decide('DELEGATE','Delegate task')) : '');
     body += `<div class="mt24" id="metadata-correction-panel" tabindex="-1">${panel('Metadata correction · ' + title(correction.correction_status),
-      `<p><strong>Requested by</strong> ${esc(ref('user', correction.created_by))} · ${date(correction.created_at)}</p>${correctionSummary(correction)}<p><strong>Reason</strong><br>${esc(correction.reason)}</p>${correction.reviewer_id ? `<p class="small muted">Reviewer: ${esc(ref('user', correction.reviewer_id))}${correction.reviewed_by ? ' · Review recorded by ' + esc(ref('user', correction.reviewed_by)) : ''}${correction.approved_by ? ' · Approved by ' + esc(ref('user', correction.approved_by)) : ''}</p>` : ''}<div class="record-actions actions">${correctionActions || '<span class="small muted">This request is retained here with its review history.</span>'}</div>`,
+      `<p><strong>Requested by</strong> ${esc(ref('user', correction.created_by))} · ${dateTime(correction.created_at)}</p>${correctionSummary(correction)}<p><strong>Reason</strong><br>${esc(correction.reason)}</p>${correction.reviewer_id ? `<p class="small muted">Reviewer: ${esc(ref('user', correction.reviewer_id))}${correction.reviewed_by ? ' · Review recorded by ' + esc(ref('user', correction.reviewed_by)) : ''}${correction.approved_by ? ' · Approved by ' + esc(ref('user', correction.approved_by)) : ''}</p>` : ''}<div class="record-actions actions">${correctionActions || '<span class="small muted">This request is retained here with its review history.</span>'}</div>`,
       { action: metadata_corrections.length > 1 ? link(correctionPath(i, v, correction.id, 'history'), 'View request history', 'btn small') : '' })}</div>`;
   }
   if (tab === 'history')
@@ -308,7 +307,7 @@ export function renderRecord(q) {
       panel('Version & activity history', activity(audit)) +
       (metadata_corrections.length ? `<div class="mt24">${tablePanel(table(
         ['Requested', 'Requested by', 'Changes', 'Reason', 'Status', 'Review'],
-        metadata_corrections.map((r) => [date(r.created_at), esc(ref('user', r.created_by)), correctionSummary(r), esc(r.reason), badge(r.correction_status), link(correctionPath(i, v, r.id), 'Open workflow', 'btn small')]),
+        metadata_corrections.map((r) => [dateTime(r.created_at), esc(ref('user', r.created_by)), correctionSummary(r), esc(r.reason), badge(r.correction_status), link(correctionPath(i, v, r.id), 'Open workflow', 'btn small')]),
         { summary: false },
       ), 'Metadata correction history')}</div>` : '') +
       `<div class="mt24">${panel('Status history', activity(history, 'record-status-history'))}</div>`;
@@ -319,7 +318,7 @@ export function renderRecord(q) {
     comments
       .map(
         (c) =>
-          `<div class="runtime-audit-event">${icon('message')}<div><strong>${esc(ref('user', c.created_by))}</strong><small> · ${date(c.created_at)}</small><p>${esc(c.comment_text)}</p></div></div>`,
+          `<div class="runtime-audit-event">${icon('message')}<div><strong>${esc(ref('user', c.created_by))}</strong><small> · ${dateTime(c.created_at)}</small><p>${esc(c.comment_text)}</p></div></div>`,
       )
       .join('') +
       (covered(i.regulatory_owner_unit_id, [

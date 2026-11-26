@@ -1,5 +1,5 @@
 """Transactional notification jobs, current recipient checks and SMTP delivery."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from email.headerregistry import Address
 from email.message import EmailMessage
 from html import escape
@@ -7,7 +7,7 @@ import logging
 import smtplib
 import ssl
 from urllib.parse import urlsplit
-from zoneinfo import ZoneInfo
+from .bank_time import IST, to_ist
 
 from fastapi import HTTPException
 import sqlalchemy as sa
@@ -21,7 +21,6 @@ from .task_queue import list_tasks
 
 LOG = logging.getLogger('cbd.mail')
 JOBS = m.email_job.c
-IST = ZoneInfo('Asia/Kolkata')
 MAX_ATTEMPTS = 5
 CLAIM_TIMEOUT = timedelta(minutes=15)
 EVENT_LIFETIME = timedelta(days=2)
@@ -59,7 +58,7 @@ ACTION_REMINDERS = {
 
 
 def india_time(timestamp):
-    return (timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)).astimezone(IST)
+    return to_ist(timestamp)
 
 
 def event_label(kind):

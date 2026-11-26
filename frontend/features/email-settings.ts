@@ -1,7 +1,7 @@
 import { api } from '../core/api.ts';
 import { pageRequest } from '../core/pagination.ts';
 import { apiColumnFilters } from '../core/table-filters.ts';
-import { button, esc, field, input, link, message, select, statusTag, title } from '../ui/components.ts';
+import { dateTime as when, button, esc, field, input, link, message, select, statusTag, title } from '../ui/components.ts';
 import { close, modal } from '../ui/dialog.ts';
 import { heading } from '../ui/layout.ts';
 import { detailFields, note, panel, table, tabs } from '../ui/widgets.ts';
@@ -13,8 +13,6 @@ const filterKeys = ['q', 'status', 'kind', 'start', 'end'];
 const transport = [{id:'STARTTLS', name:'STARTTLS'}, {id:'TLS', name:'Implicit TLS'}, {id:'PLAIN', name:'Plain relay'}];
 const kinds = [{id:'EVENT', name:'Workflow notification'}, {id:'DIGEST', name:'Daily approval reminder'}, {id:'TEST', name:'Test email'}];
 const statuses = ['PENDING', 'SENDING', 'RETRY', 'SENT', 'FAILED', 'SKIPPED'];
-const fmt = new Intl.DateTimeFormat('en-IN', {timeZone:'Asia/Kolkata', dateStyle:'medium', timeStyle:'short', hourCycle:'h23'});
-const when = value => value ? fmt.format(new Date(value)) : '—';
 const tones = {SENT:'green', FAILED:'red', RETRY:'amber', SENDING:'amber', PENDING:'neutral', SKIPPED:'neutral'};
 
 function configuration(data) {

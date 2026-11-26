@@ -1,7 +1,8 @@
 """Independent ownership requests. The obligation and its current owners remain operative until approval."""
-from datetime import date,timedelta
+from datetime import timedelta
 import sqlalchemy as sa
 from fastapi import HTTPException
+from .bank_time import today
 from . import models as m,repository as repo,obligations as obl
 from .access import actor_for
 from .events import audit,history,notify,new_id,now
@@ -19,7 +20,7 @@ def pending(db,identifier):
 def guard_parent(db,row):
     if row['approval_status']!='APPROVED' or row['record_status'] not in {'ACTIVE','DRAFT'}:
         raise HTTPException(409,'Owner change requests require the current Approved or Active obligation.')
-    if row['effective_to'] and row['effective_to']<=date.today():raise HTTPException(409,'The obligation period has ended. Create a governed revision before assigning new owners.')
+    if row['effective_to'] and row['effective_to']<=today():raise HTTPException(409,'The obligation period has ended. Create a governed revision before assigning new owners.')
     siblings=[dict(r) for r in db.execute(sa.select(m.compliance_obligation).where(m.compliance_obligation.c.code==row['code']).with_for_update()).mappings()]
     if any(r['approval_status'] in {'DRAFT','IN_REVIEW','REVIEWED'} for r in siblings):
         raise HTTPException(409,'An obligation revision is pending. Complete or cancel it before requesting an ownership change.')
@@ -111,7 +112,7 @@ def check_task(db,actor,row,proposal,task,assignments):
 
 
 def apply(db,actor,row,proposal,assignments):
-    at=now();effective=max(date.today(),row['effective_from']);current=obl.rows(db,m.obligation_owner,row['id'])
+    at=now();effective=max(today(),row['effective_from']);current=obl.rows(db,m.obligation_owner,row['id'])
     retained={i['previous_owner_id'] for i in assignments if i['previous_owner_id']}
     reviewer=next((o for o in current if o['owner_role']=='COMPLIANCE_REVIEWER' and o['user_id']==proposal['compliance_reviewer_user_id'] and o['org_unit_id']==row['regulatory_owner_unit_id']),None)
     if reviewer:retained.add(reviewer['id'])

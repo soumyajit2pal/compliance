@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse,JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
+from .bank_time import today as bank_today
 from .runtime import runtime_settings
 from .pagination import page_query, paginate
 from .table_filters import column_choices, column_query, fields, filter_rows, label, version as version_label
@@ -220,7 +221,7 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/health')
     def health():
-        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', '2026.11.25-r3')}
+        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', '2026.11.25-r5')}
 
     @app.get('/api/ready')
     def ready(request: Request):
@@ -306,7 +307,7 @@ def create_app(settings=None,engine=None):
     @app.get('/api/auth/departments')
     def onboarding_departments(db=Depends(get_db),identity=Depends(limited)):
         if not employees.can_onboard(identity[0].user):raise HTTPException(403,'Complete employee profile setup before opening the workspace.')
-        unit=m.organisational_unit.c;today=date.today()
+        unit=m.organisational_unit.c;today=bank_today()
         return [dict(r) for r in db.execute(sa.select(m.organisational_unit).where(
             unit.active_flag==1,unit.unit_type=='DEPARTMENT',unit.effective_from<=today,
             sa.or_(unit.effective_to.is_(None),unit.effective_to>today)).order_by(unit.name)).mappings()]
@@ -344,9 +345,9 @@ def create_app(settings=None,engine=None):
         return result
 
     @app.get('/api/masters/catalogue')
-    def master_catalogue(actor=Depends(current)):
+    def master_catalogue(db=Depends(get_db),actor=Depends(current)):
         actor.require({'ADMIN'})
-        return master_data.catalogue()
+        return master_data.catalogue(db)
 
     @app.post('/api/admin/masters/{key}')
     def create_master(key:str,payload:master_data.MasterChange,db=Depends(get_db),actor=Depends(current)):
@@ -428,7 +429,7 @@ def create_app(settings=None,engine=None):
         if old and not values['active_flag']:
             # Refuse disabling the last active administrator.
             others=db.execute(sa.select(m.user.c.id).join(m.user_role,m.user_role.c.user_id==m.user.c.id).join(m.role,m.role.c.id==m.user_role.c.role_id)
-                .where(m.user.c.id!=identifier,m.user.c.active_flag==1,m.role.c.code=='ADMIN',m.role.c.active_flag==1,m.user_role.c.effective_from<=date.today(),sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>date.today()))).first()
+                .where(m.user.c.id!=identifier,m.user.c.active_flag==1,m.role.c.code=='ADMIN',m.role.c.active_flag==1,m.user_role.c.effective_from<=bank_today(),sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>bank_today()))).first()
             if not others:raise HTTPException(409,'Keep at least one active administrator.')
         identifier=identifier or new_id()
         if not old:
@@ -442,9 +443,9 @@ def create_app(settings=None,engine=None):
                 if old['login_type']!='STANDARD' or len(payload.password)<12 or len(payload.password.encode())>72:raise HTTPException(422,'Only Standard accounts can receive a temporary 12–72 byte password.')
                 values.update(password_hash=hash_password(payload.password),must_change_password_flag=1)
             db.execute(m.user.update().where(m.user.c.id==identifier).values(**values))
-            db.execute(m.user_role.update().where(m.user_role.c.user_id==identifier,sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>date.today())).values(effective_to=date.today()))
+            db.execute(m.user_role.update().where(m.user_role.c.user_id==identifier,sa.or_(m.user_role.c.effective_to.is_(None),m.user_role.c.effective_to>bank_today())).values(effective_to=bank_today()))
             db.execute(m.app_session.update().where(m.app_session.c.user_id==identifier).values(revoked_flag=1))
-        for assignment in assignments:db.execute(m.user_role.insert().values(id=new_id(),user_id=identifier,effective_from=date.today(),**assignment))
+        for assignment in assignments:db.execute(m.user_role.insert().values(id=new_id(),user_id=identifier,effective_from=bank_today(),**assignment))
         audit(db,actor,'user',identifier,'ACCESS_UPDATED' if old else 'ACCOUNT_CREATED',new={**{k:v for k,v in values.items() if k!='password_hash'},'roles':assignments})
         access=current_access(db,identifier)
         kind=('ACCESS_APPROVAL_REQUIRED' if access['admin_action_required'] else
