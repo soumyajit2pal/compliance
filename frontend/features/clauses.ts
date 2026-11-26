@@ -295,8 +295,8 @@ export async function clausesPage(_id, query = new URLSearchParams()) {
   const canAuthor = detail && covered(detail.owner_unit_id, ['AUTHOR']);
   const editable = canAuthor && detail.edition.approval_status === 'DRAFT' &&
     detail.edition.created_by === state.identity.user.id && selected.approval_status === 'DRAFT';
-  const editAction = (editable ? `<button type="button" class="btn small" data-action="workspace-edit-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">${icon('pen')}<span>Edit Draft clause</span></button>` : '') +
-    (canAuthor && (editable || detail.edition.approval_status === 'APPROVED')
+  const editAction = (editable ? `<button type="button" class="btn small" data-action="workspace-edit-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">${icon('pen')}<span>${selected.heading_only_flag ? 'Edit document heading' : 'Edit Draft clause'}</span></button>` : '') +
+    (canAuthor && !selected.heading_only_flag && (editable || detail.edition.approval_status === 'APPROVED')
       ? `<button type="button" class="btn small" data-action="link-earlier-clause" data-id="${esc(selected.id)}" data-instrument="${esc(selected.instrument_id)}">Link earlier clause</button>` : '');
   const reader = renderClauseDetail({
     selected: {...selected, regulatory_owner_unit_id: detail.owner_unit_id}, parent: detail.ancestors.at(-1), carry: detail.provenance, original: detail.original,

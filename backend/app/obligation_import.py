@@ -34,7 +34,7 @@ def template(db,actor):
         table=LOOKUPS[key]
         if table is m.regulatory_clause:
             for row in repo.clause_listing(db,actor):
-                if row['approval_status']!='APPROVED' or row['version_approval_status']!='APPROVED':continue
+                if row.get('heading_only_flag') or row['approval_status']!='APPROVED' or row['version_approval_status']!='APPROVED':continue
                 display=f"{row.get('source_clause_reference') or 'Unnumbered'} · {(row.get('heading') or row.get('instrument_title') or 'Source clause')[:90]} · edition {row['version_number']} [{row['code']}]"
                 choices[key].append(display);references.append(['Primary / supporting clause',display,row['code'],row['instrument_title']])
         else:

@@ -48,16 +48,24 @@ FIELDS = [
      'Enter the date the relationship takes effect as an Excel date, DD/MM/YYYY or YYYY-MM-DD.', '01/11/2026'),
 ]
 FAMILY_FIELDS = frozenset(field[0] for field in FIELDS[-3:])
+HIERARCHY_FIELDS = [
+    ('source_chapter', 'Chapter', False, 'Repeat the source chapter heading on each row in its branch.', 'Chapter I - Preliminary'),
+    ('source_section', 'Section', False, 'Repeat the section heading if the source has one.', 'C. Definitions'),
+    ('source_paragraph', 'Paragraph', False, 'Enter the source paragraph number as text, for example 4.', '4'),
+    ('source_subparagraph', 'Subparagraph', False, 'Enter the source subparagraph label as text, for example (1).', '(1)'),
+    ('source_item', 'Item', False, 'Enter the source item label as text, for example (i).', '(i)'),
+]
 CLAUSE_FIELDS = [
     ('import_reference', 'Import reference', True, 'Match the Regulatory records row, for example REG-001.', 'REG-001'),
-    ('source_edition', 'Source edition', False, 'Leave blank to inherit the record edition, or enter the same edition as text. Cross-edition parents are not allowed.', '1.0'),
-    ('clause_import_reference', 'Clause import reference', True, 'Unique within the record, for example C1. This is a workbook reference; the portal generates the permanent clause ID.', 'C1'),
-    ('parent_import_reference', 'Parent clause reference', False, 'Use another clause import reference in this record. Blank means top level. For an existing Draft, its same-edition current or retained legacy clause code also works.', ''),
-    ('source_clause_reference', 'Source clause / para number', False, 'Copy numbering exactly as text, including 5.10. Leave blank for an unnumbered provision.', '5'),
+    *HIERARCHY_FIELDS,
     ('heading', 'Clause heading', True, 'Heading for this source clause / para.', 'Customer identification'),
     ('source_page_reference', 'Source page reference', True, 'Identify the pages in the attached authoritative source.', 'Page 5'),
     ('clause_text', 'Original regulatory text', True, 'Copy the original wording. Excel cells support up to 32,767 characters; never truncate source wording.', 'Illustrative original wording; replace with actual source text.'),
     ('internal_interpretation', "Bank’s internal interpretation", False, 'Keep the bank interpretation separate from the original regulatory wording.', ''),
+    ('clause_import_reference', 'Clause import reference', False, 'Keep an existing row reference, or leave blank when using hierarchy columns. Required for explicit parent-link imports.', 'C1'),
+    ('source_edition', 'Source edition', False, 'Leave blank to inherit the record edition, or enter the same edition as text. Cross-edition parents are not allowed.', '1.0'),
+    ('parent_import_reference', 'Parent clause reference', False, 'For explicit parent links, use a reference from this record and edition. Leave blank when using hierarchy columns.', ''),
+    ('source_clause_reference', 'Source clause / para number', False, 'For explicit parent links, copy numbering exactly as text, including 5.10. Leave blank when using hierarchy columns.', '5'),
     *[(key, label, False, 'Optional Yes or No. Blank means ' + default + '.', default)
       for key, label, default in [('mandatory_flag', 'Mandatory', 'Yes'), ('conditional_flag', 'Conditional', 'No'),
           ('reporting_flag', 'Reporting', 'No'), ('disclosure_flag', 'Disclosure', 'No'), ('retention_flag', 'Record retention', 'No')]],

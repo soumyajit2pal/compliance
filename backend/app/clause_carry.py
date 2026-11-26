@@ -47,10 +47,12 @@ def carry(db,actor,version_id,payload):
             parent=existing['id'];continue
         entry=entries[old['id']]
         values=entry.model_dump(exclude={'source_clause_id'})
+        heading = bool(old.get('heading_only_flag'))
         values.update(parent_clause_id=parent,internal_interpretation=None,
+            heading_only_flag=heading,
             **{key:bool(old[key]) for key in ['mandatory_flag','conditional_flag','reporting_flag','disclosure_flag','retention_flag']})
         from .schemas import ClauseInput
-        target=repo.add_clause(db,actor,version_id,ClauseInput(**values))['id']
+        target=repo.add_clause(db,actor,version_id,ClauseInput(**values),generated_heading=heading)['id']
         db.execute(m.clause_carry_forward.insert().values(id=new_id(),source_clause_id=old['id'],target_clause_id=target,
             target_version_id=version_id,created_by=actor.id,basis=payload.basis))
         copies[old['id']]=target;created.append(target);parent=target

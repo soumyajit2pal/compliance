@@ -57,6 +57,7 @@ class ClauseInput(Input):
     reporting_flag:bool=False
     disclosure_flag:bool=False
     retention_flag:bool=False
+    heading_only_flag:bool=False
     @field_validator('clause_text')
     @classmethod
     def original_wording_required(cls,value):

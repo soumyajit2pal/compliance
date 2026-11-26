@@ -29,7 +29,7 @@ def approved():
 def apply_approved(db, clauses):
     """Expose approved interpretation separately from immutable source data."""
     pending = {row['id']: row for row in clauses
-               if row['approval_status'] == 'APPROVED' and row['interpretation_status'] != 'APPROVED'}
+               if not row.get('heading_only_flag') and row['approval_status'] == 'APPROVED' and row['interpretation_status'] != 'APPROVED'}
     ids = list(pending)
     for start in range(0, len(ids), 900):
         for identifier, interpretation in db.execute(approved().where(request.c.clause_id.in_(ids[start:start + 900]))):
@@ -84,7 +84,7 @@ def register(db, actor, clause_id):
                 decisions = [decision, 'RETURN', 'REJECT']
         entries.append({**row, 'decisions': decisions, 'assigned_to': assignment and assignment['assignee_user_id'],
                         'decisions_history': [task for task in tasks if task['decision']]})
-    can_submit = (actor.covers(unit, {'AUTHOR'}) and clause['interpretation_status'] != 'APPROVED'
+    can_submit = (not clause.get('heading_only_flag') and actor.covers(unit, {'AUTHOR'}) and clause['interpretation_status'] != 'APPROVED'
                   and not any(row['record_status'] in {'OPEN', 'APPROVED'} for row in rows))
     return {'clause_id': clause_id, 'requests': entries, 'can_submit': can_submit}
 
@@ -93,6 +93,8 @@ def submit(db, actor, clause_id, payload):
     clause, edition, instrument = context(db, actor, clause_id, lock=True)
     unit = instrument['regulatory_owner_unit_id']
     actor.require({'AUTHOR'}, unit)
+    if clause.get('heading_only_flag'):
+        raise HTTPException(422, 'Document headings only group clauses and do not require an interpretation.')
     existing = db.execute(sa.select(request.c.id).select_from(proposals()).where(request.c.clause_id == clause_id,
         workflow.c.record_status.in_(('OPEN', 'APPROVED')))).first()
     if clause['interpretation_status'] == 'APPROVED' or existing:

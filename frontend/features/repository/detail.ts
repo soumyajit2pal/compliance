@@ -106,8 +106,8 @@ function clauseView(i, v, editable, q) {
       ? interpretationPanel(selected, state.record.interpretation_requests, q.get('interpretation')) : '',
     pathFor: (row) => recordPath(i, { id: row.instrument_version_id }, 'clauses', { clause: row.id }),
     editAction: (editable && selected?.approval_status === 'DRAFT'
-      ? button('clause', 'Edit Draft clause', `data-id="${esc(selected.id)}"`, 'small')
-      : '')+(selected && (editable || v.approval_status === 'APPROVED') && covered(i.regulatory_owner_unit_id, ['AUTHOR']) ? button('link-earlier-clause', 'Link earlier clause', `data-id="${esc(selected.id)}" data-instrument="${esc(i.id)}"`, 'small') : ''),
+      ? button('clause', selected.heading_only_flag ? 'Edit document heading' : 'Edit Draft clause', `data-id="${esc(selected.id)}"`, 'small')
+      : '')+(selected && !selected.heading_only_flag && (editable || v.approval_status === 'APPROVED') && covered(i.regulatory_owner_unit_id, ['AUTHOR']) ? button('link-earlier-clause', 'Link earlier clause', `data-id="${esc(selected.id)}" data-instrument="${esc(i.id)}"`, 'small') : ''),
     sourceDocument: documentId ? { id: documentId, name: state.record.source_documents[documentId] || i.title } : undefined,
   });
 }

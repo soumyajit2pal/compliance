@@ -256,7 +256,7 @@ function sourceContext(clause,unit){
 async function editor(identifier,query){
   const request=state.routeNumber,isCurrent=()=>request===state.routeNumber&&Boolean(state.identity);
   if(!has('AUTHOR'))throw new Error('Author access is required to capture obligations.');
-  const clauses=(await api('/clauses')).filter(c=>c.approval_status==='APPROVED'&&c.version_approval_status==='APPROVED')
+  const clauses=(await api('/clauses')).filter(c=>!c.heading_only_flag&&c.approval_status==='APPROVED'&&c.version_approval_status==='APPROVED')
     .map(c=>({...c,name:(c.source_clause_reference||c.code)+' · '+(c.heading||'Untitled clause')+' · edition '+c.version_number+' · '+c.code,
       option_status:c.interpretation_status==='APPROVED'?'':'Interpretation pending'}));
   if(!isCurrent())return "";

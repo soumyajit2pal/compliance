@@ -30,6 +30,8 @@ def source(db,actor,clause_id):
     from .clause_interpretations import apply_approved
     clause=repo.one(db,m.regulatory_clause,clause_id)
     version,instrument=repo.read_version(db,actor,clause['instrument_version_id'])
+    if clause.get('heading_only_flag'):
+        raise HTTPException(422,'Choose a source provision. Document headings only group clauses.')
     apply_approved(db, [clause])
     return clause,version,instrument
 

@@ -11,7 +11,7 @@ from collections import Counter, defaultdict, deque
 import sqlalchemy as sa
 from fastapi import HTTPException
 
-from . import models as m, repository as repo,business_ids, combined_family_links, notification_families
+from . import models as m, repository as repo,business_ids, combined_family_links, import_hierarchy, notification_families
 from .access import actor_for
 from .events import audit, new_id, now
 from .import_template import canonical_header, CLAUSES_SHEET, CLAUSE_FIELDS, FIELDS, FAMILY_FIELDS
@@ -74,9 +74,34 @@ def referenced_files(rows):
     return {canonical(raw).get('source_file_name') for _, _, raw in rows if canonical(raw).get('source_file_name')}
 
 
+def reuse_existing_headings(clauses, existing, parent_refs):
+    if not existing:
+        return
+    candidates = defaultdict(list)
+    for row in existing:
+        reference = row['source_clause_reference']
+        candidates[(row['parent_clause_id'], reference, None if reference else row['heading'])].append(row)
+    resolved = {ref: row['id'] for ref, row in parent_refs.items()}
+    for row in sorted(clauses, key=lambda item: item.get('load_order', len(clauses))):
+        parent = row['parent_reference']
+        if not row.get('hierarchy_path') or row['errors'] or (parent and parent not in resolved):
+            continue
+        values = row['normalised']
+        reference = values['source_clause_reference']
+        matches = candidates[(resolved.get(parent), reference, None if reference else values['heading'])]
+        if matches and not row.get('generated_heading'):
+            row['errors'].append('This hierarchy path already contains a clause in the Draft. Edit the existing clause or import a different path.')
+        elif len(matches) > 1:
+            row['errors'].append('Multiple existing clauses match this generated parent. Use an explicit parent clause reference.')
+        elif matches:
+            row['existing_heading_id'] = matches[0]['id']
+            resolved[row['clause_reference']] = matches[0]['id']
+
+
 def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, storage=None, check_attached=False):
     from .migration_service import normalise
     results = []
+    hierarchy = import_hierarchy.project(rows)
     groups = defaultdict(list)
     records = defaultdict(list)
     loaded_targets = loaded_targets or {}
@@ -94,7 +119,12 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
             reserved.add(previous['fingerprint'])
     for sheet, number, raw in rows:
         data = canonical(raw)
-        kind = 'clause' if sheet == CLAUSES_SHEET else data.get('entity_type', 'instrument').lower()
+        duplicate_headers = len(data) != len(raw)
+        kind = 'clause' if sheet in {CLAUSES_SHEET, import_hierarchy.GENERATED_SHEET} else data.get('entity_type', 'instrument').lower()
+        generated = False
+        hierarchy_errors = []
+        if (sheet, number) in hierarchy:
+            data, hierarchy_errors, generated = hierarchy[sheet, number]
         reference = data.get('import_reference', '')
         if not reference and kind == 'instrument':
             reference = f'row:{sheet}:{number}'
@@ -102,6 +132,11 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
             'group_reference': reference, 'sheet_name': sheet, 'row_number': number,
             'clause_reference': data.get('clause_import_reference', ''),
             'parent_reference': data.get('parent_import_reference', ''), 'source': raw}
+        result['errors'].extend(hierarchy_errors)
+        if (sheet, number) in hierarchy:
+            result['hierarchy_path'] = list(import_hierarchy.path_for(data))
+        if generated:
+            result['generated_heading'] = True
         results.append(result)
         groups[reference].append(result)
         if kind == 'instrument':
@@ -109,7 +144,7 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
         if reference in loaded_targets:
             result['loaded_group'] = True
             continue
-        if len(data) != len(raw):
+        if duplicate_headers:
             result['errors'].append('Duplicate columns refer to the same field')
         if kind == 'instrument' and not data.get('import_reference'):
             if has_clauses:
@@ -154,6 +189,7 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
                     for row in existing_clauses:
                         for code in old_codes.get(row['id'],[]):result['existing_parents'][code]={'id':row['id'],'clause_level':row['clause_level']}
                     result['existing_signatures'] = {digest([r['source_clause_reference'], r['heading'], r['clause_text']]) for r in existing_clauses}
+                    result['existing_clauses'] = existing_clauses
                     result['fingerprint'] = digest(['existing-edition', version['id']])
                 except HTTPException as exc:
                     result['errors'].append(str(exc.detail))
@@ -179,7 +215,10 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
             for key in ('clause_text', 'internal_interpretation'):
                 original = next((v for k, v in raw.items() if canonical_header(k) == key), None)
                 values[key] = str(original) if original is not None and str(original).strip() else None
-            for key in ('heading', 'source_page_reference', 'clause_text'):
+            if generated:
+                values.update(heading_only_flag=True, mandatory_flag=False,
+                              clause_text=values['source_clause_reference'] or values['heading'])
+            for key in (('heading',) if generated else ('heading', 'source_page_reference', 'clause_text')):
                 if not values[key]:
                     result['errors'].append('Missing ' + {'heading': 'Clause heading', 'source_page_reference': 'Source page reference', 'clause_text': 'Original regulatory text'}[key])
             for key in FLAGS:
@@ -190,7 +229,8 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
                     else:
                         values[key] = value in {'yes', 'true', '1'}
             try:
-                result['normalised'] = ClauseInput(**values).model_dump()
+                result['normalised'] = ClauseInput(**values).model_dump(
+                    exclude=set() if generated else {'heading_only_flag'})
             except Exception:
                 result['errors'].append('Invalid clause field length or required value')
             if not result['clause_reference'] or len(result['clause_reference']) > 100:
@@ -270,10 +310,11 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
                     clause['errors'].append('Parent clause reference is missing, ambiguous or outside this record and edition')
             values = clause['normalised']
             signature = digest([values.get('source_clause_reference'), values.get('heading'), values.get('clause_text')])
-            clause['fingerprint'] = digest(['combined-clause', fingerprint, signature])
-            if signature in local_signatures or signature in record.get('existing_signatures', ()) or clause['fingerprint'] in reserved:
+            clause['fingerprint'] = digest(['combined-clause', fingerprint, clause.get('hierarchy_path') or signature])
+            if not clause.get('hierarchy_path') and signature in local_signatures:
                 clause['errors'].append('Duplicate clause content in the target edition or imported population')
-            local_signatures.add(signature)
+            if not clause.get('hierarchy_path'):
+                local_signatures.add(signature)
         queue = deque(r for r in clauses if not indegree[id(r)])
         order = 0
         while queue:
@@ -286,9 +327,16 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
                 indegree[id(child)] -= 1
                 if not indegree[id(child)]:
                     queue.append(child)
+        reuse_existing_headings(clauses, record.get('existing_clauses'), existing_parents)
         for clause in clauses:
             if indegree[id(clause)]:
                 clause['errors'].append('Parent clause hierarchy contains a cycle or depends on one')
+            values = clause['normalised']
+            signature = digest([values.get('source_clause_reference'), values.get('heading'), values.get('clause_text')])
+            if clause.get('existing_heading_id'):
+                clause['fingerprint'] = None
+            elif (not clause.get('hierarchy_path') and signature in record.get('existing_signatures', ())) or clause['fingerprint'] in reserved:
+                clause['errors'].append('Duplicate clause content in the target edition or imported population')
         for r in members:
             r['edition_number'] = record['edition_number']
             r['errors'] = sorted(set(r['errors']))
@@ -301,6 +349,7 @@ def plan(db, uploader, rows, sources, *, batch_id=None, loaded_targets=None, sto
         r.pop('source', None)
         r.pop('existing_parents', None)
         r.pop('existing_signatures', None)
+        r.pop('existing_clauses', None)
     return results
 
 
@@ -321,6 +370,9 @@ def stage(db, actor, filename, data, rows, source_system, storage, source_files)
     bundle_hash = digest([workbook_hash, sorted((s['file_name'], s['file_hash']) for s in sources)])
     if db.execute(sa.select(m.migration_batch.c.id).where(m.migration_batch.c.file_hash == bundle_hash)).first():
         raise HTTPException(409, 'This exact workbook and source bundle has already been staged. Open its existing batch.')
+    if any(sheet == import_hierarchy.GENERATED_SHEET for sheet, _, _ in rows):
+        raise HTTPException(422, 'Generated headings is reserved for headings created by the portal.')
+    rows = import_hierarchy.expand(rows)
     profiles = plan(db, actor, rows, sources, storage=storage)
     identifier = new_id()
     notes = {'format': FORMAT, 'workbook_sha256': workbook_hash, 'sources': sources}
@@ -476,10 +528,15 @@ def load(db, actor, batch, storage, payload=None):
         for row, profile in sorted(members, key=lambda pair: pair[1].get('load_order', -1)):
             if profile['entity_type'] != 'clause':
                 continue
+            if profile.get('existing_heading_id'):
+                clause_ids[profile['clause_reference']] = profile['existing_heading_id']
+                targets[row['id']] = ('clause', profile['existing_heading_id'])
+                continue
             values = dict(profile['normalised'])
             if profile['parent_reference'] in clause_ids:
                 values['parent_clause_id'] = clause_ids[profile['parent_reference']]
-            created = repo.add_clause(db, actor, version_id, ClauseInput(**values))
+            created = repo.add_clause(db, actor, version_id, ClauseInput(**values),
+                                      generated_heading=profile.get('generated_heading', False))
             clause_ids[profile['clause_reference']] = created['id']
             targets[row['id']] = ('clause', created['id'])
         for row, profile in members:

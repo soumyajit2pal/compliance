@@ -169,7 +169,8 @@ regulatory_clause = table("regulatory_clause", fk("instrument_version_id", "inst
     string("source_page_reference", 50, True), string("source_clause_reference", 100, True),
     *enum("interpretation_status", "PENDING", "REVIEWED", "APPROVED", default="PENDING"),
     *approval(), unique("instrument_version_id", "code"), unique("id", "instrument_version_id"),
-    check("clause_level", "clause_level >= 0"))
+    check("clause_level", "clause_level >= 0"), flag("heading_only_flag"),
+    check("clause_heading_only", "heading_only_flag IN (0, 1)"))
 metadata_correction = table("metadata_correction", fk("instrument_id", "regulatory_instrument"),
     text("before_values_json"), text("proposed_values_json"), text("reason"),
     fk("created_by", "user"), fk("reviewer_id", "user"), fk("approver_id", "user"),

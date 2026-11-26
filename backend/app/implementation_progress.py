@@ -77,6 +77,7 @@ def obligation_population(rows, day):
 
 
 def build(db, actor, instrument, versions, clauses, links):
+    clauses = [row for row in clauses if not row.get('heading_only_flag')]
     day = delivery.today()
     rows = selected(db, m.compliance_obligation, m.compliance_obligation.c.id, [link['id'] for link in links])
     return build_for_sources(db, actor, [instrument], versions, clauses, obligation_population(rows, day), day)

@@ -7,7 +7,7 @@ import { workflowActionGroup, workflowButton } from '../../ui/workflow-actions.t
 
 export function missingInterpretations(record, version) {
   return record.clauses.filter(clause => clause.instrument_version_id === version.id &&
-    !(clause.internal_interpretation || '').trim());
+    !clause.heading_only_flag && !(clause.internal_interpretation || '').trim());
 }
 
 export function missingInterpretationLinks(record, version, clauses) {
@@ -127,7 +127,7 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
   if (status === 'APPROVED') {
     const canActivate = !version.current_version_flag && !version.effective_to &&
       version.effective_from <= localDate() && covered(unit, ['APPROVER']);
-    const pending = record.clauses.some(clause => clause.instrument_version_id === version.id && clause.interpretation_status === 'PENDING');
+    const pending = record.clauses.some(clause => clause.instrument_version_id === version.id && !clause.heading_only_flag && clause.interpretation_status === 'PENDING');
     return {
       heading: 'Source edition approved',
       text: pending ? 'Some clauses still need an approved bank interpretation. Open Clauses / Para to see their status.' : 'Compliance review and final approval are complete for this edition.',

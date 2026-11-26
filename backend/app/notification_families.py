@@ -166,6 +166,8 @@ def validate_clause_relation(db,actor,row,identifier=None):
     source=repo.one(db,m.regulatory_clause,row['source_clause_id']);target=repo.one(db,m.regulatory_clause,row['target_clause_id'])
     source_version,instrument=repo.read_version(db,actor,source['instrument_version_id'])
     target_version,target_instrument=repo.read_version(db,actor,target['instrument_version_id'])
+    if source.get('heading_only_flag') or target.get('heading_only_flag'):
+        raise HTTPException(422,'Choose source provisions for regulatory clause relationships.')
     if source_version['approval_status'] not in {'DRAFT','APPROVED'} or source['clause_status']=='DELETED':
         raise HTTPException(409,'Use an editable Draft or an approved source clause for a new relationship.')
     repo.one(db,m.regulator,instrument['regulator_id'],lock=True)

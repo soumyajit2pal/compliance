@@ -25,7 +25,7 @@ import { panel, table, tablePanel, note, searchForm } from '../ui/widgets.ts';
 import { combinedImportPreview, draftLoadingInstructions, hasReadyFamilyLinks, importedClausePath } from './import-preview.ts';
 import { instrumentWorkspacePath } from '../core/source-navigation.ts';
 
-const importGuidance = 'Fill Regulatory records and optionally Clauses. Use Import reference to group clauses and Parent clause reference for hierarchy. Fill the three notification relationship fields on amendment rows. Attach a source with the matching Source file name or use an existing Source document ID.';
+const importGuidance = 'Fill Regulatory records and optionally Clauses. Start with Chapter through Item (columns B–F) on the Clauses sheet for automatic parent headings. Use Import reference to group clauses. Attach the matching source file or use an existing Source document ID.';
 const excelTemplate = '/api/migration-template?format=xlsx';
 const csvTemplate = '/api/migration-template?format=csv';
 
@@ -190,7 +190,7 @@ function renderBatch(query) {
             ? `<small>Primary domain: ${esc(domainName(normalized.primary_domain_id))}</small>${secondaryNames.length ? `<small>Additional domains: ${esc(secondaryNames.join(', '))}</small>` : ''}`
             : '';
           return [
-            `<span class="record-title">${esc(r.source_system)}</span><small>${esc(r.sheet_name)} · Row ${r.row_number}</small>`,
+            `<span class="record-title">${esc(r.source_system)}</span><small>${r.profile.generated_heading ? 'Generated document heading' : `${esc(r.sheet_name)} · Row ${r.row_number}`}</small>`,
             esc(
               normalized.title ||
                 normalized.heading ||
@@ -201,7 +201,7 @@ function renderBatch(query) {
                 r.profile.entity_type,
             ) +
               domainSummary +
-              `<details class="mt8"><summary>Original row</summary><pre>${esc(JSON.stringify(r.source, null, 2))}</pre></details>`,
+              (r.profile.generated_heading ? '' : `<details class="mt8"><summary>Original row</summary><pre>${esc(JSON.stringify(r.source, null, 2))}</pre></details>`),
             badge(r.validation_status),
             (r.profile.errors?.map(esc).join('<br>') ||
               (r.validation_status === 'MIGRATION_READY' ? 'Validated and ready to load as a Draft.'

@@ -256,11 +256,18 @@ def edit_version(db,actor,identifier,payload):
     return {'id':identifier,'instrument_id':instrument['id'],'status':'DRAFT',
         'message':'Draft source edition saved. Existing clauses are retained; recheck them against the source before submitting for independent review.'}
 
-def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False):
+def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False,generated_heading=False):
     version,instrument=read_version(db,actor,version_id,lock=True);actor.require({'AUTHOR'},instrument['regulatory_owner_unit_id'])
     if version['approval_status']!='DRAFT' or version['created_by']!=actor.id:
         raise HTTPException(409,'Clauses / Para can only be edited by the maker while the version is Draft.')
     values=payload.model_dump();level=1
+    if values['heading_only_flag']:
+        if not clause_id and not generated_heading:
+            raise HTTPException(422,'Create document headings with the hierarchy columns in the regulatory import.')
+        if not values['heading'] or values['internal_interpretation'] or any(values[key] for key in (
+                'mandatory_flag', 'conditional_flag', 'reporting_flag', 'disclosure_flag', 'retention_flag')):
+            raise HTTPException(422,'A document heading needs a title and carries no interpretation or requirement flags.')
+        values['clause_text'] = values['source_clause_reference'] or values['heading']
     if not imported and not clause_id and values.get('code'):
         raise HTTPException(422,'Clause references are generated automatically. Enter the regulator’s numbering in Source clause / para number.')
     if not imported and values.get('sequence_number') is not None:
@@ -276,6 +283,8 @@ def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False):
     if clause_id:
         old=one(db,m.regulatory_clause,clause_id)
         if old['instrument_version_id']!=version_id or old['approval_status']!='DRAFT': raise HTTPException(409,'Clause / Para is not editable in this Draft.')
+        if bool(old['heading_only_flag']) != values['heading_only_flag']:
+            raise HTTPException(422,'A saved heading or clause keeps its original record type.')
         if values.get('code') not in (None,old['code']): raise HTTPException(422,'Clause / Para codes are permanent.')
         if values['parent_clause_id']!=old['parent_clause_id'] and db.execute(sa.select(m.regulatory_clause.c.id).where(m.regulatory_clause.c.parent_clause_id==clause_id)).first():
             raise HTTPException(409,'A clause / para with children cannot be moved. Correct the Draft hierarchy before adding children.')
@@ -304,7 +313,8 @@ def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False):
     return {'id':identifier}
 
 def missing_interpretation_clauses(clauses):
-    return [clause for clause in clauses if not (clause['internal_interpretation'] or '').strip()]
+    return [clause for clause in clauses if not clause.get('heading_only_flag')
+            and not (clause['internal_interpretation'] or '').strip()]
 
 
 def submit(db,actor,version_id,payload):
@@ -323,9 +333,9 @@ def submit(db,actor,version_id,payload):
         if not domain['active_flag'] or not domain['domain_owner_unit_id']:
             raise HTTPException(422,'Every affected domain must have its bank-approved owning department assigned and review submissions enabled before this instrument can be submitted. Ask an Admin to complete setup in Administration → Master data → Regulatory domains → Set owner.')
     clause = m.regulatory_clause.c
-    clauses = db.execute(sa.select(clause.id, clause.internal_interpretation)
+    clauses = db.execute(sa.select(clause.id, clause.internal_interpretation, clause.heading_only_flag)
         .where(clause.instrument_version_id == version_id)).mappings().all()
-    if not clauses:
+    if not any(not row['heading_only_flag'] for row in clauses):
         raise HTTPException(422,'Add at least one source clause / para before submitting.')
     if not version['source_document_id']: raise HTTPException(422,'A source document is required.')
     missing = missing_interpretation_clauses(clauses)
@@ -416,7 +426,7 @@ def decide(db,actor,version_id,payload):
     clauses = []
     if target in {'REVIEWED','APPROVED'}:
         clause = m.regulatory_clause.c
-        clauses = db.execute(sa.select(clause.id, clause.internal_interpretation)
+        clauses = db.execute(sa.select(clause.id, clause.internal_interpretation, clause.heading_only_flag)
             .where(clause.instrument_version_id == version_id)).mappings().all()
         missing = missing_interpretation_clauses(clauses)
         if missing:
