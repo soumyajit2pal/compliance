@@ -17,7 +17,7 @@ from .import_choices import current_master
 from .config import ROOT
 
 SHEETS=excel.SHEETS
-LOOKUPS={'obligation_nature':m.obligation_nature,'primary_clause_id':m.regulatory_clause,'category_id':m.obligation_category,'frequency_id':m.frequency,
+LOOKUPS={'primary_clause_id':m.regulatory_clause,'category_id':m.obligation_category,'frequency_id':m.frequency,
  'primary_domain_id':m.regulatory_domain,'regulatory_owner_unit_id':m.organisational_unit,'business_owner_unit_id':m.organisational_unit,
  'compliance_reviewer_user_id':m.user,'org_unit_id':m.organisational_unit,'user_id':m.user,'legal_entity_id':m.legal_entity,
  'product_id':m.product,'process_id':m.process,'channel_id':m.channel,'customer_segment_id':m.customer_segment,'geography_id':m.geography}
@@ -70,12 +70,15 @@ def parse(filename,data):
                 iterator=book[name].iter_rows();header=next(iterator,())
                 source_headers=[str(c.value or '').strip() for c in header]
                 fields=[excel.canonical_header(name,value) for value in source_headers]
-                if len(fields)>60 or len(fields)!=len(set(fields)) or any(f not in allowed for f in fields):raise ValueError(name+': unknown or repeated column. Keep the downloaded column labels.')
+                accepted = {*allowed,'obligation_nature'} if name=='Obligations' else set(allowed)
+                if len(fields)>60 or len(fields)!=len(set(fields)) or any(f not in accepted for f in fields):raise ValueError(name+': unknown or repeated column. Keep the downloaded column labels.')
                 for number,cells in enumerate(iterator,2):
                     if not any(c.value is not None for c in cells):continue
                     if any(c.data_type=='f' for c in cells):raise ValueError('Formula cells are not allowed')
-                    raw={key:(c.value.date().isoformat() if isinstance(c.value,datetime) else c.value.isoformat() if isinstance(c.value,date) else c.value) for key,c in zip(fields,cells)}
-                    result.append({'sheet':name,'number':number,'raw':raw,'source_values':dict(zip(source_headers,raw.values()))})
+                    source_values=[c.value.date().isoformat() if isinstance(c.value,datetime) else c.value.isoformat() if isinstance(c.value,date) else c.value for c in cells]
+                    raw={key:None if isinstance(value,str) and not value.strip() else value for key,value in zip(fields,source_values)}
+                    if all(value is None for value in raw.values()):continue
+                    result.append({'sheet':name,'number':number,'raw':raw,'source_values':dict(zip(source_headers,source_values))})
                     if len(result)>10000:raise ValueError('Too many rows')
         finally:book.close()
         if not result or sum(r['sheet']=='Obligations' for r in result)>1000:raise ValueError('Enter 1–1000 obligations and at most 10,000 total rows')
@@ -101,10 +104,8 @@ def map_payload(db,group):
                 if col in table.c:alternatives.append(sa.func.upper(table.c[col])==value.upper())
             if table is m.user:alternatives.append(sa.func.upper(table.c.full_name+sa.literal(' (')+table.c.username+sa.literal(')'))==value.upper())
             elif 'name' in table.c:alternatives.append(sa.func.upper(table.c.name+sa.literal(' (')+table.c.code+sa.literal(')'))==value.upper())
-            column = table.c.code if table is m.obligation_nature else table.c.id
+            column = table.c.id
             query = sa.select(column).where(sa.or_(*alternatives))
-            if table is m.obligation_nature:
-                query = query.where(table.c.active_flag == 1)
             matches=db.execute(query).scalars().all()
             if not matches and table is m.obligation_category and value.casefold() in {'control','control (obl-ctrl)'}:
                 matches=db.execute(sa.select(column).where(table.c.code=='OBL-CTRL')).scalars().all()
@@ -118,7 +119,7 @@ def map_payload(db,group):
             raise ValueError(excel.label(sheet,key)+': choose Yes or No.')
         return str(value).strip()
     for key,value in raw.items():
-        if key in {'import_reference','legacy_reference','supporting_clause_ids'}:continue
+        if key in {'import_reference','legacy_reference','supporting_clause_ids','obligation_nature'}:continue
         mapped=convert(key,value)
         if mapped is not None:result[key]=mapped
     result['supporting_clause_ids']=[convert('primary_clause_id',v.strip()) for v in str(raw.get('supporting_clause_ids') or '').split(';') if v.strip()]

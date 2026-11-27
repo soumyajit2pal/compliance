@@ -191,7 +191,7 @@ clause_relationship = table("clause_relationship", fk("source_clause_id", "regul
 compliance_obligation = table("compliance_obligation", string("code", 200),
     fk("primary_clause_id", "regulatory_clause"), string("title", 500), text("statement"), text("internal_interpretation"),
     fk("category_id", "obligation_category"), sa.Column("obligation_nature", sa.String(40), sa.ForeignKey("cbd_obligation_nature.code"), nullable=False),
-    fk("frequency_id", "frequency"), fk("primary_domain_id", "regulatory_domain"),
+    fk("frequency_id", "frequency"), string("task_trigger", 500, True), date("task_due_date", True), fk("primary_domain_id", "regulatory_domain"),
     *enum("criticality", "CRITICAL", "HIGH", "MEDIUM", "LOW"), text("breach_consequence"), text("evidence_standard"),
     flag("testing_required_flag"), flag("certification_required_flag"), flag("reporting_required_flag"), flag("retention_required_flag"),
     fk("regulatory_owner_unit_id", "organisational_unit"), fk("business_owner_unit_id", "organisational_unit"),

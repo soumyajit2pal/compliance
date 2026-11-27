@@ -5,15 +5,16 @@ from datetime import datetime
 # key, screen label, required, guidance, illustrative value
 FIELDS={
  'Obligations':[
-  ('import_reference','Import reference',True,'Choose a workbook reference, such as OBL-001. Repeat it on related rows in the other three entry sheets. The permanent obligation ID is generated automatically.','OBL-001'),
+  ('import_reference','Import reference',True,'Choose a workbook reference, such as OBL-001. Repeat it on the related owner and applicability rows, and on any optional process rows. The portal generates the permanent obligation ID.','OBL-001'),
   ('legacy_reference','Existing register reference',False,'Keep the reference from your earlier register, if any.','OLD-REGISTER-001'),
   ('primary_clause_id','Primary clause',True,'Choose an approved source clause from Choices. Its exact edition is retained.','Choose an approved clause from Choices'),
   ('title','Title',True,'Give this single requirement a short title.','Review customer identification evidence'),
   ('statement','Requirement',True,'Describe one actionable requirement. Split combined requirements into separate obligations.','Review customer identification evidence before opening the account.'),
   ('internal_interpretation','Internal interpretation',True,'Explain how the bank will apply the requirement. Keep original regulatory wording in its source clause.','The onboarding team records and checks the identification evidence.'),
   ('category_id','Category',True,'Choose the category name from Choices.','Choose from Choices'),
-  ('obligation_nature','Nature',True,'Choose an active nature from Choices.','Ongoing'),
-  ('frequency_id','Review / execution frequency',True,'Choose the frequency name from Choices.','Choose from Choices'),
+  ('frequency_id','When must the task be carried out?',True,'Choose the timing from Choices. The portal derives the Nature classification.','Event-driven'),
+  ('task_trigger','What triggers the task?',False,'For Event-driven tasks, describe the event and when to act. Leave blank for other timings.','Before opening each new account'),
+  ('task_due_date','Due date',False,'For One-time tasks, enter the deadline if there is one. Use an Excel date, DD/MM/YYYY or YYYY-MM-DD.',''),
   ('primary_domain_id','Regulatory domain',True,'Choose the regulatory domain name from Choices.','Choose from Choices'),
   ('criticality','Criticality',True,'Choose Critical, High, Medium or Low.','High'),
   ('breach_consequence','Breach consequence',True,'Explain the consequence of failing this requirement.','An account may be opened without complete identification evidence.'),
@@ -42,7 +43,7 @@ FIELDS={
   ('legal_entity_id','Legal entity',True,'Choose the legal entity name from Choices.','Choose from Choices'),
   ('org_unit_id','Assessed department',True,'Choose the department covered by this assessment.','Choose from Choices'),
   ('product_id','Product',False,'Optional. Choose a product when the assessment is limited to that product.',''),
-  ('process_id','Process',False,'Optional. Choose a process when it limits this assessment. Use Processes for the obligation process mappings.',''),
+  ('process_id','Process limit',False,'Fill only when this assessment applies to a specific existing process. Leave blank for a department assessment without a process limit.',''),
   ('channel_id','Channel',False,'Optional. Choose a channel when it limits this assessment.',''),
   ('customer_segment_id','Customer segment',False,'Optional. Choose a customer segment when it limits this assessment.',''),
   ('geography_id','Geography',False,'Optional. Choose a geography when it limits this assessment.',''),
@@ -52,10 +53,10 @@ FIELDS={
   ('next_review_date','Next assessment review',True,'Use a date on or after the obligation Effective from.','01/02/2027'),
  ],
  'Processes':[
-  ('import_reference','Import reference',True,'Match one Obligations row. Add one row per process and do not repeat a process.','OBL-001'),
-  ('process_id','Process',True,'Choose the process name from Choices.','Choose from Choices'),
-  ('relevance_type','Relevance',True,'Choose Primary, Direct, Indirect or Supporting.','Direct'),
-  ('criticality','Criticality',True,'Choose Critical, High, Medium or Low.','High'),
+  ('import_reference','Import reference',True,'Fill this row only to link an existing process. Match one Obligations row and list each linked process once.','OBL-001'),
+  ('process_id','Process',True,'Choose an existing process from Choices. Leave this sheet blank or omit it when no processes are linked.','Choose from Choices'),
+  ('relevance_type','Relevance',False,'Choose Primary, Direct, Indirect or Supporting. Blank means Direct.','Direct'),
+  ('criticality','Criticality',False,'Choose Critical, High, Medium or Low. Blank means Medium.','Medium'),
  ],
 }
 SHEETS={sheet:[field[0] for field in fields] for sheet,fields in FIELDS.items()}
@@ -67,9 +68,9 @@ ENUMS={
  'relevance_type':{'Primary':'PRIMARY','Direct':'DIRECT','Indirect':'INDIRECT','Supporting':'SUPPORTING'},
 }
 CHOICE_KEYS=['primary_clause_id','category_id','frequency_id','primary_domain_id','org_unit_id','user_id',
- 'legal_entity_id','product_id','process_id','channel_id','customer_segment_id','geography_id','obligation_nature',*ENUMS,'yes_no']
+ 'legal_entity_id','product_id','process_id','channel_id','customer_segment_id','geography_id',*ENUMS,'yes_no']
 CHOICE_LABELS={key:next((label for fields in FIELDS.values() for name,label,*_ in fields if name==key),key) for key in CHOICE_KEYS}
-CHOICE_LABELS.update(org_unit_id='Department',user_id='Person',yes_no='Yes / No')
+CHOICE_LABELS.update(org_unit_id='Department',user_id='Person',process_id='Process',yes_no='Yes / No')
 
 
 def label(sheet,key):return next((field[1] for field in FIELDS[sheet] if field[0]==key),key)
@@ -77,6 +78,10 @@ def label(sheet,key):return next((field[1] for field in FIELDS[sheet] if field[0
 
 def canonical_header(sheet,value):
     value=str(value or '').strip().rstrip('*').strip().casefold()
+    if sheet=='Obligations':
+        value={'nature':'obligation_nature','review / execution frequency':'frequency_id'}.get(value,value)
+    if sheet=='Applicability' and value=='process':
+        return 'process_id'
     return next((key for key,name,*_ in FIELDS[sheet] if value in {key.casefold(),name.casefold()}),value)
 
 
@@ -88,7 +93,7 @@ def friendly_value(key,value):
             if text.casefold()==name.casefold() or token==code:return code
         if key=='owner_role' and token=='CONTROL_OWNER':return 'CONTROL'
         if key=='applicability_status' and token=='PARTIALLY_APPLICABLE':return token
-        if key in {'effective_from','effective_to','next_review_date'} and text:
+        if key in {'effective_from','effective_to','next_review_date','task_due_date'} and text:
             for pattern in ['%d/%m/%Y','%Y-%m-%d']:
                 try:return datetime.strptime(text,pattern).date().isoformat()
                 except ValueError:pass

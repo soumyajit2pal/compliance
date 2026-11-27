@@ -115,14 +115,19 @@ def validate(db,actor,payload,retained=None,*,draft=False):
     if payload.regulatory_owner_unit_id!=instrument['regulatory_owner_unit_id']:
         raise HTTPException(422,'The lead regulatory department must match the primary source instrument.')
     retained = retained or {}
-    if payload.obligation_nature != retained.get('obligation_nature'):
-        enabled = db.execute(sa.select(m.obligation_nature.c.active_flag).where(
-            m.obligation_nature.c.code == payload.obligation_nature)).scalar_one_or_none()
-        if not enabled:
-            raise HTTPException(422, 'Choose an active nature of the requirement.')
+    frequency = repo.active(db,m.frequency,payload.frequency_id)
+    if draft:
+        nature = {'ONGOING':'ONGOING','EVENT':'EVENT_DRIVEN','ONE_TIME':'ONE_TIME'}.get(frequency['code'],'PERIODIC')
+        same_frequency = payload.frequency_id == retained.get('frequency_id')
+        provided = payload.model_fields_set.copy()
+        trigger = payload.task_trigger if 'task_trigger' in provided or not same_frequency else retained.get('task_trigger')
+        due_date = payload.task_due_date if 'task_due_date' in provided or not same_frequency else retained.get('task_due_date')
+        payload.obligation_nature = nature
+        payload.task_trigger = ((trigger or '').strip() or None) if nature == 'EVENT_DRIVEN' else None
+        payload.task_due_date = due_date if nature == 'ONE_TIME' else None
     if payload.category_id != retained.get('category_id'):
         repo.active(db,m.obligation_category,payload.category_id)
-    for table,key in [(m.frequency,payload.frequency_id),(m.organisational_unit,payload.regulatory_owner_unit_id),
+    for table,key in [(m.organisational_unit,payload.regulatory_owner_unit_id),
                       (m.regulatory_domain,payload.primary_domain_id)]:repo.active(db,table,key)
     accountable=repo.active(db,m.organisational_unit,payload.business_owner_unit_id)
     if accountable['unit_type']=='SUB_DEPARTMENT' and accountable['id']!=retained.get('business_owner_unit_id'):

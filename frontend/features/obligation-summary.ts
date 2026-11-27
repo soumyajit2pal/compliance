@@ -7,7 +7,12 @@ import { ownerRoles,ownerResponse,assignmentApproval,statusLabel,processRelation
 /** One field definition feeds the reader, wizard review and import preview. */
 const narrativeFields=[['statement','Requirement','What needs to be done'],['internal_interpretation','Internal interpretation','Bank’s interpretation'],['evidence_standard','Evidence requirement','Evidence required'],['breach_consequence','Breach consequence','Breach consequence']];
 export function requirementEntries(o,reading=false){return narrativeFields.map(([key,label,readingLabel])=>[reading?readingLabel:label,o[key]]);}
-export function classificationEntries(o){return [['Category',esc(ref('obligation_category',o.category_id))],['Domain',esc(ref('regulatory_domain',o.primary_domain_id))],['Frequency',esc(ref('frequency',o.frequency_id))],['Nature',esc(classificationName('obligation_nature',o.obligation_nature))]];}
+export function timingEntries(o){
+  return [['Task timing',esc(ref('frequency',o.frequency_id))],
+    ...(o.task_trigger?[['Task trigger',esc(o.task_trigger)]]:[]),
+    ...(o.task_due_date?[['Due date',date(o.task_due_date)]]:[])];
+}
+export function classificationEntries(o){return [['Category',esc(ref('obligation_category',o.category_id))],['Domain',esc(ref('regulatory_domain',o.primary_domain_id))],...timingEntries(o),['Nature',esc(classificationName('obligation_nature',o.obligation_nature))]];}
 
 export function obligationSummary(o,stage=o.approval_status||'PROPOSED'){
   return detailFields([
@@ -51,7 +56,7 @@ export function applicabilitySummary(rows,tableOptions={},context:any={}){return
   ...(context.register?[registerObligation(a,context,'applicability')]:[]),
   ['legal_entity','organisational_unit','product','process','channel','customer_segment','geography'].map((key,i)=>{
     const name=['legal_entity_id','org_unit_id','product_id','process_id','channel_id','customer_segment_id','geography_id'][i];
-    return a[name]?`<small>${esc(title(key))}: ${esc(a.scope?.[key]||ref(key,a[name]))}</small>`:'';
+    return a[name]?`<small>${esc(key==='process'?'Process limit':title(key))}: ${esc(a.scope?.[key]||ref(key,a[name]))}</small>`:'';
   }).join(''),badge(a.applicability_status),esc(a.basis)+(a.conditions?'<p>'+esc(a.conditions)+'</p>':''),
   a.assessed_by?esc(a.assessor_name||ref('user',a.assessed_by))+'<small>'+date(a.assessed_date)+'</small>':'Proposed assessment',
   statusTag(assignmentApproval(a.approval_status).label,assignmentApproval(a.approval_status).tone)+(a.reviewed_by?'<small>Reviewed by '+esc(ref('user',a.reviewed_by))+'</small>':'')+(a.approved_by?'<small>Approved by '+esc(ref('user',a.approved_by))+'</small>':''),date(a.next_review_date),

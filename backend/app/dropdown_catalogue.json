@@ -238,7 +238,7 @@
     "features/delivery.ts"
   ],
   "obligation_nature": [
-    "features/obligation-setup.ts"
+    "features/obligation-summary.ts"
   ],
   "org_unit_id": [
     "features/obligations.ts",

@@ -1,4 +1,4 @@
-"""Inventory shipped portal choice controls. The build rejects unregistered changes."""
+"""Inventory shipped portal choice controls and classification displays."""
 import argparse
 import json
 import os
@@ -36,6 +36,8 @@ def collect():
             source = p.read_text()
             def add(name):
                 found[name].add(path)
+            for key in re.findall(r"\bclassificationName\(\s*'([\w-]+)'", source):
+                add(key)
             for match in re.finditer(r'(?<![\w.])(?:organisationUnitSelect|referenceSelect|fixedSelect|select)\(\s*([^,\n]+?)\s*,', source):
                 arg = match[1]
                 if arg in DYNAMIC.get(path, {}):

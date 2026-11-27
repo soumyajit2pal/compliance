@@ -50,8 +50,10 @@ class ObligationInput(Input):
     statement:str=Field(min_length=10,max_length=20000)
     internal_interpretation:str=Field(min_length=10,max_length=20000)
     category_id:str
-    obligation_nature:str=Field(default='ONGOING',min_length=1,max_length=40)
+    obligation_nature:str|None=Field(default=None,min_length=1,max_length=40)
     frequency_id:str
+    task_trigger:str|None=Field(default=None,max_length=500)
+    task_due_date:date|None=None
     primary_domain_id:str
     criticality:Criticality='MEDIUM'
     breach_consequence:str=Field(min_length=10,max_length=10000)

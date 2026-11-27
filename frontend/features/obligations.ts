@@ -8,7 +8,7 @@ import { detailPolicy,sectionSteps,ownerRoles,stageLabel,statusLabel,obligationR
 import { renderObligationDetail } from './obligation-detail.ts';
 import { splitBusinessAccountability } from '../core/obligation-accountability.ts';
 import { obligationSetupSteps,assessmentChoices } from '../core/obligation-setup.ts';
-import { renderSetupQuestions,renderSetupReview,refreshScopeProcessLimits,refreshDepartmentFields,setupDepartmentCard } from './obligation-setup.ts';
+import { renderSetupQuestions,renderSetupReview,refreshScopeProcessLimits,refreshDepartmentFields,setupDepartmentCard,syncTaskTiming } from './obligation-setup.ts';
 import { primaryBusinessOwnerFields,refreshPrimaryBusinessOwner,primaryBusinessSelectionChanged,syncAdditionalOwnerRole,validateBusinessAccountability } from './obligation-accountability.ts';
 import { copyText } from '../ui/clipboard.ts';
 import { apiPageQuery,withoutPaging } from '../core/pagination.ts';
@@ -261,7 +261,7 @@ async function editor(identifier,query){
       option_status:c.interpretation_status==='APPROVED'?'':'Interpretation pending'}));
   if(!isCurrent())return "";
   state.view.obligationClauses=clauses;
-  let value:any={effective_from:localDate(),next_review_date:bankDateAfter(365),criticality:'MEDIUM',obligation_nature:'ONGOING',owners:[],applicability:[],processes:[],supporting_clause_ids:[]};
+  let value:any={effective_from:localDate(),next_review_date:bankDateAfter(365),criticality:'MEDIUM',owners:[],applicability:[],processes:[],supporting_clause_ids:[]};
   const editing=Boolean(identifier&&identifier!=='new');
   if(editing){
     const d=await api('/obligations/'+identifier);if(!isCurrent())return '';state.view.obligation=d;value=d.input;
@@ -300,6 +300,7 @@ async function editor(identifier,query){
 }
 
 function prepareValidation(form:HTMLFormElement){
+  syncTaskTiming(form);
   refreshDepartmentFields(form);validateBusinessAccountability(form);
   const start=form.elements['effective_from'].value,end=form.elements['effective_to'] as HTMLInputElement;
   end.setCustomValidity(end.value&&end.value<=start?'The end date must be after the effective start.':'');
@@ -385,6 +386,7 @@ function refreshSetupRegulatoryOwner(form:HTMLFormElement,unit,choices){
 }
 function setupMounted(){
   const form=document.querySelector<HTMLFormElement>('#obligation-editor');if(!form)return;
+  syncTaskTiming(form);
   refreshDepartmentFields(form);refreshScopeProcessLimits(form);updatePopupOwnerSummaries(form);
   if(Number(form.dataset.wizard)===setupSteps.length-1){form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(readInput(form),state.view.obligationClauses);void refreshSetupApprovers(form);}
 }
@@ -446,6 +448,7 @@ async function refreshSetupOptions(form: HTMLFormElement) {
     if (!current()) return;
     acceptReferenceSnapshot(masters);
     refreshReferenceControls(form);
+    syncTaskTiming(form);
     applyOwners.forEach(apply => apply());
     if (approvals && regulatoryUnit() === assignmentUnit) {
       form.dataset.approverLookupRevision = String(Number(form.dataset.approverLookupRevision || 0) + 1);
@@ -473,6 +476,8 @@ function readInput(form){
   for(const flag of ['testing','certification','reporting','retention'])value[flag+'_required_flag']=Boolean(form.elements[flag+'_required_flag'].checked);
   value.custom_fields=captureCustom(form);
   value.effective_to=value.effective_to||null;
+  value.task_trigger=value.task_trigger?.trim()||null;
+  value.task_due_date=value.task_due_date||null;
   value.owners=readRows(form,'owners');value.applicability=readRows(form,'applicability');value.processes=readRows(form,'processes');value.supporting_clause_ids=supportingClauseIds(form);
   if(form.dataset.id)value.expected_revision=Number(form.dataset.revision);
   return value;
@@ -484,6 +489,7 @@ export function installObligationEditorEvents(){
     const target=event.target as HTMLInputElement,form=target.closest<HTMLFormElement>('#obligation-editor, #obl-owner-form');if(!form)return;
     if(target instanceof HTMLSelectElement)clearUnavailableChoiceError(target);
     try{
+      if(target.name==='frequency_id')syncTaskTiming(form);
       if(target.closest('[data-obl-row=owners]')||['business_owner_unit_id','primary_clause_id','wizard_instrument_id','compliance_reviewer_user_id'].includes(target.name))invalidateSetupReview(form);
       if(target.name==='wizard_instrument_id'){
         form.dataset.sourceRevision=String(Number(form.dataset.sourceRevision||0)+1);

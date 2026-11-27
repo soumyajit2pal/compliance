@@ -38,7 +38,8 @@ export async function obligationImportsPage(query){
         const p=r.profile.normalised;
         return panel('Mapped obligation · '+r.profile.reference,`<details><summary>Review requirement, source, owners and applicability</summary>${obligationSummary(p)}
           <p>${link('clauses?clause='+p.primary_clause_id,'Open exact primary source clause','text-link')}</p>
-          ${ownershipSummary(p.owners)}${applicabilitySummary(p.applicability)}${processSummary(p.processes)}</details>`);
+          ${ownershipSummary(p.owners)}${applicabilitySummary(p.applicability)}
+          <h3>Linked processes (optional)</h3>${p.processes.length?processSummary(p.processes):'<p class="muted">No processes linked.</p>'}</details>`);
       }).join('');
   }
   const columnOptionsUrl = '/obligation-imports?' + apiPageQuery(query, 'obligation-imports');
@@ -46,7 +47,7 @@ export async function obligationImportsPage(query){
   return link('obligations','← Obligation register','back-link')+
     heading('Import obligations','Use approved regulatory clauses; load owned, assessed requirements into Draft.',
       `<a class="btn" href="${excelTemplate}" download>Download Excel template</a>`+(has('AUTHOR')?button('obl-import-new','Upload obligations','','primary'):''))+
-    note('Use one import reference per obligation across Obligations, Owners and Applicability. Use the optional Processes sheet to link existing bank processes. An independent Reviewer validates the import before the uploader loads ready Drafts.')+
+    note('Use one import reference per obligation across Obligations, Owners and Applicability. Leave Processes blank or omit the sheet when no processes are linked. Fill Process limit on Applicability only if the assessment applies to a specific process. An independent Reviewer validates the import before the uploader loads ready Drafts.')+
     tablePanel(table(['Source workbook','Date','Status','Source rows','Loaded','Not loaded'],result.items.map(b=>[
       link('obligations/imports?batch='+b.id,b.source_file),dateTime(b.uploaded_at),badge(b.record_status.replace(/^OBL_/,'')),esc(b.source_count),esc(b.loaded_count),esc(b.rejected_count),
     ]),{pageKey: 'obligation-imports', pagination: result.pagination, columnOptionsUrl}));

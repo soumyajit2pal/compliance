@@ -82,7 +82,8 @@ def fill_reference_lists(layout,choices,validations,references):
             if rules is not None:sheet.remove(rules)
             auto=sheet.find('s:autoFilter',NS)
             if auto is None:
-                auto=ET.Element(_tag('autoFilter'),{'ref':f'A1:{column_name(len(sheet.find("s:sheetData/s:row",NS)))}10001'})
+                width=len(sheet.find("s:sheetData/s:row[@r='1']",NS))
+                auto=ET.Element(_tag('autoFilter'),{'ref':f'A1:{column_name(width)}10001'})
                 sheet.insert(list(sheet).index(sheet.find('s:sheetData',NS))+1,auto)
             rules=ET.Element(_tag('dataValidations'),{'count':str(len(columns))})
             # Insert before page-layout/extension nodes, in worksheet schema order.
