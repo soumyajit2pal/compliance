@@ -191,6 +191,7 @@ export function repositoryHandlers({ render, loadIdentity, loginView }) {
           'submit-version',
           missing.length ? 'Send exception for review' : 'Send to Compliance reviewer',
           'Edition ' + versionLabel(v.version_number) + ' · ' + i.code,
+          trigger,
         );
         document.querySelector<HTMLFormElement>('#submit-version').dataset.versionId = v.id;
       },

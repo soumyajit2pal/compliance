@@ -23,10 +23,10 @@ import { icon } from '../../ui/icons.ts';
 import { clauseActions, recordClauseRows, renderClauseWorkingView } from '../clause-workspace.ts';
 import { childClauseEditor } from '../clause-child-editor.ts';
 import { clauseAncestors } from '../clause-source-location.ts';
-import { editionNextStep, renderEditionNextStep } from './workflow.ts';
+import { editionNextStep, renderEditionHeaderNextStep, renderEditionNextStep } from './workflow.ts';
 import { interpretationPanel } from './interpretations.ts';
 import { renderImplementationProgress } from './implementation-progress.ts';
-import { workflowActionGroup, workflowButton, workflowLink } from '../../ui/workflow-actions.ts';
+import { workflowActionGroup, workflowButton } from '../../ui/workflow-actions.ts';
 import {
   panel,
   pagedCollection,
@@ -189,19 +189,19 @@ export function renderRecord(q) {
     metadata_corrections.find((r) => ['IN_REVIEW', 'REVIEWED'].includes(r.correction_status));
   const correctionTask = correction && tasks.find((t) => t.entity_id === correction.id &&
     t.workflow_status === 'OPEN' && t.stage === t.current_stage && !t.decision);
-  const selectedClauses = clauses.filter((c) => c.instrument_version_id === v.id),
-    tab = q.get('tab') || 'overview';
+  const sourceClauses = clauses.filter(clause => !clause.heading_only_flag);
+  const selectedClauseCount = sourceClauses.filter(clause => clause.instrument_version_id === v.id).length;
+  const tab = q.get('tab') || 'overview';
   const workflowPath = recordPath(i, v, 'workflow');
   const nextStep = editionNextStep(state.record, v, active, editable, recordPath(i, v, 'clauses'));
-  const workflowShortcut = tab !== 'workflow' && nextStep.shortcut
-    ? nextStep.tone === 'action' ? workflowLink(workflowPath, nextStep.shortcut) : link(workflowPath, nextStep.shortcut, 'btn soft')
-    : '';
+  const headerNextStep = tab !== 'workflow' ? renderEditionHeaderNextStep(nextStep, workflowPath) : '';
   const obligationRegisterPath = 'obligations?' + new URLSearchParams({ instrument: i.id });
-  let actions = workflowShortcut + (editable ? button('edit-version', 'Edit draft version', '', workflowShortcut ? '' : 'primary', 'pen') : '');
+  let actions = headerNextStep + (editable ? button('edit-version', 'Edit draft version', '', nextStep.shortcut ? '' : 'primary', 'pen') : '');
   actions += link(obligationRegisterPath, 'Linked obligations', 'btn quiet', 'link');
   if (editable && !active) actions += button('cancel-draft', 'Cancel draft', '', 'danger', 'x');
-  if (selection.pending.length)
-    actions += link(recordPath(i, selection.pending[0], 'overview'), 'Open pending edition', 'btn');
+  const otherPending = selection.pending.find(pending => pending.id !== v.id);
+  if (otherPending)
+    actions += link(recordPath(i, otherPending, 'overview'), 'Open pending edition', 'btn');
   const openCorrection = metadata_corrections.find((r) => ['IN_REVIEW', 'REVIEWED'].includes(r.correction_status));
   if (
     editable && i.approval_status === 'DRAFT' &&
@@ -217,7 +217,7 @@ export function renderRecord(q) {
   const subtitle = i.short_title && i.short_title !== i.title ? i.title : '';
   const summaryCard = renderInstrumentSummary(state.record, v);
   const statusClassification = `<div class="record-classifications" aria-label="Regulatory and approval status"><div class="record-classification record-classification--position"><span class="record-classification-label">Regulatory position</span>${badge(i.regulatory_status)}<small>${esc(regulatoryPositionDescription(i.regulatory_status))}</small></div><div class="record-classification record-classification--approval"><span class="record-classification-label">Version approval</span>${badge(sourceEditionStatus(v))}<small>${esc(versionApprovalDescription(sourceEditionStatus(v), Boolean(v.current_version_flag)))}</small></div></div>`;
-  const hero = `<div class="record-detail-header"><div class="record-detail-heading"><nav class="record-breadcrumb" aria-label="Breadcrumb"><a href="#${esc(libraryReturnPath(i.id))}">Regulatory library</a><span aria-hidden="true">/</span><code>${esc(i.code)}</code></nav><div class="record-title-line"><h1>${esc(mainTitle)}</h1></div>${subtitle ? `<p class="record-subtitle">${esc(subtitle)}</p>` : ''}${statusClassification}</div><nav class="record-shortcuts" aria-label="Related record views">${link(recordPath(i, v, 'versions'), `Source editions (${versions.length})`, 'btn')}${link(recordPath(i, v, 'clauses'), `Clauses (${clauses.length})`, 'btn')}</nav>${actions ? `<div class="record-primary-actions">${actions}</div>` : ''}</div>${summaryCard}`;
+  const hero = `<div class="record-detail-header"><div class="record-detail-heading"><nav class="record-breadcrumb" aria-label="Breadcrumb"><a href="#${esc(libraryReturnPath(i.id))}">Regulatory library</a><span aria-hidden="true">/</span><code>${esc(i.code)}</code></nav><div class="record-title-line"><h1>${esc(mainTitle)}</h1></div>${subtitle ? `<p class="record-subtitle">${esc(subtitle)}</p>` : ''}${statusClassification}</div><nav class="record-shortcuts" aria-label="Related record views">${link(recordPath(i, v, 'versions'), `Source editions (${versions.length})`, 'btn')}${link(recordPath(i, v, 'clauses'), `Clauses (${selectedClauseCount})`, 'btn')}</nav>${actions ? `<div class="record-primary-actions">${actions}</div>` : ''}</div>${summaryCard}`;
   const strip = `<div class="source-edition-strip"><label for="selected-source">Source edition</label><select id="selected-source" name="selected_source_version" aria-label="Source edition">${versions.map((r) => `<option value="${r.id}" ${v.id === r.id ? 'selected' : ''}>Version ${esc(versionLabel(r.version_number))} · ${esc(title(sourceEditionStatus(r)))}${r.current_version_flag ? ' · Current' : ''}</option>`).join('')}</select><span class="small muted">Effective from ${date(v.effective_from)}${v.effective_to ? ' until ' + date(v.effective_to) + ' (exclusive)' : ''}</span>${v.effective_from > localDate() ? '<span class="tag amber">Future effective</span>' : ''}</div>`;
   const approved = selection.approvedEffective;
   let editionNotice = '';
@@ -232,7 +232,7 @@ export function renderRecord(q) {
   }
   if (selection.pending.length)
     editionNotice += note(selection.pending.map((pending) => 'Version ' + esc(versionLabel(pending.version_number)) + ' is pending (' + esc(title(pending.approval_status)) + '). ' +
-      link(recordPath(i, pending, tab), 'Open pending edition ' + versionLabel(pending.version_number), 'text-link')).join(' ') +
+      (pending.id === v.id ? '' : link(recordPath(i, pending, tab), 'Open pending edition ' + versionLabel(pending.version_number), 'text-link'))).join(' ') +
       ' Complete approval or cancel the Draft before creating another edition. Withdrawing to Draft keeps it pending.' +
       (selection.pending.length > 1 ? ' Multiple pending editions were retained from earlier data. Their makers must cancel the extra Drafts before another edition can be submitted.' : ''), 'warn');
   if (v.cancelled_draft)
@@ -262,7 +262,7 @@ export function renderRecord(q) {
           `<span class="version-effective-range">${date(r.effective_from)} <span aria-hidden="true">→</span> ${r.effective_to ? date(r.effective_to) : 'open'}</span>`,
           r.current_version_flag ? badge('CURRENT') : '—',
           badge(sourceEditionStatus(r)),
-          String(clauses.filter((c) => c.instrument_version_id === r.id).length),
+          String(sourceClauses.filter(clause => clause.instrument_version_id === r.id).length),
           esc(r.change_summary || '—'),
           esc(r.approved_by ? ref('user', r.approved_by) : '—'),
         ]),
@@ -318,7 +318,7 @@ export function renderRecord(q) {
       ), 'Metadata correction history')}</div>` : '') +
       `<div class="mt24">${panel('Status history', activity(history, 'record-status-history'))}</div>`;
   else if (!['versions', 'clauses', 'obligations', 'workflow'].includes(tab))
-    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauses.length + ' source Clauses / Para', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(workflowPath, 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}${customDetails(i.custom_answers)}</div></div>`;
+    body = `<div class="detail-layout"><div class="stack">${panel('Source integrity', `<div class="stack-sm"><div class="row gap8">${icon('shield')}<span class="small">Source document preserved</span></div><p class="small muted">Regulatory wording and internal interpretation are maintained separately.</p><div class="divider"></div>${link(recordPath(i, v, 'clauses'), selectedClauseCount + ' source Clauses / Para', 'text-link')}${link(recordPath(i, v, 'versions'), versions.length + ' source editions', 'text-link')}${link(workflowPath, 'Review & approval lifecycle', 'text-link')}</div>`)}${panel('Latest activity', activity(audit.slice(0, 2)))}${customDetails(i.custom_answers)}</div></div>`;
   const discussion = panel(
     'Discussion',
     comments
@@ -347,7 +347,7 @@ export function renderRecord(q) {
       [
         ['overview', 'Overview'],
         ['versions', 'Versions', versions.length],
-        ['clauses', 'Clauses', selectedClauses.length],
+        ['clauses', 'Clauses', selectedClauseCount],
         ['obligations', 'Obligations', linked_obligations?.length],
         ['workflow', 'Workflow'],
         ['history', 'History', audit.length + metadata_corrections.length],

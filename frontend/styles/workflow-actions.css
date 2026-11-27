@@ -49,6 +49,56 @@
 .workflow-action-group-compact :is(.workflow-review, .workflow-confirm) { flex-basis: 100%; }
 .obligation-workflow-actions > .workflow-action-group,
 .edition-next-step-actions > .workflow-action-group { flex: 1 1 100%; }
+
+.record-edition-next-step {
+  --step-accent: #786788;
+  --step-border: var(--plum-line);
+  --step-surface: var(--soft);
+  --step-label: var(--primary-dark);
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--step-border);
+  border-inline-start: 4px solid var(--step-accent);
+  border-radius: 8px;
+  background: var(--step-surface);
+}
+.record-edition-next-step[data-tone=action] {
+  --step-accent: #0d645a;
+  --step-border: #b0d3cc;
+  --step-surface: #edf7f4;
+  --step-label: #20544d;
+}
+.record-edition-next-step[data-tone=blocked] {
+  --step-accent: #906216;
+  --step-border: #e5c989;
+  --step-surface: #fff7e7;
+  --step-label: #654515;
+}
+.record-edition-next-step > div { flex: 1 1 380px; min-width: 0; }
+.record-next-step-label { color: var(--step-label); font-size: 12px; font-weight: 700; }
+.record-edition-next-step h2 { margin: 3px 0 4px; color: var(--ink); font-size: 16px; line-height: 1.4; }
+.record-edition-next-step p { margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; }
+.portal-mode .app-shell .record-edition-next-step .btn { max-width: 100%; white-space: normal; }
+.portal-mode .app-shell .record-edition-next-step[data-tone=action] .btn.primary {
+  color: #fff;
+  background: var(--step-accent);
+  border-color: var(--step-accent);
+}
+.portal-mode .app-shell .record-edition-next-step[data-tone=action] .btn.primary:hover {
+  background: #084b44;
+  border-color: #084b44;
+}
+.portal-mode .app-shell .record-edition-next-step .btn:focus-visible { outline-color: var(--step-accent); }
+@media (max-width: 640px) {
+  .record-edition-next-step > .btn { width: 100%; justify-content: center; }
+}
+
 #metadata-correction-panel { scroll-margin-top: 88px; }
 .delivery-work-review { margin-bottom: 22px; }
 

@@ -6,13 +6,31 @@ The staff flow is **My tasks → outcome and period-specific proof → independe
 
 There are exactly two supported environments: `uat` and `prod`, with Standard/LDAP and no SSO by user direction. UAT uses `COMPLIANCE_PORTAL` on `localhost:1523/FREEPDB1`; Prod has a configuration template only. No passwords or existing user grants are reset by this change.
 
+## Clear next step for source edition review · 27 November 2026
+
+A ready Draft shows a teal **Next step** panel headed **Send this draft for Compliance review**. **Choose reviewer and approver** opens the submission form from the instrument header. Select two different people, add submission notes and choose **Send to Compliance reviewer**. The reviewer receives the first task in **My decisions**. The final approver receives theirs after the reviewer records the review.
+
+An amber panel points to outstanding requirements. After sending, the header identifies who has the review or approval task. An **Open pending edition** link appears when it leads to another edition.
+
+To check in UAT, sign in as the maker of a ready Draft and open its instrument. Check the panel at desktop and phone widths, and open or cancel the submission form from the header. Release `2026.11.27-r3` uses the existing Compose settings and Oracle revision `20261126_0042`. Bank deployment is pending. [Deployment instructions](#container-deployment--25-november-2026)
+
+The production build, 153 frontend tests, seven deployment readiness tests and Compose validation passed. Chrome checked 23 portal screens and 80 responsive layouts, plus source eligibility and clause entry. Four rollback-only Oracle browser scenarios verified the blocked state at 320 px, direct opening and keyboard focus, the maker’s submission, and the named reviewer and final approver handoff. The missing domain and heading-only draft used response overlays. The local fixture rolled back and removed its credentials. [Workflow browser checks](frontend/tests/source-workflow.browser.cjs) · [Portal browser checks](frontend/tests/application-design.browser.cjs)
+
+## Clause counts in the source edition · 27 November 2026
+
+The instrument’s **Clauses** tab counts clauses with original regulatory text in the selected edition. Chapter, section and other navigation headings stay visible in the tree. A parent with its own original regulatory text counts as a clause. The shortcut, tab badge, Overview and Versions table use the same rule.
+
+To check in UAT, open the instrument’s **Clauses** tab for an edition with four navigation headings and three source clauses. The hierarchy shows **3 matching Clauses / Para**, and all seven nodes remain available in the tree. Release `2026.11.27-r2` introduced the corrected counts.
+
+The production frontend build, 153 frontend tests, seven deployment readiness tests and Compose validation passed. Chrome passed 11 workspace check groups and a focused check with four headings and three clauses. The focused check verified the counts in the hierarchy and other instrument views and confirmed that adding a clause raises the total from three to four. Browser checks used synthetic data. [Clause browser checks](frontend/tests/clause-workspace.browser.cjs)
+
 ## Readable exports · 27 November 2026
 
 Dashboard CSVs show record references, obligation revisions, department and owner names, regulatory domains, readable statuses and the meaning of each date. The Evidence library identifies check results by check and action references and period. Obligation workbooks use readable references in their filter summaries. The exception and import reports show business references, and the workflow and audit CSVs show record codes and titles. The Admin Audit Log retains its request correlation reference for troubleshooting.
 
 In UAT, open a dashboard measure with records and select **Export these records**. Compare the exported department, owner and domain with the table and the record reference with the details page. Select **Obligations → Export → Excel workbook** to check named references in **Export info** after applying a source filter. Import reports retain the original file, sheet, row and legacy reference.
 
-Release `2026.11.27-r1` uses the existing Compose settings and Oracle revision `20261126_0042`. Bank deployment is pending. [Deployment instructions](#container-deployment--25-november-2026)
+Release `2026.11.27-r1` introduced the export format.
 
 The default backend suite passed 383 tests with 286 opt-in tests skipped. The rollback-only local UAT Oracle run passed 62 tests, and five focused checks passed against the final code. They covered matching dashboard export counts, record access, file formatting, readable workbook filter references, evidence and audit downloads, and import reconciliation. Compose configuration validation passed. [Report tests](backend/tests/test_report_exports.py) · [Oracle workbook tests](backend/tests/test_obligation_export_api.py) · [Oracle dashboard tests](backend/tests/test_delivery.py) · [Audit export tests](backend/tests/test_audit_trail.py)
 
@@ -286,11 +304,11 @@ Run Podman from the updated directory containing `compose.yaml` as the account t
 podman compose --env-file .env up -d --build
 ```
 
-Deploy the matching source files from release `2026.11.27-r1`. Reuse the existing Compose `.env`, Oracle profile, keys, documents and logs. If the deployment pins `PORTAL_IMAGE_TAG`, set it to `2026.11.27-r1` once in `.env`.
+Deploy the matching source files from release `2026.11.27-r3`. Reuse the existing Compose `.env`, Oracle profile, keys, documents and logs. If the deployment pins `PORTAL_IMAGE_TAG`, set it to `2026.11.27-r3` once in `.env`.
 
 On a fresh installation, copy the UAT profile example to `.env.docker` with mode `0600`, configure the Oracle connection and `SECRET_KEY`, and create owner-writable `var/documents` and `var/logs`. Save `PORTAL_ENV_FILE=./.env.docker` in the Compose `.env` file and provision the login key and TLS pair. By default, HAProxy binds to `127.0.0.1:8010`. Set `PORTAL_BIND_HOST` and `PORTAL_PORT` in `.env` for a different listener. Rootless Podman maps the account that owns the files to the non-root container user. [UAT profile example](.env.docker.example) · [Login key](#encrypted-login-and-deployment-private-key) · [TLS pair](#local-https--30-october-2026)
 
-Open the published HTTPS address and sign in with an authorised account or an eligible public UAT demo account when demo sign-in is enabled. `podman compose ps` shows service status. A successful `migrate` exits with code 0. `/api/health` should report release `2026.11.27-r1` and `/api/ready` should report Oracle readiness. The release uses Oracle revision `20261126_0042`. The same backend image runs the API, the migration job and the notification worker.
+Open the published HTTPS address and sign in with an authorised account or an eligible public UAT demo account when demo sign-in is enabled. `podman compose ps` shows service status. A successful `migrate` exits with code 0. `/api/health` should report release `2026.11.27-r3` and `/api/ready` should report Oracle readiness. The release uses Oracle revision `20261126_0042`. The same backend image runs the API, the migration job and the notification worker.
 
 HAProxy runs on the Linux host network and reads the client IP from the accepted TCP connection. It sends that address to Nginx over their shared Unix socket using PROXY protocol v2. Nginx terminates HTTPS, replaces browser-supplied forwarding headers, and sends API traffic over the private Compose web network. The backend trusts forwarding headers only from Nginx's configured IP. A VPN, NAT or proxy upstream of HAProxy can change the address visible at the host. Check a new sign-in in the Audit Log from another workstation to verify the address. In a network overlap, set `PORTAL_WEB_SUBNET`, `PORTAL_PROXY_IP` and `PORTAL_API_IP` to an unused subnet and two distinct addresses within it. [HAProxy configuration](deploy/haproxy.cfg) · [Nginx configuration](deploy/nginx.conf) · [Podman port forwarding](https://docs.podman.io/en/stable/markdown/podman-run.1.html)
 
@@ -812,7 +830,7 @@ Local HTTPS UAT served the rebuilt index and three matching assets. A read-only 
 
 ## Source edition review and approval · 7 November 2026
 
-Open **Regulatory library → an instrument → Workflow**. The **Next step** card identifies the selected edition, what to do, and who has the decision. A ready maker can use **Open review submission** from the instrument header, then **Submit for Compliance review** to choose two different recipients and send the edition to the reviewer. A blocked draft lists its missing source, clauses, affected domain setup or competing pending edition as applicable. Domain blockers name the domain and explain the Admin setup path. Refresh after setup is complete.
+Open **Regulatory library → an instrument → Workflow**. The **Next step** card identifies the selected edition, what to do, and who has the decision. A ready maker can also open the submission form directly with **Choose reviewer and approver** in the instrument header. A blocked draft lists its missing source, clauses, affected domain setup or competing pending edition as applicable. Domain blockers name the domain and explain the Admin setup path. Refresh after setup is complete.
 
 The named reviewer goes to **My decisions → Open Compliance review** and chooses **Record Compliance review** on the edition. After review, the named approver sees **My decisions → Open final approval** and chooses **Approve source edition**. Both queue links open the exact edition and focus its Next step. Other users see the current assignee and due date. Return, rejection, delegation and maker withdrawal are grouped separately when permitted.
 

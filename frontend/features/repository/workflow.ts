@@ -5,6 +5,21 @@ import { button, date, esc, link, localDate, ref, versionLabel } from '../../ui/
 import { domainReadiness } from '../../ui/domains.ts';
 import { workflowActionGroup, workflowButton } from '../../ui/workflow-actions.ts';
 
+interface EditionStep {
+  tone?: 'action' | 'blocked' | 'waiting';
+  heading: string;
+  text: string;
+  details?: string;
+  action?: string;
+  secondary?: string;
+  shortcut?: {
+    label: string;
+    heading?: string;
+    text?: string;
+    opensSubmission?: boolean;
+  };
+}
+
 export function missingInterpretations(record, version) {
   return record.clauses.filter(clause => clause.instrument_version_id === version.id &&
     !clause.heading_only_flag && !(clause.internal_interpretation || '').trim());
@@ -16,7 +31,7 @@ export function missingInterpretationLinks(record, version, clauses) {
     clause.source_clause_reference || clause.code, 'text-link')} · ${esc(clause.heading || 'Clause / Para')}</li>`).join('')}</ul>`;
 }
 
-function draftSubmission(record, version, editable, clausesPath) {
+function draftSubmission(record, version, editable, clausesPath): EditionStep {
   if (!editable) {
     return {
       heading: 'Waiting for the draft maker',
@@ -29,7 +44,8 @@ function draftSubmission(record, version, editable, clausesPath) {
     const readiness = domainReadiness(domain);
     return readiness?.ready ? [] : [`${domain?.name || 'Affected domain'} · ${readiness?.reason || 'Setup information unavailable'}`];
   });
-  const missingClauses = !record.clauses.some(clause => clause.instrument_version_id === version.id);
+  const missingClauses = !record.clauses.some(clause =>
+    clause.instrument_version_id === version.id && !clause.heading_only_flag);
   const blockers = [
     ...(!version.source_document_id ? ['Attach the source document.'] : []),
     ...(missingClauses ? ['Add at least one source clause or para to this edition.'] : []),
@@ -50,7 +66,7 @@ function draftSubmission(record, version, editable, clausesPath) {
         (missingClauses ? link(clausesPath, 'Open Clauses', 'btn') : '') +
         (blockedDomains.length && state.identity.menu.some(item => item.id === 'masters')
           ? link('masters?tab=domains', 'Open Regulatory domains', 'btn') : ''),
-      shortcut: 'Check submission requirements',
+      shortcut: { label: 'Check submission requirements', text: blockers[0] },
     };
   }
   const missing = missingInterpretations(record, version);
@@ -61,18 +77,22 @@ function draftSubmission(record, version, editable, clausesPath) {
     details: missingInterpretationLinks(record, version, missing),
     action: link(clausesPath, 'Open Clauses / Para', 'btn primary') +
       button('submit-version', 'Request interpretation exception', 'data-exception="true"'),
-    shortcut: 'Check missing interpretations',
+    shortcut: { label: 'Check missing interpretations' },
   };
   return {
     tone: 'action',
     heading: 'Ready to submit for review',
-    text: 'Choose the Compliance reviewer and final approver, then send this edition to the reviewer’s My decisions queue.',
+    text: 'Choose a Compliance reviewer and a different final approver. The reviewer gets the first task after you send the draft.',
     action: button('submit-version', 'Submit for Compliance review', '', 'primary'),
-    shortcut: 'Open review submission',
+    shortcut: {
+      heading: 'Send this draft for Compliance review',
+      label: 'Choose reviewer and approver',
+      opensSubmission: true,
+    },
   };
 }
 
-export function editionNextStep(record, version, active, editable, clausesPath) {
+export function editionNextStep(record, version, active, editable, clausesPath): EditionStep {
   const status = sourceEditionStatus(version);
   const unit = record.instrument.regulatory_owner_unit_id;
   const actor = state.identity.user.id;
@@ -119,7 +139,9 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
           link(clausesPath, 'View source clauses', 'btn')
         : '',
       secondary,
-      shortcut: canDecide ? (isReview ? 'Open Compliance review' : 'Open final approval') : 'View review status',
+      shortcut: canDecide
+        ? { label: isReview ? 'Open Compliance review' : 'Open final approval' }
+        : { label: 'View review status', text: isAssignee ? undefined : `${assignee} has the ${stage} task in My decisions.` },
     };
   }
   if (['IN_REVIEW', 'REVIEWED'].includes(status))
@@ -137,7 +159,23 @@ export function editionNextStep(record, version, active, editable, clausesPath) 
   return { heading: `Source edition ${status.toLowerCase()}`, text: 'The workflow is closed. Previous decisions remain in the history.' };
 }
 
-export function renderEditionNextStep(step, version) {
+export function renderEditionHeaderNextStep(step: EditionStep, workflowPath: string) {
+  const shortcut = step.shortcut;
+  if (!shortcut) return '';
+  const action = shortcut.opensSubmission
+    ? button('submit-version', shortcut.label, 'aria-describedby="record-next-step-description"', 'primary', 'users')
+    : link(workflowPath, shortcut.label, step.tone === 'action' ? 'btn primary' : 'btn', 'arrow');
+  return `<section class="record-edition-next-step" data-tone="${step.tone}" aria-labelledby="record-next-step-heading">
+    <div>
+      <span class="record-next-step-label">${step.tone === 'waiting' ? 'Review status' : 'Next step'}</span>
+      <h2 id="record-next-step-heading">${esc(shortcut.heading || step.heading)}</h2>
+      <p id="record-next-step-description">${esc(shortcut.text || step.text)}</p>
+    </div>
+    ${action}
+  </section>`;
+}
+
+export function renderEditionNextStep(step: EditionStep, version) {
   return `<div class="edition-next-step ${step.tone || ''}">
     <span class="edition-next-step-label">Next step · Edition ${esc(versionLabel(version.version_number))}</span>
     <h3 id="edition-next-step-heading" tabindex="-1">${esc(step.heading)}</h3>

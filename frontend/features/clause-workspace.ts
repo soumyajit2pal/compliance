@@ -78,6 +78,7 @@ export function clauseActions(row: ClauseRow, childPath: string, edit: string, c
 }
 
 function hierarchy(rows: ClauseRow[], allRows: ClauseRow[], selected: ClauseRow, pathFor, controls: string) {
+  const clauseCount = rows.filter(row => !row.heading_only_flag).length;
   const matches = new Set(rows.map((row) => row.id));
   const byId = new Map(allRows.map((row) => [row.id, row]));
   const included = new Map(rows.map((row) => [row.id, row]));
@@ -121,7 +122,7 @@ function hierarchy(rows: ClauseRow[], allRows: ClauseRow[], selected: ClauseRow,
     };
     return `<details class="clause-instrument-group" open><summary><span><strong>${esc(instrument.instrument_short_title || instrument.instrument_title)}</strong><code>${esc(instrument.instrument_code)}</code></span>${icon('down')}</summary>${renderNodes(null)}</details>`;
   });
-  return `${controls}<details class="clause-hierarchy-disclosure" ${window.matchMedia('(max-width: 900px)').matches ? '' : 'open'}><summary><span><strong>Instrument &amp; clause hierarchy</strong><small>${rows.length} matching ${rows.length === 1 ? 'clause / para' : 'Clauses / Para'}</small></span>${icon('down')}</summary><nav class="clause-hierarchy" aria-label="Instrument and clause hierarchy">${pagedCollection(groups,{pageKey:'clause-tree',label:'instruments',summary:false,revealIndex:ordered.findIndex(group=>group[0].instrument_id===selected?.instrument_id),empty:'<p class="clause-hierarchy-empty">No clauses match this selection.</p>'})}</nav></details>`;
+  return `${controls}<details class="clause-hierarchy-disclosure" ${window.matchMedia('(max-width: 900px)').matches ? '' : 'open'}><summary><span><strong>Instrument &amp; clause hierarchy</strong><small>${clauseCount} matching ${clauseCount === 1 ? 'clause / para' : 'Clauses / Para'}</small></span>${icon('down')}</summary><nav class="clause-hierarchy" aria-label="Instrument and clause hierarchy">${pagedCollection(groups,{pageKey:'clause-tree',label:'instruments',summary:false,revealIndex:ordered.findIndex(group=>group[0].instrument_id===selected?.instrument_id),empty:'<p class="clause-hierarchy-empty">No clauses match this selection.</p>'})}</nav></details>`;
 }
 
 export function renderClauseWorkingView({ rows, allRows, editionId, allEditions = false, navigationControls = '', selectedId, pathFor, editAction = '', childEditor = '', sourceDocument, emptyAction = '', provenance = [], interpretationPanel = '' }: WorkingViewOptions) {
