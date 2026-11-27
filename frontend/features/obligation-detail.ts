@@ -82,7 +82,6 @@ function readiness(d,p){
     let action=mine?workflowButton('obl-decision',({ACCEPT:'Review and accept',REVIEW:'Complete Compliance review',APPROVE:'Approve obligation'})[decision],
       decision,`data-decision="${decision}" data-task="${esc(task.id)}"`):'';
     if(!action&&p.canAssignOwners&&item.kind==='attention'&&item.section==='owners')action=button('obl-assign-owner','Assign / reassign owner','','small');
-    if(!action&&p.canEdit&&item.key==='MISSING_PROCESS_MAPPING')action=editLink(d,'applicability','Add process');
     if(!action&&p.canEdit&&item.kind==='attention')action=item.section==='owners'?button('obl-assign-owner','Assign / reassign owner','','small'):editLink(d,item.section==='sources'?'source':item.section==='history'?'requirement':item.section,item.section==='applicability'?'Add or edit assessment':item.section==='sources'?'Check sources & processes':'Edit '+sectionNames[item.section]);
     if(!action)action=viewLink(d,item.section);
     const owner=item.owner;
@@ -112,7 +111,7 @@ export function renderObligationOverview(d){
 }
 function sources(d,p){
   return renderLinkedRegulatoryClauses(d.citations)+
-    panel('Processes',d.processes.length?processSummary(d.processes,{pageKey:'obligation-processes'}):compactEmpty('No processes mapped.'),{action:p.canEdit?editLink(d,'applicability','Manage processes'):'',sub:'The processes affected by this requirement.'});
+    panel('Linked processes (optional)',d.processes.length?processSummary(d.processes,{pageKey:'obligation-processes'}):compactEmpty('No processes linked.'),{action:p.canEdit?editLink(d,'processes','Manage processes'):'',sub:'Existing bank processes linked to this requirement.'});
 }
 function fold(label,body){return `<details class="panel obligation-history-detail"><summary>${esc(label)}</summary><div class="panel-body">${body}</div></details>`;}
 function ownershipRequest(change,d,p,history=false){

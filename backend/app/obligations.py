@@ -253,7 +253,6 @@ def issues(db,actor,row,eligibility=None,stage=None):
             except HTTPException:eligibility[key]=False
         if not eligibility[key]:result.append('INVALID_OWNER_ACCESS');break
     if not apps:result.append('MISSING_APPLICABILITY')
-    if not rows(db,m.obligation_process_map,row['id']):result.append('MISSING_PROCESS_MAPPING')
     if row['content_validation_status']!='VALIDATED':result.append('CONTENT_VALIDATION_PENDING')
     if not row['evidence_standard'] or not row['evidence_standard'].strip():result.append('MISSING_EVIDENCE_STANDARD')
     try:

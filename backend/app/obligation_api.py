@@ -27,7 +27,6 @@ ISSUE_LABELS = {
     'MISSING_COMPLIANCE_REVIEWER_OWNER': 'No Compliance reviewer',
     'INVALID_OWNER_ACCESS': 'Owner access requires review',
     'MISSING_APPLICABILITY': 'Applicability not assessed',
-    'MISSING_PROCESS_MAPPING': 'No process mapping',
     'CONTENT_VALIDATION_PENDING': 'Content validation pending',
     'MISSING_EVIDENCE_STANDARD': 'No evidence requirement',
     'UNAPPROVED_SOURCE': 'Source approval required',

@@ -34,7 +34,7 @@ import { clearUnavailableChoiceError, refreshSelectOptions } from '../ui/refresh
 const criticalities=['CRITICAL','HIGH','MEDIUM','LOW'];
 const roles=['REGULATORY','BUSINESS','CONTROL','EVIDENCE','DATA'];
 const roleCodes={REGULATORY:'AUTHOR',BUSINESS:'BUSINESS_OWNER',CONTROL:'CONTROL_OWNER',EVIDENCE:'EVIDENCE_OWNER',DATA:'BUSINESS_OWNER'};
-const issueNames={SOURCE_PERIOD_MISMATCH:'Source edition does not cover the obligation start',PENDING_BUSINESS_VALIDATION:'Owner confirmation pending',MISSING_REGULATORY_OWNER:'No primary regulatory owner',MISSING_BUSINESS_OWNER:'No primary business owner',MISSING_CONTROL_OWNER:'No check owner',MISSING_COMPLIANCE_REVIEWER_OWNER:'No Compliance reviewer',INVALID_OWNER_ACCESS:'Owner access requires review',MISSING_APPLICABILITY:'Applicability not assessed',MISSING_PROCESS_MAPPING:'No process mapping',CONTENT_VALIDATION_PENDING:'Content validation pending',MISSING_EVIDENCE_STANDARD:'No evidence requirement',UNAPPROVED_SOURCE:'Source approval required',SOURCE_REASSESSMENT_REQUIRED:'Source changed — reassessment required',PROCESS_REASSESSMENT_REQUIRED:'Process changed — reassessment required',PRODUCT_REASSESSMENT_REQUIRED:'Product changed — reassessment required',MISSING_OR_UNAVAILABLE_CLAUSE:'Source clause unavailable',PARTIAL_APPLICABILITY:'Partially applicable',UNAPPROVED_NON_APPLICABILITY:'Non-applicability awaiting approval',REVIEW_OVERDUE:'Review overdue',HIGH_CRITICAL:'High / critical'};
+const issueNames={SOURCE_PERIOD_MISMATCH:'Source edition does not cover the obligation start',PENDING_BUSINESS_VALIDATION:'Owner confirmation pending',MISSING_REGULATORY_OWNER:'No primary regulatory owner',MISSING_BUSINESS_OWNER:'No primary business owner',MISSING_CONTROL_OWNER:'No check owner',MISSING_COMPLIANCE_REVIEWER_OWNER:'No Compliance reviewer',INVALID_OWNER_ACCESS:'Owner access requires review',MISSING_APPLICABILITY:'Applicability not assessed',CONTENT_VALIDATION_PENDING:'Content validation pending',MISSING_EVIDENCE_STANDARD:'No evidence requirement',UNAPPROVED_SOURCE:'Source approval required',SOURCE_REASSESSMENT_REQUIRED:'Source changed — reassessment required',PROCESS_REASSESSMENT_REQUIRED:'Process changed — reassessment required',PRODUCT_REASSESSMENT_REQUIRED:'Product changed — reassessment required',MISSING_OR_UNAVAILABLE_CLAUSE:'Source clause unavailable',PARTIAL_APPLICABILITY:'Partially applicable',UNAPPROVED_NON_APPLICABILITY:'Non-applicability awaiting approval',REVIEW_OVERDUE:'Review overdue',HIGH_CRITICAL:'High / critical'};
 const coverageFinding='ACTIVE_WITHOUT_MAPPED_CONTROLS';
 const coverageLabel='Active obligations without linked checks';
 const exceptionCards = [
@@ -286,7 +286,7 @@ async function editor(identifier,query){
     `<strong>No eligible source clauses</strong><p>No approved edition with approved clauses is available in your scope.</p>
       <p>Open the record’s workflow in the Regulatory Library to check its source approval status.</p>
       ${link('repository','Open Regulatory Library','text-link')}`, 'warn');
-  const fields=renderSetupQuestions(value,{row:rowControls,ownerCard:owner=>popupOwnerRow(owner),primaryPeople,clauses,instruments,chosen,reviewers,sourceMarkup,editing});
+  const fields=renderSetupQuestions(value,{row:rowControls,ownerCard:owner=>popupOwnerRow(owner),primaryPeople,clauses,instruments,chosen,reviewers,sourceMarkup,editing,showProcessOptions:editing&&query.get('section')==='processes'});
   fields[1]+=customFieldGroup('obligation', editing ? state.view.obligation.obligation.custom_answers : {});
   const cancel=editing?'obligations/'+identifier:'obligations';
   return heading(editing?'Edit Draft obligation':'Create a new obligation','One question at a time. Prepare the requirement, then send it for independent review.')+
@@ -605,7 +605,7 @@ export function obligationHandlers(context){
       const label=({ACCEPT:'Accept ownership and applicability',OBJECT:'Request changes',REVIEW:'Complete Compliance review',APPROVE:'Approve obligation',WITHDRAW:'Withdraw to Draft',RETURN:'Return to author',REJECT:'Reject proposal',DELEGATE:'Delegate review'})[decision]||title(decision);
       modal(label,recordContext()+confirmation+input('decision',decision,'hidden')+input('task_id',task||'','hidden')+delegate+field('Decision basis',area('comments','','required minlength="5" maxlength="10000"')),'obl-decision-form',workflowSubmit(label,decision),'',trigger);
     },
-    'obl-revise':({section})=>modal('Create governed revision',recordContext()+input('edit_section',Object.hasOwn(sectionSteps,section)?section:'','hidden')+field('Reason for revision / ownership change',area('reason','','required minlength="10" maxlength="2000"')),'obl-revision-form','Create Draft revision'),
+    'obl-revise':({section})=>modal('Create governed revision',recordContext()+input('edit_section',Object.hasOwn(sectionSteps,section)?section:'','hidden')+'<p>Use a revision when the approved requirement, applicability, timing or evidence instructions need to change.</p>'+field('Reason for revision',area('reason','','required minlength="10" maxlength="2000"')),'obl-revision-form','Create Draft revision'),
     'obl-cancel':()=>modal('Cancel unapproved Draft',recordContext()+field('Cancellation reason',area('reason','','required minlength="10" maxlength="2000"')),'obl-cancel-form','Cancel Draft'),
     'obl-activate':async()=>{await api('/obligations/'+current().obligation.id+'/activate','POST',{});await context.render();},
   },forms:{...imported.forms,...exported.forms,
@@ -641,7 +641,7 @@ export function obligationHandlers(context){
         if(i===setupSteps.length-1){form.querySelector('[data-obl-review]').innerHTML=renderSetupReview(readInput(form),state.view.obligationClauses);if(!form.dataset.approverLookupState)void refreshSetupApprovers(form);}
         return;
       }
-      if(sending&&form.dataset.approverLookupState!=='ready'){showWizardStep(form,6,true);throw new Error('Wait for eligible final approvers to load, or retry the lookup before sending.');}
+      if(sending&&form.dataset.approverLookupState!=='ready'){showWizardStep(form,sectionSteps.review,true);throw new Error('Wait for eligible final approvers to load, or retry the lookup before sending.');}
       const payload=readInput(form);
       if(sending){
         const citations=[payload.primary_clause_id,...payload.supporting_clause_ids];
@@ -654,7 +654,7 @@ export function obligationHandlers(context){
             throw new Error('Approve the bank interpretation on every cited clause before sending this obligation for review. You can save a Draft now.');
           }
         }
-        const requirements=[!payload.owners.some(owner=>owner.owner_role==='REGULATORY'&&owner.primary_owner_flag)?['Add a primary Regulatory owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='BUSINESS'&&owner.primary_owner_flag)?['Choose a primary Business owner before sending.',4]:null,!payload.owners.some(owner=>owner.owner_role==='CONTROL')?['Add at least one Check owner before sending.',4]:null,!payload.applicability.length?['Add a department assessment before sending.',2]:null,!payload.processes.length?['Link at least one process before sending.',3]:null].filter(Boolean);
+        const requirements=[!payload.owners.some(owner=>owner.owner_role==='REGULATORY'&&owner.primary_owner_flag)?['Add a primary Regulatory owner before sending.',sectionSteps.owners]:null,!payload.owners.some(owner=>owner.owner_role==='BUSINESS'&&owner.primary_owner_flag)?['Choose a primary Business owner before sending.',sectionSteps.owners]:null,!payload.owners.some(owner=>owner.owner_role==='CONTROL')?['Add at least one Check owner before sending.',sectionSteps.owners]:null,!payload.applicability.length?['Add a department assessment before sending.',sectionSteps.applicability]:null].filter(Boolean);
         if(requirements.length){showWizardStep(form,requirements[0][1] as number,true);throw new Error(requirements[0][0] as string);}
       }
       const actor=state.identity.user.id,route=state.routeNumber,id=form.dataset.id,chosenApprover=approver.value,comments=form.elements.wizard_submission_comments.value;

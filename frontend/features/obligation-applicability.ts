@@ -7,7 +7,7 @@ const item=(label,value)=>`<div><dt>${esc(label)}</dt><dd>${value}</dd></div>`;
 const person=(row,key,master='user')=>row[key]?esc(ref(master,row[key])):'Not recorded';
 const recordedAt = value => dateTime(value, 'Not recorded');
 function activities(row){
-  return `<dl class="obligation-scope-facts">${item('Bank / legal entity',row.legal_entity_id?esc(row.scope?.legal_entity||ref('legal_entity',row.legal_entity_id)):'Not recorded')}${item('Work covered',row.process_id?esc(row.scope?.process||ref('process',row.process_id)):'No specific process limit recorded')}${[['product','product_id','Product'],['channel','channel_id','Channel'],['customer_segment','customer_segment_id','Customer segment'],['geography','geography_id','Geography']].filter(([,key])=>row[key]).map(([master,key,label])=>item(label,esc(row.scope?.[master]||ref(master,row[key])))).join('')}</dl>`;
+  return `<dl class="obligation-scope-facts">${item('Bank / legal entity',row.legal_entity_id?esc(row.scope?.legal_entity||ref('legal_entity',row.legal_entity_id)):'Not recorded')}${row.process_id?item('Process limit',esc(row.scope?.process||ref('process',row.process_id))):''}${[['product','product_id','Product'],['channel','channel_id','Channel'],['customer_segment','customer_segment_id','Customer segment'],['geography','geography_id','Geography']].filter(([,key])=>row[key]).map(([master,key,label])=>item(label,esc(row.scope?.[master]||ref(master,row[key])))).join('')}</dl>`;
 }
 function approval(row){
   return row.approval_status==='APPROVED'?statusTag('Approved','green'):row.approval_status==='REVIEWED'?statusTag('Review complete · approval pending','amber'):row.approval_status==='IN_REVIEW'?statusTag('In review · not approved','amber'):statusTag('Draft proposal');

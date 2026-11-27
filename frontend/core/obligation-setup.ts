@@ -3,7 +3,6 @@ export const obligationSetupSteps = [
   {label:'Rule',title:'Which rule is this based on?',hint:'Choose an approved document and clause. You can save a Draft while the bank interpretation is pending.'},
   {label:'Requirement',title:'What must your team do?',hint:'Describe one clear task, how your bank will carry it out and the consequence of missing it.'},
   {label:'Departments',title:'Which departments does this apply to?',hint:'Record a separate decision and reason for each department. These decisions still need approval.'},
-  {label:'Processes',title:'Which processes carry out this work?',hint:'Choose each process once. Reuse a linked process below if a department assessment needs a process limit.'},
   {label:'People',title:'Who will take responsibility?',hint:'Choose the lead business department and its primary owner, then name the people who check or support the work.'},
   {label:'Evidence & dates',title:'What records and dates are needed?',hint:'Describe the evidence, when the task is carried out and the dates for this obligation.'},
   {label:'Check & send',title:'Ready to send for review?',hint:'Check the summary and choose an independent Compliance reviewer and final approver.'},
@@ -20,7 +19,7 @@ export const obligationGroupingGuide: { heading: string; entries: [string, strin
   ],
 };
 
-export const setupSectionSteps = {source:0,requirement:1,applicability:2,processes:3,owners:4,evidence:5,history:6,review:6};
+export const setupSectionSteps = {source:0,requirement:1,applicability:2,processes:2,owners:3,evidence:4,history:5,review:5};
 export const assessmentChoices = [
   {id:'APPLICABLE',name:'Applies'},
   {id:'PARTIALLY_APPLICABLE',name:'Applies to some activities'},
