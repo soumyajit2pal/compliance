@@ -17,15 +17,20 @@ export function table(
   headers,
   rows,
   { summary = true, caption = '', empty = 'No records match this view.', pageKey = '', label = '', pagination = undefined as PageInfo | undefined,
-    cursors = undefined as PageCursors | undefined, columnOptionsUrl = '', cardLayout = true, tableClass = '', rowHeaders = false } = {},
+    cursors = undefined as PageCursors | undefined, columnOptionsUrl = '', columnKeys = undefined as Record<string, string> | undefined,
+    cardLayout = true, tableClass = '', rowHeaders = false, paginationTop = false } = {},
 ) {
   const cards = cardLayout && headers.length <= 7;
   const emptyRow = `<tr data-empty-row${cards ? ' role="row"' : ''}><td colspan="${headers.length}"${cards ? ' role="cell"' : ''}><div class="empty">${icon('search')}<h3>${esc(empty)}</h3><p>Change the search or filters, or return when work is assigned.</p></div></td></tr>`;
   const body = rows.map(cells => `<tr${cards ? ' role="row"' : ''}>${cells.map((cell, index) => rowHeaders && index === 0
     ? `<th scope="row">${cell}</th>`
     : `<td${cards ? ` role="cell" data-label="${esc(headers[index] || 'Actions')}"` : ''}>${cell}</td>`).join('')}</tr>`).join('');
-  const content = `<div class="table-wrap"><table class="data-table${cards ? ' record-table' : ''}${tableClass ? ' ' + esc(tableClass) : ''}"${cards ? ' role="table"' : ''}>${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead${cards ? ' role="rowgroup"' : ''}><tr${cards ? ' role="row"' : ''}>${headers.map(h => `<th scope="col"${cards ? ' role="columnheader"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody data-page-items${cards ? ' role="rowgroup"' : ''}>${body || emptyRow}</tbody></table></div>${rows.length ? `<template data-table-empty>${emptyRow}</template>` : ''}`;
-  return pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), label, pagination, cursors, summary, columnOptionsUrl});
+  const headings = headers.map(header => {
+    const key = columnKeys && Object.hasOwn(columnKeys, header) ? ` data-column-key="${esc(columnKeys[header])}"` : '';
+    return `<th scope="col"${cards ? ' role="columnheader"' : ''}${key}>${esc(header)}</th>`;
+  }).join('');
+  const content = `<div class="table-wrap"><table class="data-table${cards ? ' record-table' : ''}${tableClass ? ' ' + esc(tableClass) : ''}"${cards ? ' role="table"' : ''}>${caption ? `<caption class="sr-only">${esc(caption)}</caption>` : ''}<thead${cards ? ' role="rowgroup"' : ''}><tr${cards ? ' role="row"' : ''}>${headings}</tr></thead><tbody data-page-items${cards ? ' role="rowgroup"' : ''}>${body || emptyRow}</tbody></table></div>${rows.length ? `<template data-table-empty>${emptyRow}</template>` : ''}`;
+  return pagedTable(content, rows.length, {pageKey: pageKey || collectionKey(caption || headers.join('|')), label, pagination, cursors, summary, columnOptionsUrl, paginationTop});
 }
 
 export function tablePanel(content, name = '', actions = '', cls = '') {

@@ -72,7 +72,7 @@ def install(app,get_db,current):
   return result
  @app.get('/api/team-overview/export')
  def export(request:Request,metric:str,population_hash:str,db=Depends(get_db),actor=Depends(current)):
-  data=reporting.build(db,actor,dict(request.query_params));content,count=reporting.export(data,metric,population_hash)
+  data=reporting.build(db,actor,dict(request.query_params));content,count=reporting.export(db,data,metric,population_hash)
   audit(db,actor,'delivery_report',metric,'EXPORTED',new={'filters':data['filters'],'population_hash':population_hash,'count':count})
   return Response(content,media_type='text/csv',headers={'Content-Disposition':'attachment; filename="compliance-'+metric+'.csv"','X-Source-Records':str(count)})
 

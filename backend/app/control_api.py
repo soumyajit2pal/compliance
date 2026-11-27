@@ -1,12 +1,12 @@
 """Authenticated, CSRF-protected control governance and evidence library routes."""
-import csv,io,json,hashlib
+import json,hashlib
 import sqlalchemy as sa
 from fastapi import Depends,Request,Response,HTTPException
 from . import controls as service,control_schemas as c,models as m,delivery as d,repository as repo
 from .access import READ_ROLES,actor_for
 from .pagination import page_query,paginate
 from .events import audit
-from .obligation_api import safe_cell
+from .obligation_export import csv_bytes, label
 
 def evidence_library(db,actor,filters):
     actor.require(READ_ROLES);result=[]
@@ -25,7 +25,8 @@ def evidence_library(db,actor,filters):
                     target=repo.one(db,m.action_control_link,r['link_id'])
                     try:a,o=d.read(db,actor,target['action_id']);mapping=service.read(db,actor,'control-mappings',target['mapping_id']);control=service.read(db,actor,'controls',mapping['control_id'])
                     except HTTPException:continue
-                    executions.append({'id':execution['id'],'control_id':control['id'],'control_code':control['code'],'mapping_id':mapping['id'],'action_id':a['id'],'result':execution['result'],'review_decision':r['decision']})
+                    executions.append({'id':execution['id'],'control_id':control['id'],'control_code':control['code'],'mapping_id':mapping['id'],'action_id':a['id'],'result':execution['result'],'review_decision':r['decision'],
+                                       'action_code':a['code'],'period_from':execution['period_from'],'period_to':execution['period_to']})
         if not actions:continue
         departments={a['department'] for a in actions}
         if filters.get('department') and filters['department'] not in departments:continue
@@ -99,8 +100,15 @@ def install(app,get_db,current):
     def export(request:Request,population_hash:str,db=Depends(get_db),actor=Depends(current)):
         items=evidence_library(db,actor,dict(request.query_params));fingerprint=hashlib.sha256(json.dumps([(r['id'],r['evidence_status'],r['file_hash']) for r in items],separators=(',',':')).encode()).hexdigest()
         service.fail(fingerprint==population_hash,'Evidence changed. Refresh before exporting.',409)
-        output=io.StringIO();writer=csv.writer(output);fields=['code','title','evidence_status','file_name','period_from','period_to','source_system','source_record','file_hash','retention_end_date']
-        writer.writerow(fields+['authorised_actions','authorised_control_executions'])
-        for r in items:writer.writerow([safe_cell(r[k]) for k in fields]+['; '.join(a['code'] for a in r['actions']),'; '.join(e['control_code']+' / '+e['id'] for e in r['executions'])])
+        headers=('Evidence reference','Title','Status','File name','Period from','Period to','Source system',
+                 'Source record reference','File hash','Retention end date','Linked action references','Linked check results')
+        values=[
+            (row['code'],row['title'],label(row['evidence_status']),row['file_name'],row['period_from'],row['period_to'],
+             row['source_system'],row['source_record'],row['file_hash'],row['retention_end_date'],
+             '; '.join(action['code'] for action in row['actions']),
+             '; '.join(f"{check['control_code']} · {check['action_code']} · {check['period_from']} to {check['period_to']} · {label(check['result'])}"
+                       for check in row['executions']))
+            for row in items
+        ]
         audit(db,actor,'evidence_library','export','EXPORTED',new={'count':len(items),'filters':dict(request.query_params),'population_hash':fingerprint})
-        return Response('\ufeff'+output.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="evidence-library.csv"','X-Source-Records':str(len(items))})
+        return Response(csv_bytes(('Evidence library',headers,values)),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="evidence-library.csv"','X-Source-Records':str(len(items))})

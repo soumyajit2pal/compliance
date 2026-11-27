@@ -105,7 +105,7 @@ export async function usersPage(_id, query = new URLSearchParams()) {
   ];
   const resetQuery = new URLSearchParams(query);resetQuery.delete('user');
   return '<section class="user-access-page">' + heading('Users & access', 'Manage Standard and LDAP accounts, access requests and scoped role assignments.',
-      button('refresh-users', 'Refresh access status') + button('user', 'Add user', '', 'primary')) +
+      button('user', 'Add user', '', 'primary', 'plus') + button('refresh-users', 'Refresh access status', '', '', 'refresh')) +
     `<div class="row gap8 mb16 access-catalogue-summary"><span class="tag green">${data.summary.active_accounts} enabled accounts</span><span class="tag neutral">${state.masters.role.filter((r) => r.active_flag).length} application roles</span><span class="grow"></span><a class="text-link" href="#help?tab=roles">Role-access guide</a></div>` +
     (tab === 'LDAP' ? '' : `<div class="access-overview" aria-label="Access request overview">
       <a href="#users?tab=LDAP&status=PENDING_APPROVAL"><strong>${data.summary.pending_approval}</strong><span>Pending access approval</span><small>Review the confirmed LDAP profile and assign roles</small></a>
@@ -130,15 +130,15 @@ export async function usersPage(_id, query = new URLSearchParams()) {
         const next = request ? reviewWait(u) || 'Review the submitted employee details.' :
           u.employee_profile_status === 'REJECTED' ? 'The employee can request reconsideration with a new explanation.' :
           u.employee_profile_status === 'UNVERIFIED' ? u.employee_warning || 'Employee details are incomplete. Review can begin once the missing details arrive.' : u.access_message;
-        const history = u.employee_profile_required ? button('department-history', 'Employee profile history', `data-id="${esc(u.id)}"`, 'small') : '';
+        const history = u.employee_profile_required ? button('department-history', 'Employee profile history', `data-id="${esc(u.id)}"`, 'small quiet', 'clock') : '';
         return [person(u.full_name, u.username + ' · ' + (u.login_type === 'LDAP' ? 'LDAP' : 'Standard')),
           accessBadge(u) + `<small class="access-account-state">${esc(next)}</small>`,
           u.org_unit_id ? esc(ref('organisational_unit', u.org_unit_id)) : '<span class="small muted">Not selected</span>',
           (effective.map((a) => `<span class="scope-line">${esc(ref('role', a.role_id))} · ${a.global_scope_flag ? 'Global' : esc(ref('organisational_unit', a.scope_org_unit_id))}</span>`).join('') || '<span class="small muted">No effective roles assigned</span>') +
             (assignments.length > effective.length ? `<small class="access-account-state">${assignments.length - effective.length} assignment(s) not currently effective</small>` : ''),
-          `<div class="review-row-actions">${request && !reviewWait(u) ? reviewButton(request,u,'Review profile') : ''}${history}${
-            u.id === state.identity.user.id ? '' : button('user',actionLabel,`data-id="${esc(u.id)}"`,'small')
-          }</div>`];
+          `<div class="review-row-actions">${request && !reviewWait(u) ? reviewButton(request,u,'Review profile') : ''}${
+            u.id === state.identity.user.id ? '' : button('user',actionLabel,`data-id="${esc(u.id)}"`,'small', actionLabel === 'Edit access' ? 'pen' : 'users')
+          }${history}</div>`];
       }), { empty: 'No users match this account type and access status.' }),
       tab === 'ACTION_REQUIRED' ? 'Accounts requiring administrator action' : 'Standard portal accounts', '', 'access-account-table')) +
     `<div class="mt16">${note('An enabled account still needs effective roles and any first-sign-in steps. Profile confirmation belongs to the LDAP user. Access changes revoke sessions; Standard password resets are available in Edit access.')}</div></section>`;

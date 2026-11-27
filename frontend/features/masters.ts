@@ -22,19 +22,19 @@ const availableNow = (row) => row.active_flag &&
   (!row.effective_to || row.effective_to > localDate());
 export const editButton = (key, row, label = 'Edit') => key === 'regulator' && row.approval_status !== 'DRAFT'
   ? '<span class="small muted">Retained approval record</span>'
-  : button('edit-master', label, `data-key="${esc(key)}" data-id="${esc(row.id)}"`, 'small');
+  : button('edit-master', label, `data-key="${esc(key)}" data-id="${esc(row.id)}"`, 'small', 'pen');
 const addButton = (key, parent = '') => {
   const definition = state.view.masterCatalogue.find((d) => d.key === key);
   return definition?.can_create ? button('add-master', 'Add ' + definition.label.toLowerCase(),
-    `data-key="${esc(key)}" data-parent="${esc(parent)}"`, 'primary') : '';
+    `data-key="${esc(key)}" data-parent="${esc(parent)}"`, 'primary', 'plus') : '';
 };
 
 function organisationView(query) {
   const all = state.masters.organisational_unit,
     selected =
       all.find((u) => u.id === query.get('unit')) || all.find((u) => u.code === 'BANK') || all[0];
-  const actions = button('organisation-import-template', 'Download Excel template') +
-    button('organisation-import-upload', 'Upload Excel') + addButton('organisational_unit');
+  const actions = addButton('organisational_unit') + button('organisation-import-upload', 'Upload Excel', '', '', 'upload') +
+    button('organisation-import-template', 'Download Excel template', '', 'quiet', 'download');
   if (!selected) return heading('Organisation hierarchy', '', actions) +
     panel('No organisation units', '<p>Add the first organisation unit to start the hierarchy.</p>');
   const indexed = childIndex(all, 'parent_org_unit_id');
@@ -74,7 +74,7 @@ function organisationView(query) {
         ['Effective from', esc(selected.effective_from || '—')],
         ['Effective to', esc(selected.effective_to || 'Open-ended')],
       ]),
-      { action: `<div class="row">${editButton('organisational_unit', selected)}${availableNow(selected) ? button('add-master', 'Add child unit', `data-key="organisational_unit" data-parent="${esc(selected.id)}"`, 'small') : '<span class="small muted">Child units need an active, effective parent.</span>'}</div>` },
+      { action: `<div class="row">${availableNow(selected) ? button('add-master', 'Add child unit', `data-key="organisational_unit" data-parent="${esc(selected.id)}"`, 'small primary', 'plus') : '<span class="small muted">Child units need an active, effective parent.</span>'}${editButton('organisational_unit', selected)}</div>` },
     )}${panel(
       'Direct child units',
       table(
@@ -164,7 +164,7 @@ export async function renderMasters(_id, query = new URLSearchParams()) {
             ? (r.domain_owner_unit_id ? esc(ref('organisational_unit', r.domain_owner_unit_id)) : badge('NOT_ASSIGNED'))
             : esc(r.classification || 'Controlled reference'),
           key === 'domains' ? domainStatus(r) : badge(r.active_flag ? 'ACTIVE' : 'INACTIVE'),
-          `<div class="row">${editButton(source, r)}${key === 'domains' ? button('domain', 'Set owner', `data-id="${r.id}"`, 'small') : ''}</div>`,
+          `<div class="row">${editButton(source, r)}${key === 'domains' ? button('domain', 'Set owner', `data-id="${esc(r.id)}"`, r.domain_owner_unit_id ? 'small quiet' : 'small primary', 'users') : ''}</div>`,
         ]),
       ),
     ) +

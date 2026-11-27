@@ -1,6 +1,6 @@
 /* Compact, whole-obligation rows shared by both retained register routes. */
 .coverage-register { max-width:1440px; margin:0 auto; }
-.coverage-register .page-header { align-items:flex-start; gap:20px; margin-bottom:18px; }
+.coverage-register .page-header { align-items:flex-start; gap:var(--section-gap); margin-bottom:var(--section-gap); }
 .coverage-register .page-header h1 { font-size:28px; }
 .coverage-register .page-header p { font-size:14px; line-height:1.7; }
 .coverage-register .btn { white-space:normal; }
@@ -14,7 +14,7 @@
 .coverage-metric>span { display:block; font-size:13px; line-height:1.55; min-height:40px; color:var(--muted); }
 .coverage-metric strong { display:block; font-size:28px; line-height:1.3; margin:5px 0; }
 .coverage-metric>small { font-size:11px; color:var(--muted); }
-.applicability-filters { padding:16px; margin-bottom:20px; background:#fff; border:1px solid var(--line); border-radius:10px; }
+.applicability-filters { padding:14px var(--panel-padding); margin-bottom:var(--section-gap); background:#fff; border:1px solid var(--line); border-radius:10px; }
 .coverage-filter-main { display:grid; grid-template-columns:minmax(220px,1.6fr) repeat(3,minmax(130px,1fr)) auto; align-items:end; gap:12px; }
 .coverage-filter-main .search-field { min-width:0; max-width:none; height:44px; margin:0; }
 .coverage-filter-main .search-field input { width:100%; border:0; box-shadow:none; background:transparent; color:var(--text); min-width:0; }

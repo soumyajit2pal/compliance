@@ -1,5 +1,5 @@
 import { bankTimeZone } from '../../core/bank-time.ts';
-import { referenceSelect } from '../../ui/reference-options.ts';
+import { referenceRefreshButton, referenceSelect } from '../../ui/reference-options.ts';
 import { has } from '../../core/access.ts';
 import {
   esc,
@@ -81,7 +81,7 @@ export function renderRegister(rows, q, pagination = undefined, counts = undefin
         : '',
     ) +
     libraryTiles(counts,q)+
-    `<form id="filters">
+    `<form id="filters" data-reference-toolbar>
       ${q.get('library_stage')?input('library_stage',q.get('library_stage'),'hidden'):''}
       <div class="filters">
         <div class="search-field">${icon('search')}${input('q', q.get('q') || '', 'search', 'placeholder="Search title, official reference number or keyword…" aria-label="Search regulatory repository"')}</div>
@@ -92,7 +92,7 @@ export function renderRegister(rows, q, pagination = undefined, counts = undefin
         <button class="btn small primary search-submit" type="submit">Search</button>
         ${withoutPaging(q).toString() ? link('repository', 'Clear filters', 'btn small') : ''}
       </div>
-      <details class="filter-more">
+      <div class="library-filter-tools"><details class="filter-more">
         <summary aria-controls="repository-more-filters">${icon('filter')}More filters${activeMoreFilters ? `<span class="count-bubble" aria-label="${activeMoreFilters} active additional filters">${activeMoreFilters}</span>` : ''}${icon('down')}</summary>
         <section id="repository-more-filters" class="filter-more-panel" aria-labelledby="repository-more-filters-heading">
           <div class="filter-more-head">
@@ -111,7 +111,7 @@ export function renderRegister(rows, q, pagination = undefined, counts = undefin
           </div>
           <div class="filter-more-footer"><button class="text-link filter-more-clear" type="button" data-action="clear-repository-filters">Clear filters</button><div class="actions"><button class="btn" type="button" data-action="close-repository-filters">Close</button><button class="btn primary" type="submit">Apply filters</button></div></div>
         </section>
-      </details>
+      </details>${referenceRefreshButton()}</div>
     </form>` +
     tablePanel(
       table(

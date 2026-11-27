@@ -8,6 +8,7 @@ export interface CollectionOptions {
   cursors?: PageCursors;
   label?: string;
   summary?: boolean;
+  paginationTop?: boolean;
   revealIndex?: number;
   className?: string;
   empty?: string;
@@ -19,7 +20,7 @@ function attributes(count: number, options: CollectionOptions) {
   const query = new URLSearchParams(text);
   const info = options.pagination || initialPage(count, query, options.pageKey, options.revealIndex);
   const scope = path + '?' + withoutPaging(query);
-  return `data-paged-collection data-page-key="${esc(options.pageKey)}" data-page-scope="${esc(scope)}" data-page-revision="${++revision}" data-page-info="${esc(JSON.stringify(info))}" data-page-server="${options.pagination || options.cursors ? '1' : '0'}" data-page-label="${esc(options.label || 'records')}" data-page-summary="${options.summary === false ? '0' : '1'}"`;
+  return `data-paged-collection data-page-key="${esc(options.pageKey)}" data-page-scope="${esc(scope)}" data-page-revision="${++revision}" data-page-info="${esc(JSON.stringify(info))}" data-page-server="${options.pagination || options.cursors ? '1' : '0'}" data-page-label="${esc(options.label || 'records')}" data-page-summary="${options.summary === false ? '0' : '1'}"${options.paginationTop ? ' data-page-top' : ''}`;
 }
 export function pagedCollection(items: string[], options: CollectionOptions) {
   return `<div ${attributes(items.length, options)}><div class="${esc(options.className || '')}" data-page-items>${items.join('') || options.empty || ''}</div></div>`;

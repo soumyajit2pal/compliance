@@ -17,8 +17,9 @@ edition = m.instrument_version
 instrument = m.regulatory_instrument
 parent = clause.alias('browse_parent')
 child = clause.alias('browse_child')
+tree_order = (clause.c.sequence_number, clause.c.code, clause.c.id)
 summary_fields = ('id', 'code', 'instrument_version_id', 'parent_clause_id',
-                  'heading', 'source_clause_reference', 'source_page_reference', 'approval_status')
+                  'heading', 'source_clause_reference', 'source_page_reference', 'approval_status', 'heading_only_flag')
 
 
 def _ids(column, identifiers):
@@ -118,11 +119,13 @@ def edition_text(row):
 
 
 CLAUSE_COLUMNS = {
-    'clause': fields('code','heading','source_clause_reference'),
+    'clause': lambda row: (row['heading'], row['source_clause_reference']) if row['heading_only_flag']
+        and row['code'] == row['id'] else (row['code'], row['heading'], row['source_clause_reference']),
     'instrument': fields('instrument_code','instrument_short_title','instrument_title'),
     'source_edition': edition_text,
     'parent_path': lambda row:' → '.join(row['parent_path']) or 'Top level',
     'page': fields('source_page_reference'),
+    'source_location': fields('source_page_reference'),
     'clause_approval': lambda row:label(row['approval_status']),
 }
 
@@ -181,7 +184,7 @@ def browse(db, actor, instrument_id, edition_filter, parent_id, mode, query, sta
         instrument_id == 'all' or edition_filter in {'all', 'current'}
     ):
         raise HTTPException(422, 'Choose a specific source edition for exact wording search.')
-    if instrument_id == 'all' and (mode == 'tree' or not (query or status)):
+    if instrument_id == 'all' and mode == 'tree':
         return empty
     if instrument_id == 'all' and edition_filter not in {'current', 'all'}:
         return empty
@@ -200,9 +203,11 @@ def browse(db, actor, instrument_id, edition_filter, parent_id, mode, query, sta
         statement = statement.where(clause_scope)
     if mode == 'tree':
         statement = statement.where(parent.c.id == parent_id if parent_id else parent.c.id.is_(None))
-        order = (clause.c.sequence_number, clause.c.code, clause.c.id)
+        order = tree_order
     else:
         search_filters = [clause_scope]
+        if instrument_id == 'all' and not (query or status):
+            statement = statement.where(clause.c.heading_only_flag == 0)
         if status:
             approval = clause.c.approval_status == status
             statement = statement.where(approval)
@@ -233,7 +238,27 @@ def mark_current(db, rows):
             row['version_is_effective_current'] = row['instrument_version_id'] in current_ids
 
 
-def detail(db, actor, identifier):
+def _open_branches(db, source, path):
+    branches = {row['id']: {'items': [], 'next_page': None} for row in path if row['has_children']}
+    if not branches:
+        return branches
+    position = sa.func.row_number().over(partition_by=clause.c.parent_clause_id, order_by=tree_order)
+    ranked = _query().add_columns(position.label('branch_position')).where(
+        clause.c.instrument_version_id == source, _ids(clause.c.parent_clause_id, list(branches)),
+    ).subquery()
+    rows = db.execute(sa.select(ranked).where(ranked.c.branch_position <= PAGE_SIZE + 1)
+                      .order_by(ranked.c.parent_clause_id, ranked.c.branch_position)).mappings()
+    for result in rows:
+        item = dict(result)
+        branch = branches[item['parent_clause_id']]
+        if item.pop('branch_position') <= PAGE_SIZE:
+            branch['items'].append(item)
+        else:
+            branch['next_page'] = 2
+    return branches
+
+
+def detail(db, actor, identifier, include_tree=False):
     from .clause_interpretations import apply_approved
     actor.require(READ_ROLES)
     # Check source scope before selecting either text column.
@@ -261,10 +286,16 @@ def detail(db, actor, identifier):
     document_id = version['source_document_id']
     document = db.execute(sa.select(m.document.c.file_name).where(m.document.c.id == document_id)).scalar_one_or_none() if document_id else None
     ancestors = _ancestors(db, [row])[identifier]
-    mark_current(db, [*ancestors, row] + ([original] if original else []))
-    return {'clause': row, 'ancestors': ancestors, 'edition': version,
-            'owner_unit_id': owner['regulatory_owner_unit_id'], 'source_document': {'id': document_id, 'name': document} if document else None,
-            'provenance': dict(carry) if carry else None, 'original': original}
+    path = [*ancestors, row]
+    branches = _open_branches(db, source, path) if include_tree else {}
+    mark_current(db, path + ([original] if original else []) +
+                 [item for branch in branches.values() for item in branch['items']])
+    result = {'clause': row, 'ancestors': ancestors, 'edition': version,
+              'owner_unit_id': owner['regulatory_owner_unit_id'], 'source_document': {'id': document_id, 'name': document} if document else None,
+              'provenance': dict(carry) if carry else None, 'original': original}
+    if include_tree:
+        result['branches'] = branches
+    return result
 
 
 def install(app, get_db, current):
@@ -278,5 +309,5 @@ def install(app, get_db, current):
         return browse(db, actor, instrument, edition, parent, mode, q, status, page, search_type, page_size, columns)
 
     @app.get('/api/clause-browser/{identifier}')
-    def read(identifier: str, db=Depends(get_db), actor=Depends(current)):
-        return detail(db, actor, identifier)
+    def read(identifier: str, include_tree: bool = False, db=Depends(get_db), actor=Depends(current)):
+        return detail(db, actor, identifier, include_tree)

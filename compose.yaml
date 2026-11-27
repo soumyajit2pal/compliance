@@ -10,13 +10,13 @@ x-portal-user: &portal-user
 
 x-backend-release: &backend-release
   <<: *portal-user
-  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.26-r2}"
+  image: "${PORTAL_IMAGE:-compliance-portal}-backend:${PORTAL_IMAGE_TAG:-2026.11.27-r1}"
 
   build:
     context: .
     target: backend
     args: &release-args
-      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.26-r2}"
+      PORTAL_IMAGE_TAG: "${PORTAL_IMAGE_TAG:-2026.11.27-r1}"
 
 services:
   haproxy:
@@ -46,7 +46,7 @@ services:
   frontend:
     <<: *portal-user
 
-    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.26-r2}"
+    image: "${PORTAL_IMAGE:-compliance-portal}-frontend:${PORTAL_IMAGE_TAG:-2026.11.27-r1}"
 
     build:
       context: .

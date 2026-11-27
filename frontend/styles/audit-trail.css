@@ -1,6 +1,6 @@
 .audit-trail {
   display: grid;
-  gap: 20px;
+  gap: var(--section-gap);
 }
 
 .audit-heading {
@@ -69,8 +69,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px var(--panel-padding);
 }
 
 .audit-filters > .field {

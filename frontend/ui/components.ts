@@ -1,4 +1,5 @@
 import { state } from '../core/state.ts';
+import { icon } from './icons.ts';
 export { date, dateTime, localDate } from '../core/bank-time.ts';
 
 export const esc = (value) =>
@@ -65,11 +66,12 @@ export const organisationScopeLabel = (id) => {
     ? `${ref('organisational_unit', unit.parent_org_unit_id)} / ${unit.name}`
     : unit?.name || id || '—';
 };
-export const link = (url, label, css = '') =>
-  /* HTML */ `<a class="${css.replace(/\bbutton\b/, 'btn')}" href="#${url}">${esc(label)}</a>`;
-export const button = (action, label, data = '', css = '') =>
+const actionLabel = (label, symbol) => symbol ? `${icon(symbol)}<span>${esc(label)}</span>` : esc(label);
+export const link = (url, label, css = '', symbol = '') =>
+  /* HTML */ `<a class="${css.replace(/\bbutton\b/, 'btn')}" href="#${url}">${actionLabel(label, symbol)}</a>`;
+export const button = (action, label, data = '', css = '', symbol = '') =>
   /* HTML */ `<button type="button" class="btn ${css}" data-action="${action}" ${data}>
-    ${esc(label)}
+    ${actionLabel(label, symbol)}
   </button>`;
 export const empty = (heading, text) =>
   /* HTML */ `<div class="empty">

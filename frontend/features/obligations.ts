@@ -1,5 +1,5 @@
 import { bankDateAfter } from '../core/bank-time.ts';
-import { referenceSelect, acceptReferenceSnapshot, refreshReferenceControls } from '../ui/reference-options.ts';
+import { referenceRefreshButton, referenceSelect, acceptReferenceSnapshot, refreshReferenceControls } from '../ui/reference-options.ts';
 import {customFieldGroup, captureCustom} from '../ui/dropdown-fields.ts';
 import { state } from '../core/state.ts';
 import { api } from '../core/api.ts';
@@ -124,10 +124,10 @@ export async function obligationsPage(identifier,query=new URLSearchParams()) {
     (report?exceptionOverview(response.finding_counts,query):workspaceHeading(
       (has('AUTHOR')?link('obligations/new','Add obligation','btn primary'):'')+(has('AUTHOR','REVIEWER')?link('obligations/imports','Import obligations','btn'):'')+obligationExportButton())+
       workspaceTabs('register',query))+
-    `<form id="view-filter" class="obligation-register-filters" aria-label="${report?'Exception filters':'Register filters'}">
+    `<form id="view-filter" class="obligation-register-filters" data-reference-toolbar aria-label="${report?'Exception filters':'Register filters'}">
       <div class="obligation-register-filter-heading">
         <div><h2>${report?'Filter exceptions':'Find an obligation'}</h2>${report?'':'<p>Search requirements and narrow your view.</p>'}</div>
-        <div class="obligation-register-filter-heading-actions">${registerView}${link(report?'obligations?tab=reports':'obligations','Clear','obligation-register-clear')}</div>
+        <div class="obligation-register-filter-heading-actions">${registerView}${link(report?'obligations?tab=reports':'obligations','Clear','obligation-register-clear')}${referenceRefreshButton()}</div>
       </div>
       <div class="obligation-register-filter-fields">
         ${field('Search obligations',`<div class="search-field">${icon('search')}${input('q',query.get('q')||'','search','placeholder="Requirement or regulatory source"')}</div>`)}

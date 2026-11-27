@@ -7,6 +7,7 @@ import { InstrumentQuickView } from './components/instrument-quick-view';
 import { ObligationQuickView } from './components/obligation-quick-view';
 import { restoreLibraryLocation, retainLibraryLocation } from '../core/library-navigation.ts';
 import { restoreObligationLocation, retainObligationLocation } from '../core/obligation-navigation.ts';
+import { mountClauseExplorer } from '../features/clause-explorer.ts';
 
 export function App() {
   const navigation = useRef<NavigationSnapshot | null>(null);
@@ -33,6 +34,8 @@ export function App() {
     restoreNavigation(navigation.current);
     initializeWizardSteps(document);
     if(document.querySelector('#obligation-editor'))document.dispatchEvent(new Event('portal:obligation-setup-mounted'));
+    const clauseLayout = document.querySelector<HTMLElement>('[data-clause-explorer-layout]');
+    if (clauseLayout) return mountClauseExplorer(clauseLayout);
   }, [view.revision]);
 
   useEffect(() => {
@@ -78,10 +81,10 @@ export function App() {
       (page === 'repository' && query.get('tab') === 'clauses');
     if (clauseWorkspace && query.has('clause')) {
       requestAnimationFrame(() => {
-        const heading = document.getElementById('working-clause-heading');
+        const heading = document.getElementById('child-clause-heading') || document.getElementById('working-clause-heading');
         heading?.focus({ preventScroll: true });
         document.querySelector('.clause-tree-node[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
-        const target = document.getElementById('clause-working-view');
+        const target = heading?.closest('.clause-child-editor') || document.getElementById('clause-working-view');
         target?.scrollIntoView({ block: 'start' });
       });
       return;

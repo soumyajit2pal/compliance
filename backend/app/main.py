@@ -1,7 +1,7 @@
 """Weeks 1–5 Oracle portal. Start after Alembic; no startup DDL."""
 import asyncio
 import os
-import csv,io,json,hashlib,re,logging
+import json,hashlib,re,logging
 import ipaddress
 import time
 from collections import Counter
@@ -221,7 +221,7 @@ def create_app(settings=None,engine=None):
 
     @app.get('/api/health')
     def health():
-        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', '2026.11.26-r2')}
+        return {'status':'ok', 'environment':cfg.environment, 'release':os.getenv('PORTAL_RELEASE', '2026.11.27-r1')}
 
     @app.get('/api/ready')
     def ready(request: Request):
@@ -655,7 +655,8 @@ def create_app(settings=None,engine=None):
     def cancel_draft(identifier:str,payload:s.CancelDraftInput,db=Depends(get_db),actor=Depends(current)):
         return repo.cancel_draft(db,actor,identifier,payload)
     @app.post('/api/versions/{identifier}/clauses')
-    def clause(identifier:str,payload:s.ClauseInput,db=Depends(get_db),actor=Depends(current)):return repo.add_clause(db,actor,identifier,payload)
+    def clause(identifier:str,payload:s.ClauseCreateInput,db=Depends(get_db),actor=Depends(current)):
+        return repo.create_clause(db,actor,identifier,payload)
     @app.get('/api/versions/{identifier}/carry-candidates')
     def carry_candidates(identifier:str,db=Depends(get_db),actor=Depends(current)):
         return clause_carry.candidates(db,actor,identifier)
@@ -756,23 +757,9 @@ def create_app(settings=None,engine=None):
         return combined_import.reprofile(db,actor,source_batch,cfg.storage)
     @app.get('/api/migration/{identifier}/report.csv')
     def migration_report(identifier:str,db=Depends(get_db),actor=Depends(current)):
-        data=migration.batch_detail(db,actor,identifier);stream=io.StringIO();writer=csv.writer(stream)
-        writer.writerow(['Source file','Sheet','Row','Source system','Readiness','Findings','Canonical mapped values','Target type','Target ID',
-            'Import reference','Source edition','Clause import reference','Parent clause reference','Target edition ID','Loaded source document ID',
-            'Parent notification','Relationship','Relationship effective date','Relationship proposal ID'])
-        def cell(value):
-            text=str(value or '')
-            return "'"+text if text.lstrip().startswith(('=','+','-','@','\t','\r')) else text
-        for row in data['rows']:
-            family = row['profile'].get('family_link') or {}
-            writer.writerow([cell(v) for v in [data['batch']['source_file'],row['sheet_name'],row['row_number'],row['source_system'],row['validation_status'],
-                '; '.join(row['profile'].get('errors',[])),json.dumps(row['profile'].get('normalised',{})),row['target_entity_type'],row['target_entity_id'],
-                row['profile'].get('group_reference'),row['profile'].get('edition_number'),row['profile'].get('clause_reference'),
-                row['profile'].get('parent_reference'),row['profile'].get('target_version_id'),row['profile'].get('loaded_source_document_id'),
-                family.get('parent_reference'),family.get('relationship_type'),family.get('effective_from'),
-                (row['profile'].get('family_proposal') or {}).get('id')]])
+        content=migration.profiling_csv(db,migration.batch_detail(db,actor,identifier))
         audit(db,actor,'migration',identifier,'PROFILE_REPORT_EXPORTED')
-        return Response(stream.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="migration-profile.csv"'})
+        return Response(content,media_type='text/csv',headers={'Content-Disposition':'attachment; filename="migration-profile.csv"'})
     @app.post('/api/migration/{identifier}/validate')
     def validate(identifier:str,db=Depends(get_db),actor=Depends(current)):return migration.validate_content(db,actor,identifier,cfg.storage)
     @app.post('/api/migration/{identifier}/load')

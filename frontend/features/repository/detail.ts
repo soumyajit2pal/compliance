@@ -20,7 +20,9 @@ import { dateTime, esc,
   empty,
 } from '../../ui/components.ts';
 import { icon } from '../../ui/icons.ts';
-import { recordClauseRows, renderClauseWorkingView } from '../clause-workspace.ts';
+import { clauseActions, recordClauseRows, renderClauseWorkingView } from '../clause-workspace.ts';
+import { childClauseEditor } from '../clause-child-editor.ts';
+import { clauseAncestors } from '../clause-source-location.ts';
 import { editionNextStep, renderEditionNextStep } from './workflow.ts';
 import { interpretationPanel } from './interpretations.ts';
 import { renderImplementationProgress } from './implementation-progress.ts';
@@ -94,8 +96,11 @@ function clauseView(i, v, editable, q) {
   const allRows = recordClauseRows(state.record);
   const rows = allRows.filter((clause) => clause.instrument_version_id === v.id);
   const selected = rows.find((clause) => clause.id === q.get('clause')) || rows[0];
+  const pathFor = (row) => recordPath(i, { id: row.instrument_version_id }, 'clauses', { clause: row.id });
+  const canAddChild = editable && selected?.approval_status === 'DRAFT' && selected.clause_status !== 'DELETED';
+  const parentPath = canAddChild ? pathFor(selected) : '';
   const documentId = v.source_document_id;
-  const toolbar = `<div class="clause-workspace-toolbar"><div><h2>Clause workspace</h2><p>Choose a clause to compare source wording with the bank’s interpretation.</p></div><div class="clause-list-actions">${editable ? `<button type="button" class="btn primary" data-action="clause">${icon('plus')}<span>Add clause</span></button>` : ''}</div></div>`;
+  const toolbar = `<div class="clause-workspace-toolbar"><div><h2>Clause workspace</h2><p>Choose a clause to compare source wording with the bank’s interpretation.</p></div><div class="clause-list-actions">${editable ? button('clause', 'Add clause', '', canAddChild ? '' : 'primary', 'plus') : ''}</div></div>`;
   return toolbar + renderClauseWorkingView({
     rows,
     allRows,
@@ -104,10 +109,11 @@ function clauseView(i, v, editable, q) {
     selectedId: selected?.id,
     interpretationPanel: selected && state.record.interpretation_requests?.clause_id === selected.id
       ? interpretationPanel(selected, state.record.interpretation_requests, q.get('interpretation')) : '',
-    pathFor: (row) => recordPath(i, { id: row.instrument_version_id }, 'clauses', { clause: row.id }),
-    editAction: (editable && selected?.approval_status === 'DRAFT'
-      ? button('clause', selected.heading_only_flag ? 'Edit document heading' : 'Edit Draft clause', `data-id="${esc(selected.id)}"`, 'small')
-      : '')+(selected && !selected.heading_only_flag && (editable || v.approval_status === 'APPROVED') && covered(i.regulatory_owner_unit_id, ['AUTHOR']) ? button('link-earlier-clause', 'Link earlier clause', `data-id="${esc(selected.id)}" data-instrument="${esc(i.id)}"`, 'small') : ''),
+    pathFor,
+    childEditor: canAddChild && q.get('clause') === selected.id && q.get('add_child') === '1'
+      ? childClauseEditor(selected, parentPath, clauseAncestors(selected, rows)) : '',
+    editAction: clauseActions(selected, parentPath, editable && selected?.approval_status === 'DRAFT' ? 'clause' : '',
+      selected && !selected.heading_only_flag && (editable || v.approval_status === 'APPROVED') && covered(i.regulatory_owner_unit_id, ['AUTHOR'])),
     sourceDocument: documentId ? { id: documentId, name: state.record.source_documents[documentId] || i.title } : undefined,
   });
 }
@@ -191,9 +197,9 @@ export function renderRecord(q) {
     ? nextStep.tone === 'action' ? workflowLink(workflowPath, nextStep.shortcut) : link(workflowPath, nextStep.shortcut, 'btn soft')
     : '';
   const obligationRegisterPath = 'obligations?' + new URLSearchParams({ instrument: i.id });
-  let actions = workflowShortcut + (editable ? button('edit-version', 'Edit draft version') : '');
-  actions += link(obligationRegisterPath, 'Linked obligations', 'btn');
-  if (editable && !active) actions += button('cancel-draft', 'Cancel draft', '', 'danger');
+  let actions = workflowShortcut + (editable ? button('edit-version', 'Edit draft version', '', workflowShortcut ? '' : 'primary', 'pen') : '');
+  actions += link(obligationRegisterPath, 'Linked obligations', 'btn quiet', 'link');
+  if (editable && !active) actions += button('cancel-draft', 'Cancel draft', '', 'danger', 'x');
   if (selection.pending.length)
     actions += link(recordPath(i, selection.pending[0], 'overview'), 'Open pending edition', 'btn');
   const openCorrection = metadata_corrections.find((r) => ['IN_REVIEW', 'REVIEWED'].includes(r.correction_status));
@@ -202,9 +208,9 @@ export function renderRecord(q) {
     i.created_by === state.identity.user.id &&
     covered(i.regulatory_owner_unit_id, ['AUTHOR'])
   )
-    actions += button('edit-instrument', 'Edit draft instrument');
+    actions += button('edit-instrument', 'Edit draft instrument', '', '', 'pen');
   if (i.approval_status === 'APPROVED' && covered(i.regulatory_owner_unit_id, ['AUTHOR']))
-    actions += (selection.pending.length ? '' : button('version', 'New version', '', 'primary')) + (openCorrection
+    actions += (selection.pending.length ? '' : button('version', 'New version', '', 'primary', 'plus')) + (openCorrection
       ? link(correctionPath(i, v, openCorrection.id), 'View pending metadata correction', 'btn')
       : button('request-metadata-correction', 'Request metadata correction'));
   const mainTitle = i.short_title || i.title;

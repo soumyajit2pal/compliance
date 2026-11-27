@@ -23,7 +23,7 @@
 .obligation-exception-overview {
   container-type: inline-size;
   padding: clamp(16px, 2.4vw, 28px);
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--soft);
@@ -81,11 +81,11 @@
 @container (max-width: 220px) {
   .obligation-exception-cards { grid-template-columns: 1fr; }
 }
-.obligation-register-filters { min-width: 0; padding: 20px 22px; margin-bottom: 22px; border-color: #e1d9e8; border-radius: 12px; box-shadow: 0 3px 12px #49345c03; }
-.obligation-register-filter-heading { margin-bottom: 18px; gap: 18px; }
+.obligation-register-filters { min-width: 0; padding: 14px var(--panel-padding); margin-bottom: var(--section-gap); border-color: #e1d9e8; border-radius: 12px; box-shadow: 0 3px 12px #49345c03; }
+.obligation-register-filter-heading { margin-bottom: 10px; gap: 8px 16px; }
 .obligation-register-filter-heading h2 { margin: 0; color: var(--ink); font-size: 16px; font-weight: 650; }
 .obligation-register-filter-heading p { margin-top: 3px; color: var(--muted); font-size: 11px; }
-.obligation-register-filter-heading-actions { display: flex; align-items: center; gap: 18px; }
+.obligation-register-filter-heading-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
 .obligation-register-mode { color: var(--muted); font-size: 11px; font-weight: 500; }
 .obligation-register-mode > .searchable-select { width: 175px; }
 .obligation-register-mode .searchable-select-input { min-height: 40px; font-size: 12px; }
@@ -117,7 +117,7 @@
 .obligation-filter-chip > .icon { width: 12px; height: 12px; }
 .obligation-filter-chip:hover { border-color: #b69bc8; background: #efe4f6; }
 .obligation-register-results { min-width: 0; overflow: hidden; border: 1px solid #e1d9e8; border-radius: 12px; background: #fff; box-shadow: 0 3px 12px #49345c03; }
-.obligation-register-results-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 20px 22px; }
+.obligation-register-results-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px var(--panel-padding); }
 .obligation-register-results-heading h2 { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--ink); font-size: 17px; font-weight: 650; }
 .obligation-register-total { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 5px; color: var(--primary); background: #f0e8f6; font-size: 11px; font-variant-numeric: tabular-nums; }
 .obligation-register-results-heading p { margin-top: 4px; color: var(--muted); font-size: 11px; }
@@ -126,12 +126,14 @@
 .obligation-register-results > .panel { border: 0; border-radius: 0; box-shadow: none; margin: 0; }
 .obligation-register-results .data-table { width: 100%; table-layout: fixed; }
 .obligation-register-results .data-table th { padding: 13px 17px; background: #f7f4fa; color: #6b5b75; font-size: 10px; letter-spacing: .025em; border-top: 1px solid #e9e1ef; border-bottom-color: #e9e1ef; }
-.obligation-register-results .data-table th:nth-child(1) { width: 30%; }
-.obligation-register-results .data-table th:nth-child(2) { width: 21%; }
-.obligation-register-results .data-table th:nth-child(3) { width: 13%; }
-.obligation-register-results .data-table th:nth-child(4) { width: 13%; }
-.obligation-register-results .data-table th:nth-child(5) { width: 9%; }
-.obligation-register-results .data-table th:nth-child(6) { width: 14%; }
+@media (width > 1100px) {
+  .obligation-register-results .data-table th:nth-child(1) { width: 30%; }
+  .obligation-register-results .data-table th:nth-child(2) { width: 21%; }
+  .obligation-register-results .data-table th:nth-child(3) { width: 13%; }
+  .obligation-register-results .data-table th:nth-child(4) { width: 13%; }
+  .obligation-register-results .data-table th:nth-child(5) { width: 9%; }
+  .obligation-register-results .data-table th:nth-child(6) { width: 14%; }
+}
 .obligation-register-results .data-table td { padding: 19px 17px; vertical-align: top; border-bottom-color: #eee8f3; color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
 .obligation-register-results .data-table tbody tr { background: #fff; }
 .obligation-register-results .data-table tbody tr:hover { background: #fbf9fd; }
@@ -178,7 +180,7 @@
   .obligation-register-results .data-table thead th { padding: 0; border: 0; background: transparent; }
   .obligation-register-results .data-table tbody { display: grid; gap: 12px; padding: 0 16px 16px; }
   .obligation-register-results .data-table tbody tr { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); border: 1px solid #e4dce9; border-radius: 9px; overflow: hidden; padding: 16px; gap: 16px; }
-  .obligation-register-results .data-table td { display: block; min-width: 0; border: 0; padding: 0; }
+  .obligation-register-results .data-table tbody td { display: block; min-width: 0; border: 0; padding: 0; }
   .obligation-register-results .data-table td:nth-child(-n+2) { grid-column: 1 / -1; }
   .obligation-register-results .data-table td:not(:first-child)::before { display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; font-weight: 650; }
   .obligation-register-results .data-table td:nth-child(2)::before { content: 'Regulatory source'; }
@@ -218,12 +220,10 @@
   .obligation-view-icon { width: 25px; height: 25px; border-radius: 6px; }
   .obligation-view-icon .icon { width: 15px; height: 15px; }
   .obligation-view-title { font-size: 11px; }
-  .obligation-register-filters { padding: 17px; }
   .obligation-register-filters .searchable-select-input, .obligation-register-filters .search-field input { font-size: 16px; }
   .obligation-register-filter-heading-actions { gap: 12px; }
   .obligation-register-mode { width: auto; justify-content: start; gap: 8px; }
   .obligation-register-mode > .searchable-select { width: 150px; max-width: none; }
-  .obligation-register-results-heading { padding: 18px; }
   .obligation-register-results-heading h2 { font-size: 16px; }
   .obligation-register-results .data-table tbody { padding: 0 12px 12px; }
   .obligation-register-results .data-table tbody tr { padding: 15px; gap: 16px 12px; }

@@ -1,11 +1,12 @@
 """One authorised population per measure; export uses its exact fingerprint."""
-import csv,hashlib,io,json
+import hashlib,json
 from datetime import date, timedelta
 from .bank_time import TIME_ZONE, to_ist
 import sqlalchemy as sa
 from . import delivery as d,models as m,obligations as obl,repository as repo
 from .access import REGULATORY_ROLES,READ_ROLES
 from .events import now
+from .obligation_export import csv_bytes, label, ref, reference_values
 
 DEFINITIONS={
  'instruments':('Current instruments','Approved, current effective instruments in your source scope.'),
@@ -83,18 +84,19 @@ def build(db,actor,filters=None):
    except ValueError:raise d.HTTPException(422,'Use YYYY-MM-DD report dates.') from None
  d.fail(not filters.get('from') or not filters.get('to') or filters['from']<=filters['to'],'The date range is reversed.')
  obls=obl.listing(db,actor);actions=d.listing(db,actor);sources=repo.listing(db,actor,{})
- def row(kind,r,title,department,owner,domain,criticality,status,when,path):return dict(kind=kind,id=r['id'],title=title,department=department,owner=owner,domain=domain,criticality=criticality,status=status,date=str(when or ''),path=path)
+ def row(kind,r,title,department,owner,domain,criticality,status,when,path):return dict(kind=kind,id=r['id'],code=r['code'],title=title,department=department,owner=owner,domain=domain,criticality=criticality,status=status,date=str(when or ''),path=path)
  def irow(r,status):
   return row('Instrument',r,r['title'],r['regulatory_owner_unit_id'],r['interpretation_owner_user_id'],r['primary_domain_id'],r['materiality'],status,r['effective_date'],'repository/'+r['id'])
  def ar(a):
   record=row('Action',a,a['description'],a['owner_unit_id'],a['owner_user_id'],a['domain_id'],a['criticality'],a['record_status'],a['current_due_date'],'actions/'+a['id'])
-  return {**record,'code':a['code'],'original_due_date':str(a['original_due_date'] or ''),'overdue':a['overdue']}
+  return {**record,'original_due_date':str(a['original_due_date'] or ''),'overdue':a['overdue']}
  primary_owners={}
  def orow(o):
   if o['id'] not in primary_owners:
    owners=obl.rows(db,m.obligation_owner,o['id'])
    primary_owners[o['id']]=next((x['user_id'] for x in owners if x['owner_role']=='BUSINESS' and x['primary_owner_flag']),None)
-  return row('Obligation',o,o['title'],o['business_owner_unit_id'],primary_owners[o['id']],o['primary_domain_id'],o['criticality'],o['record_status'],o['next_review_date'],'obligations/'+o['id'])
+  return {**row('Obligation',o,o['title'],o['business_owner_unit_id'],primary_owners[o['id']],o['primary_domain_id'],
+                o['criticality'],o['record_status'],o['next_review_date'],'obligations/'+o['id']),'revision':o['version_number']}
  def active(o):return o['record_status']=='ACTIVE' and o['approval_status']=='APPROVED' and o['effective_from']<=day and (not o['effective_to'] or o['effective_to']>day)
  effective=[o for o in obls if active(o)]
  current_obligations=[o for o in obls if o['record_status'] not in {'SUPERSEDED','RETIRED'}
@@ -103,7 +105,7 @@ def build(db,actor,filters=None):
  result={key:[] for key in DEFINITIONS}
  result['instruments']=[irow(r,r['regulatory_status']) for r in sources if r['approval_status']=='APPROVED' and r['regulatory_status']=='CURRENT' and r['current_version_id'] and r['effective_date']<=day]
  result['obligations']=[orow(o) for o in effective];result['high']=[orow(o) for o in effective if o['criticality'] in {'HIGH','CRITICAL'}]
- result['portfolio']=[{**orow(o),'stage':o['stage'],'active':active(o),'code':o['code'],'revision':o['version_number']}
+ result['portfolio']=[{**orow(o),'stage':o['stage'],'active':active(o)}
                       for o in current_obligations]
  result['approval']=[{**orow(o),'stage':o['stage']} for o in current_obligations if o['stage']=='FINAL_APPROVAL']
  result['approval'].extend(irow(source,source['approval_status']) for source in sources
@@ -202,15 +204,34 @@ def build(db,actor,filters=None):
   }
  return report
 
-def export(report,metric,expected_hash):
- d.fail(metric in report['metrics'],'Choose a report measure.');data=report['metrics'][metric]
- d.fail(expected_hash and data['population_hash']==expected_hash,'The record population changed. Refresh the dashboard before exporting.',409)
- output=io.StringIO();writer=csv.writer(output);fields=['kind','id','title','department','owner','domain','criticality','status','date','path']
- writer.writerow(fields)
- for row in data['records']:
-  values=[]
-  for field in fields:
-   text='Check' if field=='kind' and row['kind']=='Control' else str(row.get(field,'') or '')
-   values.append("'"+text if text.lstrip().startswith(('=','+','-','@','\t','\r')) else text)
-  writer.writerow(values)
- return '\ufeff'+output.getvalue(),data['count']
+REPORT_DATES = {
+    'Instrument': 'Effective date',
+    'Obligation': 'Next review date',
+    'Action': 'Internal target date',
+    'Evidence': 'Period end date',
+    'Control': 'Next review date',
+}
+
+
+def export(db,report,metric,expected_hash):
+    d.fail(metric in report['metrics'],'Choose a report measure.')
+    data=report['metrics'][metric]
+    d.fail(expected_hash and data['population_hash']==expected_hash,'The record population changed. Refresh the dashboard before exporting.',409)
+    records=data['records']
+    names={
+        field: reference_values(db,column,(row[field] for row in records))
+        for field,column in (
+            ('department',m.organisational_unit.c.name),
+            ('owner',m.user.c.full_name),
+            ('domain',m.regulatory_domain.c.name),
+        )
+    }
+    headers=('Record type','Record reference','Revision','Title','Department','Owner','Regulatory domain',
+             'Criticality','Status','Date type','Date')
+    values=[
+        ('Check' if row['kind']=='Control' else row['kind'],row['code'],row.get('revision'),row['title'],
+         ref(names,'department',row['department']),ref(names,'owner',row['owner']),ref(names,'domain',row['domain']),
+         label(row['criticality']),label(row['status']),REPORT_DATES[row['kind']],row['date'])
+        for row in records
+    ]
+    return csv_bytes((metric,headers,values)),data['count']

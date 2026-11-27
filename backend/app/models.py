@@ -166,7 +166,7 @@ regulatory_clause = table("regulatory_clause", fk("instrument_version_id", "inst
     text("internal_interpretation", True), flag("mandatory_flag", "1"), flag("conditional_flag"),
     flag("reporting_flag"), flag("disclosure_flag"), flag("retention_flag"), *effective(),
     *enum("clause_status", "CURRENT", "AMENDED", "SUPERSEDED", "DELETED", default="CURRENT"),
-    string("source_page_reference", 50, True), string("source_clause_reference", 100, True),
+    string("source_page_reference", 1200, True), string("source_clause_reference", 100, True),
     *enum("interpretation_status", "PENDING", "REVIEWED", "APPROVED", default="PENDING"),
     *approval(), unique("instrument_version_id", "code"), unique("id", "instrument_version_id"),
     check("clause_level", "clause_level >= 0"), flag("heading_only_flag"),

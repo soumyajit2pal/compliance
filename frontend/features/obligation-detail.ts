@@ -18,7 +18,7 @@ const compactEmpty=(text)=>`<p class="obligation-empty-state">${esc(text)}</p>`;
 const fields=(entries)=>`<dl class="obligation-definition-list">${entries.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd>${value||'Not recorded'}</dd></div>`).join('')}</dl>`;
 const when = value => dateTime(value, 'Date not recorded');
 const revisionOf=(d,id)=>d.versions.find(v=>v.id===id)?.version_number;
-function editLink(d,section,label,css='small'){return link('obligations/'+d.obligation.id+'?edit=1&section='+section,label,'btn '+css);}
+function editLink(d,section,label,css='small'){return link('obligations/'+d.obligation.id+'?edit=1&section='+section,label,'btn '+css,'pen');}
 function viewLink(d,section,label=''){return link('obligations/'+d.obligation.id+'?tab='+(['evidence','requirement'].includes(section)?'overview':section),label||'View '+sectionNames[section],'btn small');}
 function nextStep(d,p,today){
   const o=d.obligation;
@@ -48,7 +48,9 @@ function nextStep(d,p,today){
 }
 function workflowActions(d,p){
   const o=d.obligation;
-  let result=p.canEdit?editLink(d,'source','Edit Draft')+(d.issues?.includes('UNAPPROVED_SOURCE')?'':button('obl-submit','Submit for review','','primary')):'';
+  const canSubmit = p.canEdit && !d.issues?.includes('UNAPPROVED_SOURCE');
+  let result = p.canEdit ? editLink(d, 'source', 'Edit Draft', canSubmit ? '' : 'primary') : '';
+  if (canSubmit) result += button('obl-submit', 'Submit for review', '', 'primary', 'arrow');
   if(p.ownerChangeTasks?.length)result+=workflowLink('obligations/'+o.id+'?tab=owners','View ownership request');
   if(p.canActivate)result+=button('obl-activate','Activate approved obligation',activationChecklistItems(d,p,localDate()).length?'disabled aria-describedby="obligation-readiness-title"':'','primary');
   for(const task of p.mine){
@@ -187,7 +189,7 @@ function history(d){
 }
 export function renderObligationDetail(d,p,query,returnPath='obligations'){
   const o=d.obligation,today=localDate(),status=statusLabel(o,p.stage,today),guidance=nextStep(d,p,today),tab=detailTab(query.get('tab'));
-  const recordActions=obligationExportButton(o.id)+(state.identity?.menu.some(i=>i.id==='control-mappings')?link('control-mappings?obligation='+o.id,'Checks and coverage','btn'):'')+(p.canRevise?button('obl-revise','Create revision'):'')+(p.canWithdraw?workflowButton('obl-decision','Withdraw to draft','WITHDRAW','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft'):'');
+  const recordActions=obligationExportButton(o.id)+(state.identity?.menu.some(i=>i.id==='control-mappings')?link('control-mappings?obligation='+o.id,'Checks and coverage','btn quiet','shield'):'')+(p.canRevise?button('obl-revise','Create revision','','primary','plus'):'')+(p.canWithdraw?workflowButton('obl-decision','Withdraw to draft','WITHDRAW','data-decision="WITHDRAW"'):'')+(p.canEdit?button('obl-cancel','Cancel Draft','','danger','x'):'');
   const contents=tab==='overview'?renderObligationOverview(d)+customDetails(d.obligation.custom_answers):tab==='owners'?owners(d,p):tab==='applicability'?applicability(d,p):tab==='sources'?sources(d,p):history(d);
   const checks=readiness(d,p),foldChecks=o.approval_status!=='APPROVED'&&checks;
   const checklist=foldChecks?`<details class="obligation-setup-checks"><summary>Setup and activation checks · ${activationChecklistItems(d,p,today).length} outstanding</summary>${checks}</details>`:checks;

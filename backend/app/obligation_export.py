@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment,Border,Font,PatternFill,Side
 from openpyxl.utils import get_column_letter
-from . import models as m,obligations as service,regulation_registers as registers
+from . import models as m,obligations as service,regulation_registers as registers,repository as repo
 from .access import REGULATORY_ROLES
 from .bank_time import IST, to_ist
 from .obligation_workspace import workspace_rows
@@ -37,11 +37,22 @@ def owner_response(row):
     return label(decision or 'NOT_STARTED')
 
 
+def reference_values(db,column,identifiers=None):
+    query=sa.select(column.table.c.id,column)
+    if identifiers is None:
+        return dict(db.execute(query).all())
+    identifiers=list(dict.fromkeys(value for value in identifiers if value))
+    result={}
+    for start in range(0,len(identifiers),900):
+        result.update(db.execute(query.where(column.table.c.id.in_(identifiers[start:start+900]))).all())
+    return result
+
+
 def lookups(db):
     result={}
     for key in ['organisational_unit','regulatory_domain','obligation_category','frequency','legal_entity','process','product','channel','customer_segment','geography','user']:
         table=getattr(m,key);column=table.c.full_name if key=='user' else table.c.name
-        result[key]={row['id']:row['name'] for row in db.execute(sa.select(table.c.id,column.label('name'))).mappings()}
+        result[key]=reference_values(db,column)
     result['obligation_nature'] = dict(db.execute(sa.select(m.obligation_nature.c.code,m.obligation_nature.c.name)).all())
     return result
 
@@ -259,13 +270,29 @@ def build(db,actor,view,format,query,identifier=None):
     mode='exceptions' if view=='register' and filters.get('tab')=='reports' else view
     metadata=[['View',mode.capitalize()],['Generated at (IST)',generated.isoformat(timespec='seconds')],['Obligation revisions',count],['Scope','Selected obligation revision' if identifier else 'All authorised matching records across all pages'],['Use','Reporting export; not an import template'],['Related records','Register Excel includes current recorded assignments/assessments and gaps. Pending ownership requests are not applied assignments.'],['Approvals','Owner acceptance, assignment approval and applicability approval remain separate.'],['End dates','Effective-to dates are exclusive.'],['Excel text','Text is stored as text. Unsupported XML control characters are replaced with the replacement symbol.']]
     lookup_filters={'domain':'regulatory_domain','department':'organisational_unit','owner':'user','legal_entity':'legal_entity'}
-    for key,value in sorted(filters.items()):
-        if key in lookup_filters:
-            value=ref(names,lookup_filters[key],value)
-        elif key=='exception':
-            value=label(value)
-        metadata.append(['Filter — '+key.replace('_',' '),value])
+    if format=='xlsx':
+        for key,value in sorted(filters.items()):
+            if key in lookup_filters:
+                value=ref(names,lookup_filters[key],value)
+            elif key in {'instrument','clause'}:
+                value=source_filter_reference(db,actor,key,value)
+            elif key=='exception':
+                value=label(value)
+            metadata.append(['Filter — '+key.replace('_',' '),value])
     metadata.extend(['Rows — '+name,len(rows)] for name,_,rows in datasets)
     metadata.append(['Excel layout','Grouped report sheets merge the six shared obligation fields and repeated departments within each revision. Every assessment/owner keeps a separate row with its own scope, decision, approval and dates. Use the unmerged data sheets for sorting and filtering.'])
     data=workbook_bytes(datasets,metadata,grouped=True) if format=='xlsx' else csv_bytes(datasets[0])
     return {'data':data,'filename':f'obligations-{mode}-{generated:%Y%m%d-%H%M%S}.{format}','count':count,'rows':{name:len(rows) for name,_,rows in datasets},'filters':filters}
+
+
+def source_filter_reference(db,actor,key,identifier):
+    try:
+        if key=='instrument':
+            return repo.read_instrument(db,actor,identifier)['code']
+        clause,edition,instrument=service.source(db,actor,identifier)
+        reference=clause.get('source_clause_reference') or clause['code']
+        return f"{instrument['code']} · {edition['version_number']} · {reference}"
+    except HTTPException as error:
+        if error.status_code not in {403,404,422}:
+            raise
+        return 'Unavailable reference'

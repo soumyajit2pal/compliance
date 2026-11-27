@@ -45,9 +45,28 @@ def inputs(rows):
             yield (sheet, number), raw, data, path
 
 
-def valid_path(path):
-    chapter, section, paragraph, subparagraph, item = path
-    return bool(chapter and (paragraph or not (subparagraph or item)))
+def path_errors(data, path):
+    errors = []
+    chapter, _, paragraph, subparagraph, item = path
+    if not chapter:
+        errors.append('Enter Chapter.')
+    if (subparagraph or item) and not paragraph:
+        errors.append('Enter Paragraph for a subparagraph or item.')
+    if item and not subparagraph:
+        errors.append('Enter Subparagraph for this Item. For a direct child such as 4(i), enter (i) in Subparagraph and leave Item blank.')
+    if any(data.get(key) and not re.fullmatch(r'(?:[\w.-]+|\([\w.-]+\))', data[key]) for key in PATH_KEYS[3:]):
+        errors.append('Enter just the Subparagraph and Item labels, for example (1) and (i).')
+    return errors
+
+
+def ancestors(path):
+    last = max((i for i, value in enumerate(path) if value), default=0)
+    return [path[:index + 1] + ('',) * (len(path) - index - 1)
+            for index in range(last) if path[index]]
+
+
+def branch_key(parent, reference, heading):
+    return parent, reference or None, None if reference else heading
 
 
 def expand(rows):
@@ -57,14 +76,11 @@ def expand(rows):
     generated = {}
     for _, _, data, path in entries:
         group = data.get('import_reference')
-        if not group or not valid_path(path):
+        if not group or path_errors(data, path):
             continue
-        for index, value in enumerate(path):
-            if not value:
-                continue
-            parent = path[:index + 1] + ('',) * (len(path) - index - 1)
+        for parent in ancestors(path):
             key = (group, parent)
-            if parent != path and key not in explicit and key not in generated:
+            if key not in explicit and key not in generated:
                 generated[key] = {'import_reference': group, **dict(zip(PATH_KEYS, parent))}
     return [*rows, *((GENERATED_SHEET, index, raw) for index, raw in enumerate(generated.values(), 1))]
 
@@ -82,11 +98,7 @@ def project(rows):
     projected = {}
     for location, raw, data, path in entries:
         group = data.get('import_reference')
-        errors = []
-        if not valid_path(path):
-            errors.append('Enter Chapter. Subparagraph and Item also require Paragraph.')
-        if any(data.get(key) and not re.fullmatch(r'(?:[\w.-]+|\([\w.-]+\))', data[key]) for key in PATH_KEYS[3:]):
-            errors.append('Enter just the Subparagraph and Item labels, for example (1) and (i).')
+        errors = path_errors(data, path)
         if any(isinstance(value, float) for key, value in raw.items() if canonical_header(key) in PATH_KEYS):
             errors.append('Enter hierarchy numbers as text to preserve values such as 5.10.')
         if data.get('parent_import_reference') or data.get('source_clause_reference'):
@@ -94,16 +106,15 @@ def project(rows):
         if (group, path) in duplicate_paths:
             errors.append('Multiple rows use this chapter, section, paragraph, subparagraph and item path.')
 
-        index = max((i for i, value in enumerate(path) if value), default=0)
-        ancestor = path[:index] + ('',) * (len(path) - index)
+        parents = ancestors(path)
         heading = heading_for(path)
         generated = location[0] == GENERATED_SHEET
-        if index == 4 and not data.get('heading'):
+        if path[4] and not data.get('heading'):
             errors.append('Enter a Clause heading for this item.')
         projected[location] = ({
             **data,
             'clause_import_reference': data.get('clause_import_reference') or key_for(group, path),
-            'parent_import_reference': references.get((group, ancestor), ''),
+            'parent_import_reference': references.get((group, parents[-1]), '') if parents else '',
             'source_clause_reference': source_number(path),
             'heading': data.get('heading') or heading,
         }, errors, generated)

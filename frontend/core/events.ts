@@ -3,6 +3,7 @@ import {downloadProtected} from './api.ts';
 import {selectedDelegationId} from './delegation-context.ts';
 import { state } from './state.ts';
 import { withoutPaging } from './pagination.ts';
+import { clauseFilterQuery } from './clause-scope.ts';
 import { dialog } from './dom.ts';
 import { render } from './router.ts';
 import { selectDemoUser, clearDemoSelection } from '../features/auth.ts';
@@ -123,15 +124,15 @@ export function installEvents({ actions, forms }) {
         query.delete('clause');
         location.hash = path + '?' + query;
       }
-      if (target.name === 'clause_workspace_edition') {
-        const next = new URLSearchParams({ instrument: target.dataset.instrumentId || 'all', edition: target.value });
-        if (new URLSearchParams(location.hash.split('?')[1]).get('view') === 'register') next.set('view', 'register');
-        location.hash = 'clauses?' + next;
-      }
-      if (target.name === 'clause_workspace_instrument') {
-        const previous = new URLSearchParams(location.hash.split('?')[1]);
-        const next = new URLSearchParams({ instrument: target.value, edition: target.value === 'all' ? 'all' : 'current' });
-        if (previous.get('view') === 'register') next.set('view', 'register');
+      if (target.name === 'clause_workspace_edition' || target.name === 'clause_workspace_instrument') {
+        const form = target.closest<HTMLFormElement>('#clause-filters');
+        const next = form ? clauseFilterQuery(form) : new URLSearchParams();
+        const instrumentChanged = target.name === 'clause_workspace_instrument';
+        const instrument = instrumentChanged ? target.value : target.dataset.instrumentId || 'all';
+        const edition = instrumentChanged ? (instrument === 'all' ? 'all' : 'current') : target.value;
+        next.set('instrument', instrument);
+        next.set('edition', edition);
+        if (next.get('search_type') === 'literal' && ['all', 'current'].includes(edition)) next.delete('search_type');
         location.hash = 'clauses?' + next;
       }
       if (target.name === 'global_scope_flag') {

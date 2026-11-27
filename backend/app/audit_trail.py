@@ -602,12 +602,12 @@ def install(app, get_db, current):
         if len(rows) > EXPORT_LIMIT:
             raise HTTPException(422, f'This export exceeds {EXPORT_LIMIT:,} entries. Narrow the dates or filters.')
         headers = ('When (IST)', 'Actor', 'On behalf of', 'Record type', 'Record code', 'Record title',
-                   'Record ID', 'Event', 'Recorded changes', 'Reason', 'Audit entry ID',
+                   'Event', 'Recorded changes', 'Reason',
                    'Event type', 'Outcome', 'HTTP status', 'Client IP', 'Request', 'Correlation ID',
                    'Role codes at the time', 'User agent', 'Duration (ms)')
         values = [(item['when'].astimezone(BANK_ZONE).isoformat(timespec='seconds'), item['actor'],
                    item['represented'], item['record_type'], item['record_code'], item['record_title'],
-                   item['record_id'], item['event'], change_lines(item), item['reason'], item['id'],
+                   item['event'], change_lines(item), item['reason'],
                    item['group'], item['outcome'], item['http_status'], item['client_ip'],
                    ' '.join(part for part in (item['request_method'], item['request_route']) if part),
                    item['request_id'], ', '.join(item['actor_roles']), item['user_agent'], item['duration_ms'])

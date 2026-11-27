@@ -49,27 +49,33 @@ FIELDS = [
 ]
 FAMILY_FIELDS = frozenset(field[0] for field in FIELDS[-3:])
 HIERARCHY_FIELDS = [
-    ('source_chapter', 'Chapter', False, 'Repeat the source chapter heading on each row in its branch.', 'Chapter I - Preliminary'),
+    ('source_chapter', 'Chapter', False, 'Enter and repeat the source chapter heading on each automatic hierarchy row.', 'Chapter I - Preliminary'),
     ('source_section', 'Section', False, 'Repeat the section heading if the source has one.', 'C. Definitions'),
     ('source_paragraph', 'Paragraph', False, 'Enter the source paragraph number as text, for example 4.', '4'),
-    ('source_subparagraph', 'Subparagraph', False, 'Enter the source subparagraph label as text, for example (1).', '(1)'),
-    ('source_item', 'Item', False, 'Enter the source item label as text, for example (i).', '(i)'),
+    ('source_subparagraph', 'Subparagraph', False, 'Enter the label as text. For 4(1)(i), enter (1). For a direct child 4(i), enter (i) here and leave Item blank.', '(1)'),
+    ('source_item', 'Item', False, 'Enter the item label as text, for example (i). Each Item needs its Subparagraph.', '(i)'),
 ]
 CLAUSE_FIELDS = [
     ('import_reference', 'Import reference', True, 'Match the Regulatory records row, for example REG-001.', 'REG-001'),
     *HIERARCHY_FIELDS,
     ('heading', 'Clause heading', True, 'Heading for this source clause / para.', 'Customer identification'),
-    ('source_page_reference', 'Source page reference', True, 'Identify the pages in the attached authoritative source.', 'Page 5'),
+    ('source_page_reference', 'Source page reference', True, 'Enter the PDF page or document location, such as Chapter I › C. Definitions › 4(1)(i).', 'Page 5'),
     ('clause_text', 'Original regulatory text', True, 'Copy the original wording. Excel cells support up to 32,767 characters; never truncate source wording.', 'Illustrative original wording; replace with actual source text.'),
     ('internal_interpretation', "Bank’s internal interpretation", False, 'Keep the bank interpretation separate from the original regulatory wording.', ''),
-    ('clause_import_reference', 'Clause import reference', False, 'Keep an existing row reference, or leave blank when using hierarchy columns. Required for explicit parent-link imports.', 'C1'),
+    ('clause_import_reference', 'Clause import reference', False, 'Use a unique row reference within this source edition. Automatic hierarchy can generate the reference when this cell is blank.', 'C1'),
     ('source_edition', 'Source edition', False, 'Leave blank to inherit the record edition, or enter the same edition as text. Cross-edition parents are not allowed.', '1.0'),
-    ('parent_import_reference', 'Parent clause reference', False, 'For explicit parent links, use a reference from this record and edition. Leave blank when using hierarchy columns.', ''),
-    ('source_clause_reference', 'Source clause / para number', False, 'For explicit parent links, copy numbering exactly as text, including 5.10. Leave blank when using hierarchy columns.', '5'),
+    ('parent_import_reference', 'Parent clause reference', False, 'For explicit placement, enter the parent’s Clause import reference from the same record and edition, or the code of an existing Draft parent. Leave blank for top-level clauses and automatic hierarchy.', ''),
+    ('source_clause_reference', 'Source clause / para number', False, 'For explicit placement, copy the printed number as text, including 5.10. Leave blank for an unnumbered provision or automatic hierarchy.', '5'),
     *[(key, label, False, 'Optional Yes or No. Blank means ' + default + '.', default)
       for key, label, default in [('mandatory_flag', 'Mandatory', 'Yes'), ('conditional_flag', 'Conditional', 'No'),
           ('reporting_flag', 'Reporting', 'No'), ('disclosure_flag', 'Disclosure', 'No'), ('retention_flag', 'Record retention', 'No')]],
 ]
+CLAUSE_GUIDE_CONDITIONS = {
+    'source_chapter': 'For automatic hierarchy',
+    'source_paragraph': 'With Subparagraph or Item',
+    'source_subparagraph': 'With Item',
+    'clause_import_reference': 'For explicit placement',
+}
 GUIDE_REFRESH_ROW = 15 + len(FIELDS) + len(CLAUSE_FIELDS)
 LABELS = {key: label for key, label, *_ in FIELDS}
 LABELS.update({key: label for key, label, *_ in CLAUSE_FIELDS})

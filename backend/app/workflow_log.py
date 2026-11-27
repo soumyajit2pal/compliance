@@ -251,11 +251,11 @@ def install(app, get_db, current):
         if len(rows) > retained.EXPORT_LIMIT:
             raise HTTPException(422, f'This export exceeds {retained.EXPORT_LIMIT:,} entries. Narrow the dates or filters.')
         headers = ('When (IST)', 'Actor', 'On behalf of', 'Record type', 'Reference', 'Record', 'Department',
-                   'Event', 'Decision', 'Stage', 'Next stage or result', 'Recorded changes', 'Reason', 'Event ID')
+                   'Event', 'Decision', 'Stage', 'Next stage or result', 'Recorded changes', 'Reason')
         values = [(item['when'].astimezone(retained.BANK_ZONE).isoformat(timespec='seconds'),
                    item['actor'], item['represented'], item['record_type'], item['record_code'],
                    item['record_title'], item['department'], item['event'], item['decision'], item['stage'],
-                   item['next_stage'], retained.change_lines(item), item['reason'], item['id']) for item in rows]
+                   item['next_stage'], retained.change_lines(item), item['reason']) for item in rows]
         audit(db, actor, 'workflow_report', 'log', 'EXPORTED', new={'count': len(rows)})
         return Response(csv_bytes(('Approval Workflow Log', headers, values)), media_type='text/csv', headers={
             **retained.NO_CACHE, 'Content-Disposition': 'attachment; filename="compliance-approval-workflow-log.csv"',

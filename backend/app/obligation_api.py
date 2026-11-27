@@ -1,5 +1,5 @@
 """Routes share the application's authentication, database transaction and paging."""
-import csv,io
+import json
 from collections import Counter
 from typing import Literal
 from fastapi import Depends,Query,Request,Response,HTTPException,UploadFile,File,Form
@@ -15,11 +15,7 @@ from .pagination import page_query,paginate
 from .table_filters import column_choices, column_query, fields, filter_rows, label
 from .events import audit
 from .access import actor_for,REGULATORY_ROLES
-
-
-def safe_cell(value):
-    text=str(value or '')
-    return "'"+text if text.lstrip().startswith(('=','+','-','@','\t','\r')) else text
+from .obligation_export import csv_bytes, label as export_label, reference_values
 
 
 ISSUE_LABELS = {
@@ -97,13 +93,19 @@ def install(app,get_db,current):
     @app.get('/api/obligations/report.csv')
     def report(request:Request,db=Depends(get_db),actor=Depends(current)):
         actor.require(REGULATORY_ROLES)
-        rows=service.listing(db,actor,dict(request.query_params));output=io.StringIO();writer=csv.writer(output)
-        fields=['code','version_number','title','instrument_code','clause_code','source_version','business_owner_unit_id','stage','record_status','criticality','content_validation_status','issues']
-        departments={r['id']:r['name'] for r in db.execute(sa.select(m.organisational_unit.c.id,m.organisational_unit.c.name)).mappings()}
-        writer.writerow([*fields,'business_owner_department'])
-        for row in rows:writer.writerow([*[safe_cell('; '.join(row[k]) if k=='issues' else row[k]) for k in fields],safe_cell(departments.get(row['business_owner_unit_id']))])
+        rows=service.listing(db,actor,dict(request.query_params))
+        departments=reference_values(db,m.organisational_unit.c.name,(row['business_owner_unit_id'] for row in rows))
+        headers=('Obligation reference','Revision','Obligation','Regulatory instrument','Clause reference','Source edition',
+                 'Accountable department','Workflow stage','Record status','Criticality','Content validation','Findings')
+        values=[
+            (row['code'],row['version_number'],row['title'],row['instrument_code'],row.get('source_clause_reference') or row['clause_code'],
+             row['source_version'],departments.get(row['business_owner_unit_id']),export_label(row['stage']),export_label(row['record_status']),
+             export_label(row['criticality']),export_label(row['content_validation_status']),
+             '; '.join(ISSUE_LABELS.get(issue,export_label(issue)) for issue in row['issues']))
+            for row in rows
+        ]
         audit(db,actor,'obligation_report','register','EXPORTED',new={'count':len(rows),'filters':dict(request.query_params)})
-        return Response('\ufeff'+output.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="obligation-exceptions.csv"'})
+        return Response(csv_bytes(('Obligation exceptions',headers,values)),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="obligation-exceptions.csv"'})
 
     @app.get('/api/obligations/export')
     def export(request:Request,format:Literal['xlsx','csv']='xlsx',view:Literal['register','applicability','accountability']='register',obligation_id:str|None=Query(None,max_length=36),db=Depends(get_db),actor=Depends(current)):
@@ -204,10 +206,14 @@ def install(app,get_db,current):
 
     @app.get('/api/obligation-imports/{identifier}/report.csv')
     def reconciliation(identifier:str,db=Depends(get_db),actor=Depends(current)):
-        data=imports.preview(db,actor,identifier);output=io.StringIO();writer=csv.writer(output)
-        import json
+        data=imports.preview(db,actor,identifier)
         source_system=json.loads(data['batch']['reconciliation_notes'])['source_system']
-        writer.writerow(['Source file','Source system','Sheet','Row','Import reference','Legacy reference','Status','Findings','Obligation code','Target obligation ID'])
-        for row in data['rows']:writer.writerow([safe_cell(v) for v in [data['batch']['source_file'],source_system,row['sheet_name'],row['row_number'],row['profile']['reference'],row['profile'].get('legacy_reference'),row['validation_status'],'; '.join(row['profile'].get('errors',[])),row['profile'].get('target_code'),row['target_entity_id']]])
+        headers=('Source file','Source system','Sheet','Row','Import reference','Legacy reference','Status','Findings','Obligation reference')
+        values=[
+            (data['batch']['source_file'],source_system,row['sheet_name'],row['row_number'],row['profile']['reference'],
+             row['profile'].get('legacy_reference'),export_label(row['validation_status']),
+             '; '.join(row['profile'].get('errors',[])),row['profile'].get('target_code'))
+            for row in data['rows']
+        ]
         audit(db,actor,'obligation_import',identifier,'RECONCILIATION_EXPORTED')
-        return Response('\ufeff'+output.getvalue(),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="obligation-import-reconciliation.csv"'})
+        return Response(csv_bytes(('Import reconciliation',headers,values)),media_type='text/csv',headers={'Content-Disposition':'attachment; filename="obligation-import-reconciliation.csv"'})

@@ -12,6 +12,7 @@ from .schemas import InstrumentInput,ClauseInput
 from .access import actor_for
 from .import_template import canonical_header,import_date,LABELS,RECORDS_SHEET,CLAUSES_SHEET,GUIDANCE_SHEETS,GUIDE_TITLE
 from .import_choices import current_master,materiality_code
+from .obligation_export import csv_bytes, label, reference_values
 
 MAX_ROWS=10000
 
@@ -239,6 +240,77 @@ def batch_detail(db,actor,identifier):
     if combined:
         result.update(combined_import.preview(batch,rows))
     return result
+
+
+def profiling_csv(db,data):
+    rows=data['rows']
+    profiles=[row['profile'] for row in rows]
+    mapped=[profile.get('normalised') or {} for profile in profiles]
+    master_fields=(
+        ('regulator_id','Regulator',m.regulator.c.name),
+        ('instrument_type_id','Instrument type',m.instrument_type.c.name),
+        ('primary_domain_id','Primary domain',m.regulatory_domain.c.name),
+        ('regulatory_owner_unit_id','Regulatory department',m.organisational_unit.c.name),
+        ('interpretation_owner_user_id','Interpretation owner',m.user.c.full_name),
+        ('confidentiality_class_id','Confidentiality',m.confidentiality_class.c.name),
+    )
+    names={key:reference_values(db,column,(value.get(key) for value in mapped))
+           for key,_,column in master_fields}
+    secondary_domains=reference_values(db,m.regulatory_domain.c.name,
+        (identifier for value in mapped for identifier in value.get('secondary_domain_ids',[])))
+    version_ids=[profile.get('target_version_id') or (value.get('version_id') if row['target_entity_id'] else None)
+                 for row,profile,value in zip(rows,profiles,mapped)]
+    edition_instruments=reference_values(db,m.instrument_version.c.instrument_id,version_ids)
+    instrument_ids=[
+        row['target_entity_id'] if row['target_entity_type']=='instrument'
+        else profile.get('target_instrument_id') or edition_instruments.get(version_id)
+        for row,profile,version_id in zip(rows,profiles,version_ids)
+    ]
+    instrument_codes=reference_values(db,m.regulatory_instrument.c.code,instrument_ids)
+    clause_ids=[row['target_entity_id'] for row in rows if row['target_entity_type']=='clause']
+    clauses=reference_values(db,m.regulatory_clause.c.code,clause_ids)
+    headings=reference_values(db,m.regulatory_clause.c.heading_only_flag,clause_ids)
+    heading_titles=reference_values(db,m.regulatory_clause.c.heading,(key for key,value in headings.items() if value))
+    editions=reference_values(db,m.instrument_version.c.version_number,version_ids)
+    documents=reference_values(db,m.document.c.file_name,(profile.get('loaded_source_document_id') for profile in profiles))
+    proposals=reference_values(db,m.notification_link.c.approval_status,
+        ((profile.get('family_proposal') or {}).get('id') for profile in profiles))
+    mapped_fields=(
+        ('short_title','Short title'),('issue_date','Issue date'),('effective_date','Effective date'),
+        ('applicability_date','Applicability date'),('materiality','Materiality'),('keywords','Keywords'),
+        ('source_clause_reference','Source clause / para number'),('source_page_reference','Source page reference'),
+        ('clause_text','Original regulatory text'),('internal_interpretation','Bank interpretation'),
+    )
+    headers=('Source file','Sheet','Row','Source system','Readiness','Findings','Imported title or heading',
+             *(heading for _,heading,_ in master_fields),'Additional affected domains','Official reference number',
+             *(heading for _,heading in mapped_fields),
+             'Target type','Target instrument reference','Target clause reference or heading','Import reference',
+             'Existing register reference','Source edition','Clause import reference','Parent clause reference',
+             'Loaded source document','Parent notification','Relationship','Relationship effective date','Relationship proposal status')
+    values=[]
+    for row,profile,value,instrument,version_id in zip(rows,profiles,mapped,instrument_ids,version_ids):
+        family=profile.get('family_link') or {}
+        source=row['source']
+        target=row['target_entity_id']
+        clause=target if row['target_entity_type']=='clause' else None
+        proposal=(profile.get('family_proposal') or {}).get('id')
+        values.append((
+            data['batch']['source_file'],row['sheet_name'],row['row_number'],row['source_system'],
+            label(row['validation_status']),'; '.join(profile.get('errors',[])),
+            value.get('title') or value.get('heading') or source.get('title') or source.get('heading'),
+            *(names[key].get(value.get(key)) for key,_,_ in master_fields),
+            '; '.join(secondary_domains[key] for key in value.get('secondary_domain_ids',[]) if key in secondary_domains),
+            value.get('official_reference_number') or source.get('official_reference_number'),
+            *(value.get(key) for key,_ in mapped_fields),
+            label(row['target_entity_type'] or profile.get('entity_type')),instrument_codes.get(instrument),
+            heading_titles.get(clause) if headings.get(clause) else clauses.get(clause),
+            profile.get('group_reference'),row['legacy_id'],
+            editions.get(version_id) or profile.get('edition_number'),
+            profile.get('clause_reference'),profile.get('parent_reference'),documents.get(profile.get('loaded_source_document_id')),
+            family.get('parent_reference'),label(family.get('relationship_type')),family.get('effective_from'),label(proposals.get(proposal)),
+        ))
+    return csv_bytes(('Regulatory import profiling',headers,values))
+
 
 def validate_content(db,actor,identifier,storage=None):
     require_migration(actor,{'REVIEWER'});batch=repo.one(db,m.migration_batch,identifier,lock=True)

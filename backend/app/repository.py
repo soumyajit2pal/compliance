@@ -4,9 +4,10 @@ import hashlib,json,re
 import sqlalchemy as sa
 from fastapi import HTTPException
 from .bank_time import today as bank_today, to_ist
-from . import models as m,business_ids
+from . import models as m,business_ids,import_hierarchy
 from .access import READ_ROLES,REGULATORY_ROLES,actor_for,can_read_instrument
 from .events import now,new_id,audit,history,notify,record_audit
+from .schemas import ClauseInput
 
 PENDING_VERSION_STATUSES=('DRAFT','IN_REVIEW','REVIEWED')
 
@@ -256,6 +257,96 @@ def edit_version(db,actor,identifier,payload):
     return {'id':identifier,'instrument_id':instrument['id'],'status':'DRAFT',
         'message':'Draft source edition saved. Existing clauses are retained; recheck them against the source before submitting for independent review.'}
 
+def create_clause(db, actor, version_id, payload):
+    values = payload.model_dump(exclude={'source_hierarchy', 'item_label'})
+    fields = payload.source_hierarchy.model_dump() if payload.source_hierarchy else {}
+    has_hierarchy = any(fields.values())
+    if not has_hierarchy and payload.item_label is None:
+        return add_clause(db, actor, version_id, ClauseInput(**values))
+
+    version, instrument = read_version(db, actor, version_id, lock=True)
+    actor.require({'AUTHOR'}, instrument['regulatory_owner_unit_id'])
+    if version['approval_status'] != 'DRAFT' or version['created_by'] != actor.id:
+        raise HTTPException(409, 'Clauses / Para can only be edited by the maker while the version is Draft.')
+    if payload.item_label is not None:
+        if has_hierarchy or payload.source_clause_reference:
+            raise HTTPException(422, 'Use the selected parent and Item label to generate the source clause / para number.')
+        if not payload.heading:
+            raise HTTPException(422, 'Enter a Clause heading for this item.')
+        values['source_clause_reference'] = child_clause_reference(
+            db, version_id, payload.parent_clause_id, payload.item_label)
+        return add_clause(db, actor, version_id, ClauseInput(**values))
+    if payload.parent_clause_id or payload.source_clause_reference:
+        raise HTTPException(422, 'Leave Parent clause and Source clause / para number blank when using the source hierarchy.')
+    if payload.heading_only_flag or payload.code or payload.sequence_number is not None:
+        raise HTTPException(422, 'The portal assigns clause references and creates the parent headings automatically.')
+
+    path = import_hierarchy.path_for(fields)
+    errors = import_hierarchy.path_errors(fields, path)
+    if errors:
+        raise HTTPException(422, ' '.join(errors))
+    reference = import_hierarchy.source_number(path) or None
+    if reference and len(reference) > 100:
+        raise HTTPException(422, 'The combined source clause / para number must fit within 100 characters.')
+    heading = (payload.heading if reference else None) or import_hierarchy.heading_for(path)
+    if not heading:
+        raise HTTPException(422, 'Enter a Clause heading for this item.')
+
+    c = m.regulatory_clause.c
+    candidates = {}
+    for row in db.execute(sa.select(c.id, c.parent_clause_id, c.source_clause_reference, c.heading, c.heading_only_flag)
+                          .where(c.instrument_version_id == version_id)).mappings():
+        key = import_hierarchy.branch_key(row['parent_clause_id'], row['source_clause_reference'], row['heading'])
+        candidates.setdefault(key, []).append(row)
+
+    parent_id = None
+    for branch in import_hierarchy.ancestors(path):
+        parent_ref = import_hierarchy.source_number(branch) or None
+        parent_heading = import_hierarchy.heading_for(branch)
+        matches = candidates.get(import_hierarchy.branch_key(parent_id, parent_ref, parent_heading), [])
+        if len(matches) > 1:
+            raise HTTPException(409, 'Multiple existing clauses match this parent. Choose the parent explicitly.')
+        if matches:
+            parent_id = matches[0]['id']
+        else:
+            parent = ClauseInput(heading=parent_heading, clause_text=parent_ref or parent_heading,
+                                 parent_clause_id=parent_id, source_clause_reference=parent_ref,
+                                 heading_only_flag=True, mandatory_flag=False)
+            parent_id = add_clause(db, actor, version_id, parent, generated_heading=True)['id']
+
+    matches = candidates.get(import_hierarchy.branch_key(parent_id, reference, heading), [])
+    if matches:
+        if all(row['heading_only_flag'] for row in matches):
+            raise HTTPException(409, 'This location already exists as a document heading. Check the source path before adding wording.')
+        raise HTTPException(409, 'This source path already has a clause. Open it in Clauses / Para to edit the wording.')
+    values.update(heading=heading, source_clause_reference=reference, parent_clause_id=parent_id)
+    return add_clause(db, actor, version_id, ClauseInput(**values))
+
+
+def child_clause_reference(db, version_id, parent_id, label):
+    if not re.fullmatch(r'(?:\([\w-]+(?:\.[\w-]+)*\)|\.?[\w-]+(?:\.[\w-]+)*)', label):
+        raise HTTPException(422, 'Enter a single Item label, such as (i) or .1.')
+    clause = m.regulatory_clause.c
+    parent = db.execute(sa.select(clause.source_clause_reference).where(
+        clause.id == parent_id, clause.instrument_version_id == version_id,
+        clause.approval_status == 'DRAFT', clause.clause_status != 'DELETED')).first()
+    if parent is None:
+        raise HTTPException(422, 'Choose a parent from this Draft source edition.')
+    parent_reference = (parent.source_clause_reference or '').strip()
+    suffix = label if label.startswith(('(', '.')) else f'({label})'
+    reference = parent_reference + suffix if parent_reference else label
+    if len(reference) > 100:
+        raise HTTPException(422, 'Source clause / para number must fit within 100 characters.')
+    # The caller holds the Draft edition lock through the duplicate check and insert.
+    duplicate = db.execute(sa.select(clause.id).where(
+        clause.instrument_version_id == version_id, clause.parent_clause_id == parent_id,
+        sa.func.lower(clause.source_clause_reference) == reference.lower(),
+        clause.clause_status != 'DELETED')).first()
+    if duplicate:
+        raise HTTPException(409, 'This parent already has a child with that source clause / para number. Open it in the tree to edit it.')
+    return reference
+
+
 def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False,generated_heading=False):
     version,instrument=read_version(db,actor,version_id,lock=True);actor.require({'AUTHOR'},instrument['regulatory_owner_unit_id'])
     if version['approval_status']!='DRAFT' or version['created_by']!=actor.id:
@@ -263,7 +354,7 @@ def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False,gener
     values=payload.model_dump();level=1
     if values['heading_only_flag']:
         if not clause_id and not generated_heading:
-            raise HTTPException(422,'Create document headings with the hierarchy columns in the regulatory import.')
+            raise HTTPException(422,'Enter a source hierarchy to create document headings automatically.')
         if not values['heading'] or values['internal_interpretation'] or any(values[key] for key in (
                 'mandatory_flag', 'conditional_flag', 'reporting_flag', 'disclosure_flag', 'retention_flag')):
             raise HTTPException(422,'A document heading needs a title and carries no interpretation or requirement flags.')
@@ -305,7 +396,9 @@ def add_clause(db,actor,version_id,payload,clause_id=None,*,imported=False,gener
                 m.regulatory_clause.c.parent_clause_id==values['parent_clause_id'])
             values['sequence_number']=(db.execute(siblings).scalar_one() or 0)+1
         legacy_code=values.get('code')
-        values['code']=business_ids.clause(db,instrument['code']);identifier=new_id()
+        identifier=new_id()
+        # The storage column stays populated without allocating a clause code for a heading.
+        values['code']=identifier if values['heading_only_flag'] else business_ids.clause(db,instrument['code'])
         db.execute(m.regulatory_clause.insert().values(id=identifier,instrument_version_id=version_id,clause_level=level,
             effective_from=version['effective_from'],created_by=actor.id,**values))
         if imported:business_ids.retain_alias(db,'clause',identifier,legacy_code,values['code'])

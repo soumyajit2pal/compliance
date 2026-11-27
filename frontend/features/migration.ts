@@ -44,7 +44,7 @@ function reviewGuide(data, filtered) {
     return panel('Independent content review',
       `<ol class="import-review-steps" role="list">
         <li><strong>Open the authoritative source</strong><span>Download the attached source below or open the official document used for the workbook.</span></li>
-        <li><strong>Compare the imported rows</strong><span>Check titles, references, dates and any proposed notification relationship. For clauses, check the original wording, source location and parent clause.</span></li>
+        <li><strong>Compare the imported rows</strong><span>Check titles, references, dates and any proposed notification relationship. For clauses, check the original wording, the Source page reference and the parent clause.</span></li>
         <li><strong>Confirm the review</strong><span>After reviewing all eligible rows, confirm the batch. The uploading Author will get a task and notification to load the validated rows as Drafts.</span></li>
       </ol>
       ${note(`If any eligible row disagrees with the source, ask ${esc(data.uploader_name || 'the uploader')} for a corrected workbook before confirming.`, 'warn')}
@@ -106,8 +106,8 @@ export async function migrationPage(id, query = new URLSearchParams()) {
       'Import existing regulatory records',
       'Import regulatory records, clauses and source documents together. Preview and validate before loading Drafts.',
       has('AUTHOR')
-        ? button('source', 'Upload source document') +
-            button('stage', 'Import records & clauses', '', 'primary')
+        ? button('stage', 'Import records & clauses', '', 'primary', 'upload') +
+            button('source', 'Upload source document', '', '', 'file')
         : '',
     ) +
     `<div class="kpi-grid">${kpi('Source rows', sum('source_count'), 'Records and clauses', 'file')}${kpi('Loaded rows', sum('loaded_count'), 'Draft targets linked', 'check')}${kpi('Pending rows', sum('pending_count'), 'Review or correction needed', 'clock')}${kpi('Source batches', result.summary?.batches ?? batches.length, 'Preserved source snapshots', 'layers')}</div>` +
@@ -126,7 +126,7 @@ export async function migrationPage(id, query = new URLSearchParams()) {
         {pageKey: 'batches', pagination: result.pagination, columnOptionsUrl},
       ),
       'Source batches',
-      `<div><div class="actions"><a class="btn small" href="${excelTemplate}" download>${icon('download')}Download Excel template</a><a class="btn small" href="${csvTemplate}" download>CSV template</a></div><p>Excel choices refresh on every download.</p></div>`,
+      `<div><div class="actions"><a class="btn small" href="${excelTemplate}" download>${icon('download')}Download Excel template</a><a class="btn small quiet" href="${csvTemplate}" download>CSV template</a></div><p>Excel choices refresh on every download.</p></div>`,
     ) +
     `<div class="mt16">${note(esc(importGuidance) + ' Complete linked groups require independent content validation and normal source approval.')}</div>`
   );

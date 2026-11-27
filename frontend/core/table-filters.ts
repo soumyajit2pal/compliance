@@ -2,11 +2,11 @@ export type ColumnFilter = { value: string } | { values: string[] };
 export type ColumnFilters = Record<string, ColumnFilter>;
 export interface ColumnChoice { value: string; label: string; }
 
-export function tableColumns(headers: string[]) {
+export function tableColumns(headers: string[], keys: Array<string | null> = []) {
   const used = new Set<string>();
   return headers.map((header, index) => {
     const label = header.trim() || 'Actions';
-    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'column';
+    const base = keys[index] || label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'column';
     let key = base;
     while (used.has(key)) key += '_' + (index + 1);
     used.add(key);

@@ -12,8 +12,8 @@
 }
 
 .help-search-box {
-  margin-bottom: 18px;
-  padding: clamp(16px, 2.4vw, 28px);
+  margin-bottom: var(--section-gap);
+  padding: 14px var(--panel-padding);
   background: var(--soft);
 }
 .help-search-box h2,
@@ -39,7 +39,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: var(--section-gap);
 }
 .help-shortcuts a {
   display: grid;

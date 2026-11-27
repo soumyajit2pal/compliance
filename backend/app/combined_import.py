@@ -80,7 +80,7 @@ def reuse_existing_headings(clauses, existing, parent_refs):
     candidates = defaultdict(list)
     for row in existing:
         reference = row['source_clause_reference']
-        candidates[(row['parent_clause_id'], reference, None if reference else row['heading'])].append(row)
+        candidates[import_hierarchy.branch_key(row['parent_clause_id'], reference, row['heading'])].append(row)
     resolved = {ref: row['id'] for ref, row in parent_refs.items()}
     for row in sorted(clauses, key=lambda item: item.get('load_order', len(clauses))):
         parent = row['parent_reference']
@@ -88,7 +88,7 @@ def reuse_existing_headings(clauses, existing, parent_refs):
             continue
         values = row['normalised']
         reference = values['source_clause_reference']
-        matches = candidates[(resolved.get(parent), reference, None if reference else values['heading'])]
+        matches = candidates[import_hierarchy.branch_key(resolved.get(parent), reference, values['heading'])]
         if matches and not row.get('generated_heading'):
             row['errors'].append('This hierarchy path already contains a clause in the Draft. Edit the existing clause or import a different path.')
         elif len(matches) > 1:

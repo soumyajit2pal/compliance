@@ -4,7 +4,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 16px 24px;
-  margin-bottom: 24px;
+  margin-bottom: var(--section-gap);
 }
 
 .rbi-workflow-header h1 {

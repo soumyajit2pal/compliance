@@ -1,7 +1,18 @@
 from datetime import date,datetime
-from pydantic import BaseModel,Field,ConfigDict,field_validator,model_validator,StringConstraints
+from pydantic import AfterValidator,BaseModel,Field,ConfigDict,field_validator,model_validator,StringConstraints
 import re
 from typing import Literal,Annotated
+
+
+def source_location_size(value: str) -> str:
+    if len(value.encode('utf-8')) > 4000:
+        raise ValueError('Source page reference must fit within 4,000 UTF-8 bytes.')
+    return value
+
+
+SourceLocation = Annotated[str, StringConstraints(max_length=1200), AfterValidator(source_location_size)]
+
+
 class Input(BaseModel):
     model_config=ConfigDict(extra='forbid',str_strip_whitespace=True)
 class Login(Input):
@@ -50,7 +61,7 @@ class ClauseInput(Input):
     internal_interpretation:Annotated[str,StringConstraints(strip_whitespace=False)]|None=Field(default=None,max_length=50000)
     parent_clause_id:str|None=None
     sequence_number:float|None=Field(default=None,ge=0,le=1000000)
-    source_page_reference:str|None=Field(default=None,max_length=50)
+    source_page_reference:SourceLocation|None=None
     source_clause_reference:str|None=Field(default=None,max_length=100)
     mandatory_flag:bool=True
     conditional_flag:bool=False
@@ -67,6 +78,19 @@ class ClauseInput(Input):
     @classmethod
     def optional_interpretation(cls,value):
         return value if value and value.strip() else None
+class ClauseHierarchyInput(Input):
+    source_chapter:str=Field(default='',max_length=500)
+    source_section:str=Field(default='',max_length=500)
+    source_paragraph:str=Field(default='',max_length=100)
+    source_subparagraph:str=Field(default='',max_length=100)
+    source_item:str=Field(default='',max_length=100)
+
+
+class ClauseCreateInput(ClauseInput):
+    source_hierarchy:ClauseHierarchyInput|None=None
+    item_label:str|None=Field(default=None,min_length=1,max_length=100)
+
+
 class Submit(Input):
     reviewer_id:str
     approver_id:str
@@ -102,7 +126,7 @@ class CarryEntry(Input):
     heading:str=Field(min_length=1,max_length=500)
     clause_text:str=Field(min_length=1,max_length=50000)
     source_clause_reference:str|None=Field(default=None,max_length=100)
-    source_page_reference:str=Field(min_length=1,max_length=50)
+    source_page_reference:SourceLocation=Field(min_length=1)
 class CarryClauseInput(Input):
     source_clause_id:str
     entries:list[CarryEntry]=Field(min_length=1,max_length=100)

@@ -7,16 +7,18 @@ import { AppliedColumnFilters, rememberColumnChoices } from './applied-column-fi
 
 interface Props {
   pageKey: string; initial: PageInfo; server: boolean; revision: string; label: string; summary: boolean;
+  paginationTop?: boolean;
   columnOptionsUrl?: string;
   columns?: Array<{key: string; label: string}>; cells?: string[][]; cursors?: PageCursors;
   items: ReactNode[]; empty: ReactNode[]; renderItems: (items: ReactNode[], headings?: ReactNode[]) => ReactNode;
 }
+type PagerPosition = 'top' | 'bottom';
 const logCount = new Intl.NumberFormat('en-IN');
 const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] || '');
 
-export function PaginatedCollection({pageKey, initial, server, revision, label, summary, items, empty, renderItems, columns, cells, cursors, columnOptionsUrl}: Props) {
+export function PaginatedCollection({pageKey, initial, server, revision, label, summary, paginationTop, items, empty, renderItems, columns, cells, cursors, columnOptionsUrl}: Props) {
   const element = useRef<HTMLDivElement>(null), sizeId = useId();
-  const focusRequested = useRef(false);
+  const focusRequested = useRef<PagerPosition | null>(null);
   const previousRevision = useRef(revision);
   const [choice, setChoice] = useState(initial), [pending, setPending] = useState(false);
   const [filters, setFilters] = useState(() => columns ? readColumnFilters(hashQuery(), pageKey) : {});
@@ -92,14 +94,18 @@ export function PaginatedCollection({pageKey, initial, server, revision, label, 
     applyFilters(next);
   };
   useLayoutEffect(() => {
-    if (pending || !focusRequested.current) return;
-    if (!element.current?.contains(document.activeElement)) element.current?.querySelector<HTMLElement>('.pagination-range')?.focus();
-    focusRequested.current = false;
+    const position = focusRequested.current;
+    if (pending || !position) return;
+    if (!element.current?.contains(document.activeElement)) {
+      const pager = element.current?.querySelector(`[data-pagination-position="${position}"]`);
+      pager?.querySelector<HTMLElement>('.pagination-range')?.focus();
+    }
+    focusRequested.current = null;
   }, [choice, pending, revision]);
-  const navigate = (page: number, size = info.page_size) => {
+  const navigate = (page: number, size: number, position: PagerPosition) => {
     if (pending) return;
     const next = pageInfo(info.total, page, size), url = urlFor(next.page, next.page_size);
-    focusRequested.current = true;
+    focusRequested.current = position;
     if (element.current?.closest('dialog')) { setChoice(next); return; }
     if (server) {
       if (url !== location.hash) { setPending(true); location.hash = url.slice(1); }
@@ -108,12 +114,12 @@ export function PaginatedCollection({pageKey, initial, server, revision, label, 
     // Local lists page without refetching or replacing the rest of the workspace.
     history.pushState(null, '', url); setChoice(next);
   };
-  const control = (page: number, text: string, aria: string, disabled: boolean, current = false) =>
+  const control = (position: PagerPosition, page: number, text: string, aria: string, disabled: boolean, current = false) =>
     disabled || current ? <button key={aria} type="button" disabled aria-label={aria} aria-current={current ? 'page' : undefined} className={current ? 'active' : ''}>{text}</button> :
       <a key={aria} href={pagePath(location.hash, pageKey, page, info.page_size)} aria-label={aria} className={aria === 'Next page' ? 'pagination-next' : undefined}
         onClick={(event: MouseEvent<HTMLAnchorElement>) => {
           if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
-          event.preventDefault(); navigate(page);
+          event.preventDefault(); navigate(page, info.page_size, position);
         }}>{text}</a>;
   const cursorControl = (direction: 'newer' | 'older', text: string) => {
     const cursor = cursors?.[direction];
@@ -132,6 +138,36 @@ export function PaginatedCollection({pageKey, initial, server, revision, label, 
       popupId={popupId} disabled={pending} open={anchor => setOpenFilter(current => current?.key === key ? null : {key, anchor})} />
   </span>);
 
+  const showPagination = columns || summary || info.total > info.page_size;
+  const showTop = showPagination && paginationTop && info.total > 0;
+  const renderPagination = (position: PagerPosition) => {
+    const fieldId = position === 'top' ? sizeId + '-top' : sizeId;
+    const navigationLabel = `Pagination for ${label}${showTop ? ` (${position})` : ''}`;
+    const announce = position === 'top' || !showTop;
+    return <div className="table-summary shared-pagination" data-pagination-position={position}
+      role={showTop ? 'group' : undefined} aria-label={showTop ? navigationLabel : undefined}>
+      <span className="pagination-range" tabIndex={-1} role={announce ? 'status' : undefined}
+        aria-live={announce ? 'polite' : undefined} aria-atomic={announce || undefined}>{cursors
+        ? cursors.total != null && cursors.end != null
+          ? `Showing ${logCount.format(cursors.end)} of ${logCount.format(cursors.total)} ${cursors.total === 1 ? 'entry' : 'entries'}`
+          : (items.length ? `Showing ${items.length} ${items.length === 1 ? 'entry' : 'entries'}` : '0 entries')
+        : info.total ? `Showing ${info.start}–${info.end} of ${info.total} ${label}` : `0 ${label}`}</span>
+      {(columns || info.total > 0) && <div className="pagination-size"><label htmlFor={fieldId}>Per page</label><SearchableSelectField data-choice-key="page_size" id={fieldId} aria-label={'Items per page for ' + label} value={info.page_size}
+        disabled={pending} onChange={event => navigate(1, Number(event.target.value), position)}>{PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}</SearchableSelectField></div>}
+      {cursors ? <nav className="pagination" aria-label={navigationLabel}>
+        {(hashQuery().has('older') || hashQuery().has('newer')) && <a href={urlFor(1, info.page_size)}>Newest entries</a>}
+        {cursorControl('newer', 'Previous')}
+        {cursorControl('older', 'Next')}
+      </nav> : info.total_pages > 1 && <nav className="pagination" aria-label={navigationLabel}>
+        {control(position, 1, '«', 'First page', pending || info.page <= 1)}
+        {control(position, info.page - 1, 'Previous', 'Previous page', pending || info.page <= 1)}
+        {pageNumbers(info.page, info.total_pages).map((number, i) => number === 'ellipsis' ? <span className="pagination-ellipsis" key={'gap' + i} aria-hidden="true">…</span> : control(position, number, String(number), 'Page ' + number, pending, number === info.page))}
+        {control(position, info.page + 1, 'Next', 'Next page', pending || info.page >= info.total_pages)}
+        {control(position, info.total_pages, '»', 'Last page', pending || info.page >= info.total_pages)}
+      </nav>}
+    </div>;
+  };
+
   return <div className="paged-collection" data-pagination-key={pageKey} data-pagination-total={cursors ? cursors.total : info.total} data-pagination-page={cursors ? undefined : info.page} ref={element} aria-busy={pending || undefined}>
     {active.length > 0 && <AppliedColumnFilters pageKey={pageKey} columns={columns} filters={filters} cells={cells}
       requestUrl={columnOptionsUrl} disabled={pending} clearAll={() => {
@@ -146,6 +182,7 @@ export function PaginatedCollection({pageKey, initial, server, revision, label, 
         const index = columns.findIndex(({key}) => key === column);
         element.current?.querySelectorAll<HTMLButtonElement>('.column-filter-trigger')[index]?.focus({preventScroll: true});
       }} />}
+    {showTop && renderPagination('top')}
     {renderItems(visible, headings)}
     {selectedColumn && <ColumnFilterPopup key={selectedColumn.key} id={popupId} label={selectedColumn.label}
       anchor={openFilter.anchor} filter={filters[selectedColumn.key]} options={options}
@@ -155,25 +192,6 @@ export function PaginatedCollection({pageKey, initial, server, revision, label, 
         openFilter.anchor.focus({preventScroll: true});
         applyColumnFilter(selectedColumn.key, values, selectedChoices);
       }} />}
-    {(columns || summary || info.total > info.page_size) && <div className="table-summary shared-pagination">
-      <span className="pagination-range" tabIndex={-1} role="status" aria-live="polite" aria-atomic="true">{cursors
-        ? cursors.total != null && cursors.end != null
-          ? `Showing ${logCount.format(cursors.end)} of ${logCount.format(cursors.total)} ${cursors.total === 1 ? 'entry' : 'entries'}`
-          : (items.length ? `Showing ${items.length} ${items.length === 1 ? 'entry' : 'entries'}` : '0 entries')
-        : info.total ? `Showing ${info.start}–${info.end} of ${info.total} ${label}` : `0 ${label}`}</span>
-      {(columns || info.total > 0) && <div className="pagination-size"><label htmlFor={sizeId}>Per page</label><SearchableSelectField data-choice-key="page_size" id={sizeId} aria-label={'Items per page for ' + label} value={info.page_size}
-        disabled={pending} onChange={event => navigate(1, Number(event.target.value))}>{PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}</SearchableSelectField></div>}
-      {cursors ? <nav className="pagination" aria-label={'Pagination for ' + label}>
-        {(hashQuery().has('older') || hashQuery().has('newer')) && <a href={urlFor(1, info.page_size)}>Newest entries</a>}
-        {cursorControl('newer', 'Previous')}
-        {cursorControl('older', 'Next')}
-      </nav> : info.total_pages > 1 && <nav className="pagination" aria-label={'Pagination for ' + label}>
-        {control(1, '«', 'First page', pending || info.page <= 1)}
-        {control(info.page - 1, 'Previous', 'Previous page', pending || info.page <= 1)}
-        {pageNumbers(info.page, info.total_pages).map((number, i) => number === 'ellipsis' ? <span className="pagination-ellipsis" key={'gap' + i} aria-hidden="true">…</span> : control(number, String(number), 'Page ' + number, pending, number === info.page))}
-        {control(info.page + 1, 'Next', 'Next page', pending || info.page >= info.total_pages)}
-        {control(info.total_pages, '»', 'Last page', pending || info.page >= info.total_pages)}
-      </nav>}
-    </div>}
+    {showPagination && renderPagination('bottom')}
   </div>;
 }

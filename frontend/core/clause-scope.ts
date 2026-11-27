@@ -1,5 +1,15 @@
 import { selectSourceEdition } from './source-editions.ts';
 
+export function clauseFilterQuery(form: HTMLFormElement) {
+  const data = new FormData(form);
+  const query = new URLSearchParams();
+  for (const key of ['q', 'status', 'search_type', 'view', 'instrument', 'edition']) {
+    const value = String(data.get(key) || '').trim();
+    if (value) query.set(key, value);
+  }
+  return query;
+}
+
 /** Resolve browsing filters separately from the clause opened in the detail pane. */
 export function selectClauseScope(instruments, editions, query: URLSearchParams, today: string) {
   const legacyVersion = !query.has('edition') ? query.get('version') : null;

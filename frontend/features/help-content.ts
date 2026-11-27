@@ -83,7 +83,7 @@ export const helpTopics: HelpTopic[] = [
       entries: clauseRelationshipTypes.map(({name, definition}) => [name, definition]),
     },
     steps: [
-      ['Start from the newer clause', 'Choose Link earlier clause in Clauses / Para or in the Clause / Para relationships register. Select the earlier approved clause from the same notification family and check both edition labels. For numbering such as 5 → 5.1, use Parent clause within the same edition.'],
+      ['Start from the newer clause', 'Choose Link earlier clause in Clauses / Para or in the Clause / Para relationships register. Select the earlier approved clause from the same notification family and check both edition labels. To add a child within your Draft edition, select its parent in the tree and choose Add child clause.'],
       ['Record the basis and date', 'Select the relationship type, enter Effective from, and use Regulatory relationship basis to explain how the clauses are connected.'],
       ['Send for independent review', 'Choose different people for Compliance review and final approval. The named Reviewer checks both clauses in My decisions. The named Approver acts after the review is recorded.'],
     ],

@@ -1,5 +1,6 @@
 .paged-collection { min-width: 0; }
 .shared-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 14px 18px; }
+.shared-pagination[data-pagination-position="top"] { border-block-start: 0; border-block-end: 1px solid var(--line); }
 .shared-pagination .pagination-range { margin-right: auto; font-variant-numeric: tabular-nums; }
 .shared-pagination .pagination-size { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .shared-pagination .pagination-size > label { white-space: nowrap; font-size: 12px; }

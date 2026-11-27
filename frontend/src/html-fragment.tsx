@@ -104,7 +104,7 @@ function nodeToReact(node: Node, key: string, replacement?: {target: Element; ch
     const cursors = node.getAttribute('data-page-cursors');
     const server = node.getAttribute('data-page-server') === '1';
     const headers = table ? Array.from(target.parentElement.querySelectorAll('thead th')) : [];
-    const columns = table ? tableColumns(headers.map(th => th.textContent)) : undefined;
+    const columns = table ? tableColumns(headers.map(th => th.textContent), headers.map(th => th.getAttribute('data-column-key'))) : undefined;
     const cells = table && !server ? records.map(row => Array.from((row as HTMLTableRowElement).cells, cell => {
       const words = [];
       const walker = cell.ownerDocument.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
@@ -122,6 +122,7 @@ function nodeToReact(node: Node, key: string, replacement?: {target: Element; ch
       revision: node.getAttribute('data-page-revision'), server, cursors: cursors ? JSON.parse(cursors) : undefined, columns, cells,
       columnOptionsUrl: node.getAttribute('data-column-options-url'),
       label: node.getAttribute('data-page-label'), summary: node.getAttribute('data-page-summary') === '1',
+      paginationTop: node.hasAttribute('data-page-top'),
       items: records.map((child, i) => nodeToReact(child, key + '.item' + i)),
       empty: empty.map((child, i) => nodeToReact(child, key + '.empty' + i)),
       renderItems: (visible, headings = []) => {

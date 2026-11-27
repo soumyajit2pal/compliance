@@ -1,12 +1,13 @@
-import { badge, esc, preservedText, title, versionLabel, localDate } from '../ui/components.ts';
+import { badge, button, esc, link, preservedText, title, versionLabel, localDate } from '../ui/components.ts';
 import { icon } from '../ui/icons.ts';
 import { pagedCollection } from '../ui/widgets.ts';
 import { compareSourceClauses } from '../core/clause-order.ts';
 import { selectSourceEdition, sourceEditionStatus } from '../core/source-editions.ts';
 import { state } from '../core/state.ts';
 import { covered, has } from '../core/access.ts';
+import { clauseExplorerLayout } from './clause-explorer.ts';
 
-type ClauseRow = Record<string, any>;
+type ClauseRow = Record<string, any> & { id: string };
 interface WorkingViewOptions {
   rows: ClauseRow[];
   allRows: ClauseRow[];
@@ -16,6 +17,7 @@ interface WorkingViewOptions {
   selectedId?: string;
   pathFor: (row: ClauseRow) => string;
   editAction?: string;
+  childEditor?: string;
   sourceDocument?: { id: string; name: string };
   emptyAction?: string;
   provenance?: ClauseRow[];
@@ -59,6 +61,22 @@ export function clauseEditionBadges(row) {
   return `<span class="clause-edition-badges"><span class="clause-edition-label">v${esc(versionLabel(row.version_number))}</span>${badge(position === 'CURRENT_APPROVED' ? position : status || 'DRAFT')}${position && position !== 'CURRENT_APPROVED' ? badge(position) : ''}</span>`;
 }
 
+export function clauseTreeContent(row: Record<string, any>, parentContext = false) {
+  if (row.heading_only_flag) return `<span><strong>${esc(row.heading || 'Document heading')}</strong></span>`;
+  const number = row.source_clause_reference
+    ? `<span class="clause-source-number">${esc(row.source_clause_reference)}</span> · ` : '';
+  return `${icon(row.parent_clause_id ? 'file' : 'layers')}<span><strong>${number}${esc(row.heading || 'Source clause / para')}</strong>
+    ${clauseEditionBadges(row)}${parentContext ? '<small>Parent context</small>' : ''}</span>`;
+}
+
+export function clauseActions(row: ClauseRow, childPath: string, edit: string, canLinkEarlier: boolean) {
+  if (!row) return '';
+  const target = `data-id="${esc(row.id)}" data-instrument="${esc(row.instrument_id)}"`;
+  return (childPath ? link(esc(childPath + '&add_child=1'), 'Add child clause', 'btn primary', 'plus') : '') +
+    (edit ? button(edit, row.heading_only_flag ? 'Edit document heading' : 'Edit Draft clause', target, '', 'pen') : '') +
+    (canLinkEarlier ? button('link-earlier-clause', 'Link earlier clause', target, edit ? 'quiet' : '', 'link') : '');
+}
+
 function hierarchy(rows: ClauseRow[], allRows: ClauseRow[], selected: ClauseRow, pathFor, controls: string) {
   const matches = new Set(rows.map((row) => row.id));
   const byId = new Map(allRows.map((row) => [row.id, row]));
@@ -96,30 +114,32 @@ function hierarchy(rows: ClauseRow[], allRows: ClauseRow[], selected: ClauseRow,
       if (!children.length) return '';
       return `<ul class="clause-hierarchy-list">${children.filter((row) => !ancestors.has(row.id)).map((row) => {
         const next = new Set(ancestors).add(row.id);
-        const node = `<a class="clause-tree-node ${row.id === selected?.id ? 'active' : ''} ${matches.has(row.id) ? '' : 'context-node'}" data-edition="${esc(row.instrument_version_id)}" data-instrument="${esc(row.instrument_id)}" href="#${esc(pathFor(row))}" ${row.id === selected?.id ? 'aria-current="true"' : ''}>${icon(row.parent_clause_id ? 'file' : 'layers')}<span><strong>${row.source_clause_reference ? `<span class="clause-source-number">${esc(row.source_clause_reference)}</span> · ` : ''}${esc(row.heading || 'Source clause / para')}</strong><code>${esc(row.code)}</code>${clauseEditionBadges(row)}${matches.has(row.id) ? '' : '<small>Parent context</small>'}</span></a>`;
+        const node = `<a class="clause-tree-node ${row.id === selected?.id ? 'active' : ''} ${matches.has(row.id) ? '' : 'context-node'}" data-edition="${esc(row.instrument_version_id)}" data-instrument="${esc(row.instrument_id)}" href="#${esc(pathFor(row))}" ${row.id === selected?.id ? 'aria-current="true"' : ''}>${clauseTreeContent(row, !matches.has(row.id))}</a>`;
         const descendants = renderNodes(row.id, next);
         return `<li>${descendants ? `<details class="clause-branch" open><summary>${node}${icon('down')}</summary>${descendants}</details>` : node}</li>`;
       }).join('')}</ul>`;
     };
     return `<details class="clause-instrument-group" open><summary><span><strong>${esc(instrument.instrument_short_title || instrument.instrument_title)}</strong><code>${esc(instrument.instrument_code)}</code></span>${icon('down')}</summary>${renderNodes(null)}</details>`;
   });
-  return `<aside class="panel clause-hierarchy-panel">${controls}<details class="clause-hierarchy-disclosure" ${window.matchMedia('(max-width: 900px)').matches ? '' : 'open'}><summary><span><strong>Instrument &amp; clause hierarchy</strong><small>${rows.length} matching ${rows.length === 1 ? 'clause / para' : 'Clauses / Para'}</small></span>${icon('down')}</summary><nav class="clause-hierarchy" aria-label="Instrument and clause hierarchy">${pagedCollection(groups,{pageKey:'clause-tree',label:'instruments',summary:false,revealIndex:ordered.findIndex(group=>group[0].instrument_id===selected?.instrument_id),empty:'<p class="clause-hierarchy-empty">No clauses match this selection.</p>'})}</nav></details></aside>`;
+  return `${controls}<details class="clause-hierarchy-disclosure" ${window.matchMedia('(max-width: 900px)').matches ? '' : 'open'}><summary><span><strong>Instrument &amp; clause hierarchy</strong><small>${rows.length} matching ${rows.length === 1 ? 'clause / para' : 'Clauses / Para'}</small></span>${icon('down')}</summary><nav class="clause-hierarchy" aria-label="Instrument and clause hierarchy">${pagedCollection(groups,{pageKey:'clause-tree',label:'instruments',summary:false,revealIndex:ordered.findIndex(group=>group[0].instrument_id===selected?.instrument_id),empty:'<p class="clause-hierarchy-empty">No clauses match this selection.</p>'})}</nav></details>`;
 }
 
-export function renderClauseWorkingView({ rows, allRows, editionId, allEditions = false, navigationControls = '', selectedId, pathFor, editAction = '', sourceDocument, emptyAction = '', provenance = [], interpretationPanel = '' }: WorkingViewOptions) {
+export function renderClauseWorkingView({ rows, allRows, editionId, allEditions = false, navigationControls = '', selectedId, pathFor, editAction = '', childEditor = '', sourceDocument, emptyAction = '', provenance = [], interpretationPanel = '' }: WorkingViewOptions) {
   // Record tabs stay pinned to one edition; the global workspace opts into all editions.
   if (!allEditions) rows = rows.filter((row) => row.instrument_version_id === editionId);
   const selected = rows.find((row) => row.id === selectedId) || rows[0];
   const navigation = hierarchy(rows, allRows, selected, pathFor, navigationControls);
-  if (!selected) return `<div class="clause-working-layout" id="clause-working-view">${navigation}<section class="panel clause-workspace-empty"><span>${icon('layers')}</span><h2>No clauses to display</h2><p>Adjust the search or filters, or add a clause to a Draft source edition.</p>${emptyAction}</section></div>`;
+  if (!selected) return clauseExplorerLayout(navigation, `<section class="panel clause-workspace-empty"><span>${icon('layers')}</span><h2>No clauses to display</h2><p>Adjust the search or filters, or add a clause to a Draft source edition.</p>${emptyAction}</section>`, true);
   const parent = allRows.find((row) => row.id === selected.parent_clause_id && row.instrument_id === selected.instrument_id && row.instrument_version_id === selected.instrument_version_id);
   const carry=provenance.find(row=>row.target_clause_id===selected.id);
   const original=carry&&allRows.find(row=>row.id===carry.source_clause_id);
-  return `<div class="clause-working-layout" id="clause-working-view">${navigation}${renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument, interpretationPanel })}</div>`;
+  return clauseExplorerLayout(navigation, childEditor || renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument, interpretationPanel }), true);
 }
 
 export function renderClauseDetail({ selected, parent, carry, original, pathFor, editAction, sourceDocument, ancestors = [], interpretationPanel = '' }) {
   const flags = ['mandatory', 'conditional', 'reporting', 'disclosure', 'retention'].filter((flag) => selected[flag + '_flag']);
+  const headingOnly = Boolean(selected.heading_only_flag);
+  const parentLabel = parent?.heading_only_flag ? parent.heading || 'Document heading' : selected.parent_code || 'Parent clause';
   const versionQuery = new URLSearchParams({ version: selected.instrument_version_id, tab: 'versions' });
   const workflowQuery = new URLSearchParams({ version: selected.instrument_version_id, tab: 'workflow' });
   const sourceApproved = selected.approval_status === 'APPROVED' && selected.version_approval_status === 'APPROVED';
@@ -132,17 +152,18 @@ export function renderClauseDetail({ selected, parent, carry, original, pathFor,
         ${ancestors.map(row => `<li><a class="text-link" href="#${esc(pathFor(row))}">${esc(row.source_clause_reference || row.heading || row.code)}</a></li>`).join('')}
         <li aria-current="location">${esc(selected.source_clause_reference || selected.heading || selected.code)}</li>
       </ol></nav>` : ''}
-      <div class="clause-working-heading"><h2 id="working-clause-heading" tabindex="-1">${esc(selected.heading || 'Source clause / para')}</h2>${editAction}</div>
-      <div class="clause-working-meta"><code class="clause-reference-chip">${esc(selected.code)}</code>${selected.source_clause_reference ? `<span>Source clause / para ${esc(selected.source_clause_reference)}</span>` : ''}<span>${esc(selected.source_page_reference || 'Page reference not recorded')}</span>${clauseEditionBadges(selected)}<span class="clause-approval-label">Clause approval ${badge(selected.approval_status || 'DRAFT')}</span></div>
-      ${selected.legacy_codes?.length ? `<p class="clause-working-meta">Legacy references: ${selected.legacy_codes.map(esc).join(', ')}</p>` : ''}
-      ${selected.heading_only_flag ? '<p class="clause-wording-note">Document heading. Expand this branch to read its source clauses.</p>' : `<div class="clause-wording-columns">
+      <div class="clause-working-heading"><h2 id="working-clause-heading" tabindex="-1">${esc(selected.heading || 'Source clause / para')}</h2></div>
+      <div class="clause-working-meta">${headingOnly ? '' : `<span>Clause code <code class="clause-reference-chip">${esc(selected.code)}</code></span>`}${selected.source_clause_reference ? `<span>Source clause / para ${esc(selected.source_clause_reference)}</span>` : ''}<span class="clause-location-text">Source page reference <span>${esc(selected.source_page_reference || 'Not recorded')}</span></span>${clauseEditionBadges(selected)}<span class="clause-approval-label">Clause approval ${badge(selected.approval_status || 'DRAFT')}</span></div>
+      ${!headingOnly && selected.legacy_codes?.length ? `<p class="clause-working-meta">Legacy references: ${selected.legacy_codes.map(esc).join(', ')}</p>` : ''}
+      ${editAction ? `<div class="clause-heading-actions actions" role="group" aria-label="Clause actions">${editAction}</div>` : ''}
+      ${headingOnly ? '<p class="clause-wording-note">Document heading. Expand this branch to read its source clauses.</p>' : `<div class="clause-wording-columns">
         ${carry?`<div class="carry-provenance full">Carried forward from ${original?`<a class="text-link" href="#${esc(pathFor(original))}">${esc(original.code)} · v${esc(versionLabel(original.version_number))}</a>`:'an earlier source clause'}. ${esc(carry.basis)} New citations and independent review apply to this edition.</div>`:''}
         <section class="clause-wording-panel original"><h3>Original regulatory text</h3>${preservedText('clause-working-text original-wording', selected.clause_text)}<p class="clause-wording-note">Source wording is retained as supplied by the regulator.</p></section>
         <section class="clause-wording-panel bank-interpretation"><h3>Bank’s internal interpretation</h3>
           <p class="clause-wording-note">Interpretation ${badge(selected.interpretation_status || 'PENDING')}</p>
           ${preservedText('clause-working-text', selected.internal_interpretation || 'The bank’s interpretation has yet to be recorded for this clause.')}${interpretationLink}</section>
       </div>`}
-      <dl class="clause-working-facts"><div><dt>Instrument</dt><dd><a class="text-link" href="#repository/${esc(selected.instrument_id)}">${esc(selected.instrument_code)} ${icon('arrow')}</a><small>${esc(selected.instrument_short_title || selected.instrument_title)}</small></dd></div><div><dt>Clause requirements</dt><dd>${flags.length ? flags.map((flag) => `<span class="clause-control-chip">${esc(title(flag))}</span>`).join('') : 'No clause requirements marked'}</dd></div><div><dt>Parent clause</dt><dd>${parent ? `<a class="text-link" href="#${esc(pathFor(parent))}">${esc(selected.parent_code || 'Parent clause')}${icon('arrow')}</a>` : 'Top-level clause'}</dd></div><div><dt>Source edition approval</dt><dd>${badge(sourceEditionStatus({ approval_status: selected.version_approval_status, cancelled_draft: selected.version_cancelled_draft }))}${selected.version_is_effective_current ? '<span class="clause-current-note">Current source</span>' : ''}</dd></div></dl>
+      <dl class="clause-working-facts"><div><dt>Instrument</dt><dd><a class="text-link" href="#repository/${esc(selected.instrument_id)}">${esc(selected.instrument_code)} ${icon('arrow')}</a><small>${esc(selected.instrument_short_title || selected.instrument_title)}</small></dd></div><div><dt>Clause requirements</dt><dd>${flags.length ? flags.map((flag) => `<span class="clause-control-chip">${esc(title(flag))}</span>`).join('') : 'No clause requirements marked'}</dd></div><div><dt>Parent clause</dt><dd>${parent ? `<a class="text-link" href="#${esc(pathFor(parent))}">${esc(parentLabel)}${icon('arrow')}</a>` : 'Top-level clause'}</dd></div><div><dt>Source edition approval</dt><dd>${badge(sourceEditionStatus({ approval_status: selected.version_approval_status, cancelled_draft: selected.version_cancelled_draft }))}${selected.version_is_effective_current ? '<span class="clause-current-note">Current source</span>' : ''}</dd></div></dl>
       <div class="clause-working-links">${sourceDocument ? `<button type="button" class="btn small" data-action="source-document-preview" data-id="${esc(sourceDocument.id)}" data-name="${esc(sourceDocument.name)}">${icon('file')}<span>Source document</span></button>` : ''}<a class="btn small" href="#repository/${esc(selected.instrument_id)}?${esc(versionQuery.toString())}">${icon('book')}<span>Source edition</span></a><a class="text-link" href="#repository/${esc(selected.instrument_id)}?${esc(workflowQuery.toString())}">Review workflow ${icon('arrow')}</a></div>
       ${!selected.heading_only_flag&&state.identity?.menu.some(item=>item.id==='obligations')?`<div class="clause-working-actions"><a class="btn small" href="#obligations?clause=${esc(selected.id)}">View linked obligations</a>${has('AUTHOR')&&selected.approval_status==='APPROVED'&&selected.version_approval_status==='APPROVED'?`<a class="btn small primary" href="#obligations/new?clause=${esc(selected.id)}">Create obligation from this clause</a>`:''}</div>`:''}
     </article>
